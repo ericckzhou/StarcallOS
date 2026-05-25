@@ -58,7 +58,7 @@ export default function DetailPane({ concept, onDeleted }: Props) {
   const [misconceptions, setMisconceptions] = useState<Misconception[]>([]);
   const [equations, setEquations] = useState<Equation[]>([]);
   const [history, setHistory] = useState<HistoryRecord[]>([]);
-  const [tab, setTab] = useState<'overview' | 'challenge' | 'history' | 'source'>('overview');
+  const [tab, setTab] = useState<'overview' | 'challenge' | 'history'>('overview');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [response, setResponse] = useState('');
   const [grading, setGrading] = useState(false);
@@ -181,6 +181,7 @@ export default function DetailPane({ concept, onDeleted }: Props) {
       setGrade(g);
       setMastery({ compression_stage: g.compression_stage });
       setHistory(prev => [result as HistoryRecord, ...prev]);
+      window.dispatchEvent(new Event('starcall:review-queue-stale'));
     } finally {
       setGrading(false);
     }
@@ -199,7 +200,6 @@ export default function DetailPane({ concept, onDeleted }: Props) {
     overview: 'Overview',
     challenge: 'Challenge Me',
     history: `History${history.length ? ` (${history.length})` : ''}`,
-    source: 'Source',
   };
   const activeTabContent = (
     <>
@@ -263,7 +263,7 @@ export default function DetailPane({ concept, onDeleted }: Props) {
           </button>
         </div>
         <div style={{ display: 'flex', gap: 2 }}>
-          {(['overview', 'challenge', 'history', 'source'] as const).map(t => (
+          {(['overview', 'challenge', 'history'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)} style={{
               background: 'none', border: 'none', padding: '6px 16px', fontSize: 12, cursor: 'pointer',
               color: tab === t ? '#818cf8' : '#4b5563',
@@ -278,33 +278,28 @@ export default function DetailPane({ concept, onDeleted }: Props) {
 
       <div style={{
         flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column',
-        ...(tab === 'source' || sourcePreviewOpen ? {} : { overflowY: 'auto', padding: 24 }),
+        ...(sourcePreviewOpen ? {} : { overflowY: 'auto', padding: 24 }),
       }}>
-        {tab !== 'source' && (
-          sourcePreviewOpen ? (
-            <div ref={sourcePreviewSplitRef} style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
-              <div style={{ flex: `0 0 ${sourcePreviewNotesWidth}px`, minWidth: 360, maxWidth: '70%', overflowY: 'auto', padding: 24 }}>
-                {activeTabContent}
-              </div>
-              <div
-                onMouseDown={beginSourcePreviewResize}
-                title="Drag to resize content and source"
-                style={{
-                  width: 8, flexShrink: 0, cursor: 'col-resize',
-                  borderLeft: '1px solid #1f2937', borderRight: '1px solid #111827',
-                  background: '#0d0d16',
-                }}
-              />
-              <div style={{ flex: 1, minWidth: 520, display: 'flex', overflow: 'hidden' }}>
-                <PdfViewer key={`preview:${concept.id}`} conceptId={concept.id} conceptName={concept.name} />
-              </div>
+        {sourcePreviewOpen ? (
+          <div ref={sourcePreviewSplitRef} style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+            <div style={{ flex: `0 0 ${sourcePreviewNotesWidth}px`, minWidth: 360, maxWidth: '70%', overflowY: 'auto', padding: 24 }}>
+              {activeTabContent}
             </div>
-          ) : (
-            activeTabContent
-          )
-        )}
-        {tab === 'source' && (
-          <PdfViewer key={concept.id} conceptId={concept.id} conceptName={concept.name} />
+            <div
+              onMouseDown={beginSourcePreviewResize}
+              title="Drag to resize content and source"
+              style={{
+                width: 8, flexShrink: 0, cursor: 'col-resize',
+                borderLeft: '1px solid #1f2937', borderRight: '1px solid #111827',
+                background: '#0d0d16',
+              }}
+            />
+            <div style={{ flex: 1, minWidth: 520, display: 'flex', overflow: 'hidden' }}>
+              <PdfViewer key={`preview:${concept.id}`} conceptId={concept.id} conceptName={concept.name} />
+            </div>
+          </div>
+        ) : (
+          activeTabContent
         )}
       </div>
     </main>
@@ -370,10 +365,15 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
   }
 
   function chatGptPrompt(): string {
-    const lines = [
-      `Explain the ML/AI concept "${concept.name}" for someone studying it.`,
-      '',
-    ];
+    const lines: string[] = [];
+    lines.push(`Explain the concept "${concept.name}" for someone studying it from the source below.`);
+    lines.push('');
+    lines.push('CRITICAL: many concept names are ambiguous across domains. Always pick the meaning the SOURCE points to:');
+    lines.push('  • "RAG" in an AI book → Retrieval-Augmented Generation, NOT Red/Amber/Green status.');
+    lines.push('  • "Mole" in a chemistry book → unit of substance, NOT animal or skin lesion.');
+    lines.push('  • "Class" in a biology book → taxonomic rank, NOT object-oriented programming.');
+    lines.push('Match THIS source\'s domain in every field.');
+    lines.push('');
     if (concept.section_path && concept.section_path.length > 0) {
       lines.push(`Section context: ${concept.section_path.join(' › ')}`);
       lines.push('');
@@ -382,15 +382,26 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
       lines.push(`Partial existing definition (verbatim from source): "${local.definition_text}"`);
       lines.push('');
     }
-    lines.push('Please return JSON with these four fields:');
+    lines.push('EXAMPLE (format reference — your output must reflect the ACTUAL domain of the supplied concept and source; this example happens to be from machine learning):');
+    lines.push('Concept: "Backpropagation"');
+    lines.push('Section context: Chapter 6 › 6.5 Back-Propagation and Other Differentiation Algorithms');
+    lines.push('Output:');
     lines.push('{');
-    lines.push('  "definition_text": "1–3 sentences. Precise technical meaning.",');
-    lines.push('  "why_exists": "1–2 sentences. The problem this concept solves.",');
-    lines.push('  "what_breaks": "1–2 sentences. What goes wrong when missing or misapplied.",');
-    lines.push('  "where_reappears": ["related concept", "...", "max 5"]');
+    lines.push('  "definition_text": "Backpropagation is the algorithm for computing the gradient of a scalar loss with respect to each weight in a neural network by applying the chain rule backward through the computation graph, reusing intermediate activations stored during the forward pass.",');
+    lines.push('  "why_exists": "It lets gradient-based optimizers train deep networks in time proportional to the forward pass, rather than the exponential cost of naive per-weight derivatives.",');
+    lines.push('  "what_breaks": "Without it, training reduces to expensive numerical differentiation; with stale or missing forward activations, gradients become wrong and learning silently diverges.",');
+    lines.push('  "where_reappears": ["Gradient Descent", "Chain Rule", "Computation Graph", "Vanishing Gradient", "Automatic Differentiation"]');
     lines.push('}');
     lines.push('');
-    lines.push('Be concrete and technical. No marketing language.');
+    lines.push('Now produce the JSON for the concept above, in this exact shape:');
+    lines.push('{');
+    lines.push('  "definition_text": "1–3 sentences. Precise meaning AS USED IN THIS SOURCE.",');
+    lines.push('  "why_exists": "1–2 sentences. The problem this concept solves in its domain.",');
+    lines.push('  "what_breaks": "1–2 sentences. What goes wrong when missing or misapplied.",');
+    lines.push('  "where_reappears": ["other concepts from the SAME domain", "...", "max 5"]');
+    lines.push('}');
+    lines.push('');
+    lines.push('Be concrete and precise. No marketing language. No hedging.');
     return lines.join('\n');
   }
 
@@ -697,16 +708,17 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
         const date = new Date(r.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         return (
           <div key={r.id} style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-              <span style={{ fontSize: 20, fontWeight: 800, color: scoreColor, lineHeight: 1, textTransform: 'lowercase' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <span
+                style={{
+                  width: 8, height: 8, borderRadius: 8, background: scoreColor, flex: '0 0 8px',
+                }}
+              />
+              <span style={{ fontSize: 12, color: scoreColor, fontWeight: 700, textTransform: 'lowercase' }}>
                 {SCORE_LABEL[r.score] ?? r.score}
               </span>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: STAGE_COLORS[r.compression_stage] }}>
-                  Stage {r.compression_stage}: {STAGES[r.compression_stage]}
-                </div>
-                <div style={{ fontSize: 10, color: '#4b5563', marginTop: 1 }}>{date}</div>
-              </div>
+              <span style={{ fontSize: 11, color: '#6b7280' }}>·</span>
+              <span style={{ fontSize: 11, color: '#6b7280' }}>{date}</span>
               <button
                 onClick={() => onDelete(r.id)}
                 title="Delete this history entry"
@@ -735,8 +747,8 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
                 <p style={{ margin: 0, fontSize: 12, color: '#9ca3af', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{r.user_response}</p>
               </div>
             )}
-            <p style={{ margin: 0, fontSize: 12, color: '#6b7280', lineHeight: 1.55 }}>
-              {r.grader_reasoning.length > 240 ? r.grader_reasoning.slice(0, 240) + '…' : r.grader_reasoning}
+            <p style={{ margin: 0, fontSize: 12, color: '#9ca3af', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+              {r.grader_reasoning}
             </p>
             {r.gaps_detected.length > 0 && (
               <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -852,19 +864,51 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
   );
 }
 
+// Stage-first header. Score becomes a small colored chip beside the stage
+// label, with a 5-step progress bar underneath. Compression stage is the
+// learning signal; raw grader bucket is supporting context.
+function StageHeader({ stage, score }: { stage: number; score: EvidenceScore }) {
+  const stageColor = STAGE_COLORS[stage];
+  const scoreColor = SCORE_COLOR[score] ?? '#6b7280';
+  const MAX_STAGE = STAGES.length - 1; // 0..5 → /5
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Stage {stage}/{MAX_STAGE}</span>
+        <span style={{ fontSize: 17, fontWeight: 700, color: stageColor }}>{STAGES[stage]}</span>
+        <span
+          title={`Grader: ${SCORE_LABEL[score] ?? score}`}
+          style={{
+            marginLeft: 'auto',
+            fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+            color: scoreColor, background: scoreColor + '22',
+            border: `1px solid ${scoreColor}55`,
+            padding: '2px 8px', borderRadius: 10,
+          }}
+        >
+          {SCORE_LABEL[score] ?? score}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {Array.from({ length: MAX_STAGE }, (_, i) => i + 1).map(i => (
+          <div
+            key={i}
+            style={{
+              flex: 1, height: 4, borderRadius: 2,
+              background: i <= stage ? stageColor : '#1f2937',
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task: Task | null; userResponse: string; onReset: () => void }) {
-  const scoreColor = SCORE_COLOR[grade.score] ?? '#6b7280';
   const stage = grade.compression_stage;
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-        <div style={{ fontSize: 38, fontWeight: 800, color: scoreColor, lineHeight: 1, textTransform: 'lowercase' }}>
-          {SCORE_LABEL[grade.score] ?? grade.score}
-        </div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: STAGE_COLORS[stage] }}>
-          Stage {stage}: {STAGES[stage]}
-        </div>
-      </div>
+      <StageHeader stage={stage} score={grade.score} />
       {task && (
         <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
           <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
