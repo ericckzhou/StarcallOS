@@ -3,7 +3,7 @@
 > **Historical note:** this plan records an earlier product/architecture
 > direction and is not the source of truth for the current codebase. The current
 > implementation uses the candidate-first Electron app described in
-> `AGENTS.md`: Node built-in `node:sqlite`, no `better-sqlite3`, no Drizzle,
+> `ARCHITECTURE.md`: Node built-in `node:sqlite`, no `better-sqlite3`, no Drizzle,
 > no Zustand/TanStack Query layer, no CLI app, and no Python in the critical
 > path. Treat details below as background only unless they have been reconciled
 > with the current code.

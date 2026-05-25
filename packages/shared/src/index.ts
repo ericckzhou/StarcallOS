@@ -1,6 +1,7 @@
 import type {
   Source,
   Concept,
+  ConceptNote,
   EvidenceTask,
   EvidenceRecord,
   Mastery,
@@ -10,6 +11,8 @@ import type {
   StoredMisconceptionCandidate,
   StoredEquationCandidate,
 } from '@starcall/services';
+
+export type { ConceptNote };
 
 export const IPC = {
   SOURCES_LIST:            'sources:list',
@@ -26,6 +29,11 @@ export const IPC = {
   CONCEPTS_UPDATE_FIELDS:  'concepts:updateFields',
   CONCEPTS_DELETE:         'concepts:delete',
   CONCEPTS_DELETE_EVIDENCE_SPAN: 'concepts:deleteEvidenceSpan',
+  CONCEPT_NOTES_LIST:     'conceptNotes:list',
+  CONCEPT_NOTES_CREATE:   'conceptNotes:create',
+  CONCEPT_NOTES_UPDATE:   'conceptNotes:update',
+  CONCEPT_NOTES_DELETE:   'conceptNotes:delete',
+  CONCEPT_NOTES_REORDER:  'conceptNotes:reorder',
   REVIEW_QUEUE_LIST:       'review:queueList',
   SETTINGS_GET:            'settings:get',
   SETTINGS_SET:            'settings:set',
@@ -225,6 +233,13 @@ export interface IpcApi {
     sourceEvidence: (conceptId: number) => Promise<ConceptSourceEvidence | null>;
     delete: (conceptId: number) => Promise<{ ok: true }>;
     deleteEvidenceSpan: (args: { conceptId: number; page: number; kind: string; quote: string }) => Promise<ConceptSourceEvidence | null>;
+    notes: {
+      list:    (conceptId: number) => Promise<ConceptNote[]>;
+      create:  (args: { conceptId: number; heading: string; body?: string }) => Promise<ConceptNote>;
+      update:  (args: { id: number; heading?: string; body?: string }) => Promise<ConceptNote | null>;
+      delete:  (id: number) => Promise<{ ok: true }>;
+      reorder: (args: { conceptId: number; orderedIds: number[] }) => Promise<ConceptNote[]>;
+    };
   };
   evidence: {
     submit: (args: SubmitEvidenceArgs) => Promise<EvidenceRecord>;

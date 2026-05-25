@@ -26,6 +26,13 @@ contextBridge.exposeInMainWorld('api', {
     enrich: (conceptId: number) => ipcRenderer.invoke('concepts:enrich', conceptId),
     updateFields: (args: { conceptId: number; definition_text?: string; why_exists?: string; what_breaks?: string; where_reappears?: string[] }) =>
       ipcRenderer.invoke('concepts:updateFields', args),
+    notes: {
+      list:    (conceptId: number) => ipcRenderer.invoke('conceptNotes:list', conceptId),
+      create:  (args: { conceptId: number; heading: string; body?: string }) => ipcRenderer.invoke('conceptNotes:create', args),
+      update:  (args: { id: number; heading?: string; body?: string }) => ipcRenderer.invoke('conceptNotes:update', args),
+      delete:  (id: number) => ipcRenderer.invoke('conceptNotes:delete', id),
+      reorder: (args: { conceptId: number; orderedIds: number[] }) => ipcRenderer.invoke('conceptNotes:reorder', args),
+    },
   },
   evidence: {
     submit: (args: unknown) => ipcRenderer.invoke('evidence:submit', args),

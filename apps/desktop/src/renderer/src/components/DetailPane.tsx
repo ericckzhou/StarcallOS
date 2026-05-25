@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { Concept } from './ConceptPane';
 import LatexMath from './LatexMath';
 import PdfViewer from './PdfViewer';
+import UserNotesSection from './UserNotesSection';
 
 type Task = { id: number; kind: string; prompt: string; difficulty: number };
 type Mastery = { compression_stage: number };
@@ -256,10 +257,10 @@ export default function DetailPane({ concept, onDeleted }: Props) {
             title="Delete this concept and all of its dependent rows (mastery, tasks, records, edges, misconceptions)"
             style={{
               background: 'transparent', border: '1px solid #7f1d1d', borderRadius: 4,
-              padding: '3px 10px', color: '#fca5a5', fontSize: 11, cursor: 'pointer',
+              padding: '2px 8px', color: '#fca5a5', fontSize: 14, cursor: 'pointer', lineHeight: 1,
             }}
           >
-            Delete
+            ×
           </button>
         </div>
         <div style={{ display: 'flex', gap: 2 }}>
@@ -562,6 +563,8 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
         </Section>
       )}
 
+      <UserNotesSection conceptId={concept.id} />
+
       {/* ChatGPT prompt generator — paste to external LLM if you don't want to spend on enrich */}
       <div style={{
         marginTop: 12, padding: '14px 16px',
@@ -725,10 +728,10 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
                 style={{
                   marginLeft: 'auto',
                   background: 'transparent', border: '1px solid #3f1515', borderRadius: 4,
-                  padding: '4px 10px', fontSize: 11, color: '#fca5a5', cursor: 'pointer',
+                  padding: '2px 8px', fontSize: 14, color: '#fca5a5', cursor: 'pointer', lineHeight: 1,
                 }}
               >
-                Delete
+                ×
               </button>
             </div>
             {r.task_prompt_snapshot && (
