@@ -53,17 +53,11 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
               >
                 {isOpen ? 'v' : '>'}
               </button>
-              <div title="confidence (signal stack)" style={{
+              <div title={`concept_score ${(c.concept_score ?? 0).toFixed(2)} (heading*0.35 + domain*0.25 + localCtx*0.20 + recurrence*0.10 + phrase*0.10)`} style={{
                 minWidth: 36, textAlign: 'right', fontFamily: 'monospace',
                 fontSize: 12, color: confColor(c.confidence), fontWeight: 600,
               }}>
                 {c.confidence.toFixed(2)}
-              </div>
-              <div title="concept_score (heading*0.35 + domain*0.25 + localCtx*0.20 + recurrence*0.10 + phrase*0.10)" style={{
-                minWidth: 32, textAlign: 'right', fontFamily: 'monospace',
-                fontSize: 10, color: confColor(c.concept_score ?? 0), fontWeight: 600, opacity: 0.85,
-              }}>
-                Q{(c.concept_score ?? 0).toFixed(2)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 500, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -162,18 +156,27 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
 
             {isOpen && (
               <div style={{ marginLeft: 64, marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {c.evidence.map((e, i) => (
-                  <div key={i} style={{ fontSize: 11, color: '#9ca3af', lineHeight: 1.5 }}>
-                    <span style={{
-                      display: 'inline-block', minWidth: 72, color: SIGNAL_COLOR[e.source] ?? '#6b7280',
-                      fontWeight: 600, fontSize: 10,
-                    }}>
-                      {e.source}{e.pattern ? `:${e.pattern}` : ''}
-                    </span>
-                    <span style={{ color: '#4b5563', marginRight: 6 }}>p.{e.page}</span>
-                    <span style={{ fontStyle: 'italic' }}>"{e.quote}"</span>
-                  </div>
-                ))}
+                {(() => {
+                  // Hide evidence quotes that are tautological with the term itself
+                  // (heading evidence usually IS the term repeated — no signal).
+                  const normTerm = c.term.trim().toLowerCase().replace(/^\d+(?:\.\d+)*\.?\s*/, '').replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+                  const meaningful = c.evidence.filter(e => {
+                    const q = (e.quote ?? '').trim().toLowerCase().replace(/^\d+(?:\.\d+)*\.?\s*/, '').replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+                    return q.length > 0 && q !== normTerm;
+                  });
+                  return meaningful.map((e, i) => (
+                    <div key={i} style={{ fontSize: 11, color: '#9ca3af', lineHeight: 1.5 }}>
+                      <span style={{
+                        display: 'inline-block', minWidth: 72, color: SIGNAL_COLOR[e.source] ?? '#6b7280',
+                        fontWeight: 600, fontSize: 10,
+                      }}>
+                        {e.source}{e.pattern ? `:${e.pattern}` : ''}
+                      </span>
+                      <span style={{ color: '#4b5563', marginRight: 6 }}>p.{e.page}</span>
+                      <span style={{ fontStyle: 'italic' }}>"{e.quote}"</span>
+                    </div>
+                  ));
+                })()}
                 {attachedEqs.length > 0 && (
                   <div style={{ marginTop: 4, paddingTop: 6, borderTop: '1px dashed #1f2937' }}>
                     <div style={{ fontSize: 10, color: '#fbbf24', fontWeight: 600, marginBottom: 4 }}>

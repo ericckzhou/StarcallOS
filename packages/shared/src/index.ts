@@ -21,6 +21,7 @@ export const IPC = {
   CONCEPTS_MISCONCEPTIONS: 'concepts:misconceptions',
   CONCEPTS_EQUATIONS:      'concepts:equations',
   CONCEPTS_ENSURE_TASKS:   'concepts:ensureTasks',
+  CONCEPTS_REGENERATE_TASKS: 'concepts:regenerateTasks',
   CONCEPTS_ENRICH:         'concepts:enrich',
   CONCEPTS_UPDATE_FIELDS:  'concepts:updateFields',
   CONCEPTS_DELETE:         'concepts:delete',
@@ -34,6 +35,7 @@ export const IPC = {
   CONCEPTS_SOURCE_EVIDENCE: 'concepts:sourceEvidence',
   EVIDENCE_SUBMIT:         'evidence:submit',
   EVIDENCE_HISTORY:        'evidence:history',
+  EVIDENCE_DELETE:         'evidence:delete',
   SOURCES_DELETE:          'sources:delete',
   SOURCES_CREATE_TEXT:     'sources:createText',
   CANDIDATES_BY_SOURCE:    'candidates:bySource',
@@ -217,6 +219,7 @@ export interface IpcApi {
     misconceptions: (conceptId: number) => Promise<Misconception[]>;
     equations: (conceptId: number) => Promise<StoredEquationCandidate[]>;
     ensureTasks: (conceptId: number) => Promise<EvidenceTask[]>;
+    regenerateTasks: (conceptId: number) => Promise<EvidenceTask[]>;
     enrich: (conceptId: number) => Promise<EnrichedConcept>;
     updateFields: (args: UpdateConceptFieldsArgs) => Promise<EnrichedConcept | null>;
     sourceEvidence: (conceptId: number) => Promise<ConceptSourceEvidence | null>;
@@ -226,6 +229,7 @@ export interface IpcApi {
   evidence: {
     submit: (args: SubmitEvidenceArgs) => Promise<EvidenceRecord>;
     history: (conceptId: number) => Promise<EvidenceRecord[]>;
+    delete: (recordId: number) => Promise<{ ok: true }>;
   };
   settings: {
     get: () => Promise<SettingsSnapshot>;

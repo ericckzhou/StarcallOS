@@ -171,4 +171,7 @@ export interface EvidenceRecord {
   misconceptions_detected: string[];
   grader_reasoning: string | null;
   created_at: string;
+  // Denormalized at grade time so History survives task regeneration.
+  task_prompt_snapshot: string | null;
+  task_kind_snapshot:   string | null;
 }
