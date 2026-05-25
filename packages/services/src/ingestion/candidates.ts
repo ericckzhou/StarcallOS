@@ -13,6 +13,15 @@ import {
 } from './grammar';
 import { looksLikeEquation, extractEquationsWithSections, type EquationCandidate } from './equations';
 import { isBoilerplateHeading, scoreTopicRelevance, tokenize } from '../core/topic';
+import {
+  DOMAIN_TERMS,
+  GENERIC_BAD_TERMS,
+  CONNECTIVE_PREFIXES,
+  PROSE_TAIL_WORDS,
+  PROSE_HEAD_WORDS,
+  COMMON_NAMES,
+  ACRONYM_TO_EXPANSION,
+} from '../core/lexicon';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -44,6 +53,14 @@ export interface ConceptCandidate {
   topic_relevance_reasons: string[];
   is_boilerplate: boolean;
   is_broad: boolean;
+  // Deterministic quality score (0–1). Combines heading, domain-term,
+  // local context, recurrence, phrase quality. Used as the gate threshold
+  // before the LLM filter runs.
+  concept_score: number;
+  // Comma-joined reasons for low scores or rejection: 'fragment', 'generic',
+  // 'connective_prefix', 'prose_tail', 'name', 'boilerplate', 'broad'.
+  // Empty when the candidate passes all deterministic gates cleanly.
+  reject_reasons: string[];
 }
 
 export interface RelationCandidate {
@@ -86,8 +103,33 @@ const REPETITION_THRESHOLD = 4;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// Conservative inflectional stemmer — strips `s|es|ing|ed` only, and only when
+// the resulting stem is ≥4 chars. Preserves "is", "es", "models" → "model",
+// "training" → "train", "embedded" → "embed". Doesn't touch "data", "this".
+function stemWord(w: string): string {
+  if (w.length <= 4) return w;
+  if (w.endsWith('ing') && w.length >= 7) return w.slice(0, -3);
+  if (w.endsWith('ed')  && w.length >= 6) return w.slice(0, -2);
+  if (w.endsWith('es')  && w.length >= 6) return w.slice(0, -2);
+  if (w.endsWith('s')   && !w.endsWith('ss') && !w.endsWith('us') && !w.endsWith('is') && w.length >= 5) {
+    return w.slice(0, -1);
+  }
+  return w;
+}
+
 function normalize(term: string): string {
-  return term.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9\s-]/g, '').trim();
+  const raw = term.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  // Phrase-level acronym alias: "RAG" → "retrieval augmented generation"
+  if (ACRONYM_TO_EXPANSION[raw]) return ACRONYM_TO_EXPANSION[raw];
+  // Per-token stem; preserves hyphens as joining char.
+  const stemmed = raw
+    .split(/\s+/)
+    .map(tok => tok.split('-').map(stemWord).join('-'))
+    .join(' ')
+    .trim();
+  // Try alias on the stemmed form too: "llms" stems to "llm" → expansion
+  return ACRONYM_TO_EXPANSION[stemmed] ?? stemmed;
 }
 
 interface CandidateBuilder {
@@ -144,6 +186,90 @@ function isBroadTerm(term: string, signalKeys: Set<CandidateSource>, mentionCoun
   if (mentionCount >= 5) return false;                // appears frequently → meaningful
   if (term.length >= 12) return false;                // long single word like "Backpropagation"
   return true;
+}
+
+// ─── Quality gates ──────────────────────────────────────────────────────────
+
+function tokensLower(term: string): string[] {
+  return term.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter(Boolean);
+}
+
+// "From Large Language Models to" → fragment (trailing prep).
+// "However Deep Learning"          → fragment (connective prefix).
+// "Foo-"                            → fragment (trailing dash).
+function isFragment(term: string): boolean {
+  const t = term.trim();
+  if (!t) return true;
+  if (t.endsWith('-')) return true;
+  const toks = tokensLower(t);
+  if (toks.length === 0) return true;
+  if (PROSE_TAIL_WORDS.has(toks[toks.length - 1])) return true;
+  if (CONNECTIVE_PREFIXES.has(toks[0])) return true;
+  if (toks.length === 1 && (CONNECTIVE_PREFIXES.has(toks[0]) || PROSE_TAIL_WORDS.has(toks[0]))) return true;
+  if (PROSE_HEAD_WORDS.has(toks[0]) && toks.length === 1) return true;
+  return false;
+}
+
+function isGenericRejected(normalizedTerm: string): boolean {
+  return GENERIC_BAD_TERMS.has(normalizedTerm);
+}
+
+function looksLikeName(normalizedTerm: string): boolean {
+  const toks = normalizedTerm.split(/\s+/).filter(Boolean);
+  if (toks.length === 0 || toks.length > 3) return false;
+  return toks.every(t => COMMON_NAMES.has(t));
+}
+
+// ─── Concept scoring ────────────────────────────────────────────────────────
+
+interface ScoreParts {
+  heading: number;
+  domain: number;
+  localContext: number;
+  recurrence: number;
+  phraseQuality: number;
+}
+
+function scoreCandidate(
+  signalKeys: Set<CandidateSource>,
+  evidence: EvidenceSpan[],
+  mentionCount: number,
+  termTokens: string[],
+  topicRelevance: number,
+  isFlaggedReject: boolean,
+): { score: number; parts: ScoreParts } {
+  // 1. Heading signal — 0 / 0.5 / 1
+  const heading = signalKeys.has('heading') ? 1.0
+    : signalKeys.has('bold_block') ? 0.5
+    : 0;
+
+  // 2. Domain term presence in term itself OR evidence quotes
+  const evidenceText = evidence.map(e => e.quote).join(' ').toLowerCase();
+  const evidenceTokens = evidenceText.replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter(Boolean);
+  const termDomainHits = termTokens.filter(t => DOMAIN_TERMS.has(t)).length;
+  const evidenceDomainHits = evidenceTokens.filter(t => DOMAIN_TERMS.has(t)).length;
+  const domain = Math.min(1, (termDomainHits * 0.6) + Math.min(0.4, evidenceDomainHits * 0.05));
+
+  // 3. Local context — leverage existing topic relevance score (already 0–1)
+  const localContext = topicRelevance;
+
+  // 4. Recurrence — saturating curve based on mention_count
+  const recurrence = Math.min(1, Math.log10(1 + mentionCount) / Math.log10(50));
+
+  // 5. Phrase quality — token count 2–4 ideal, single-word penalized,
+  //    5+ tokens penalized (sentence fragment risk)
+  let phraseQuality: number;
+  if (termTokens.length === 0) phraseQuality = 0;
+  else if (termTokens.length === 1) phraseQuality = 0.4;
+  else if (termTokens.length <= 4) phraseQuality = 1.0;
+  else if (termTokens.length <= 6) phraseQuality = 0.5;
+  else phraseQuality = 0.2;
+
+  const parts: ScoreParts = { heading, domain, localContext, recurrence, phraseQuality };
+  const raw = heading * 0.35 + domain * 0.25 + localContext * 0.20 + recurrence * 0.10 + phraseQuality * 0.10;
+  // Hard penalty if the candidate was flagged for rejection (fragment/generic/etc).
+  const score = isFlaggedReject ? raw * 0.3 : raw;
+  return { score: +score.toFixed(3), parts };
 }
 
 export function extractCandidates(
@@ -257,6 +383,25 @@ export function extractCandidates(
     const evidenceTokens = b.evidence.flatMap(e => tokenize(e.quote)).slice(0, 60);
     const rel = scoreTopicRelevance(tokenize(b.term), evidenceTokens, topicAnchors);
 
+    // Deterministic quality gates
+    const reject_reasons: string[] = [];
+    const is_boilerplate = isBoilerplateHeading(b.normalized);
+    const is_broad       = isBroadTerm(b.term, signalKeys, b.mention_count);
+    const fragment       = isFragment(b.term);
+    const generic        = isGenericRejected(b.normalized);
+    const nameLike       = looksLikeName(b.normalized);
+    if (is_boilerplate) reject_reasons.push('boilerplate');
+    if (is_broad)       reject_reasons.push('broad');
+    if (fragment)       reject_reasons.push('fragment');
+    if (generic)        reject_reasons.push('generic');
+    if (nameLike)       reject_reasons.push('name');
+
+    const termTokensForScore = tokensLower(b.term);
+    const { score } = scoreCandidate(
+      signalKeys, b.evidence, b.mention_count,
+      termTokensForScore, rel.score, reject_reasons.length > 0,
+    );
+
     return {
       term: b.term,
       normalized: b.normalized,
@@ -267,13 +412,21 @@ export function extractCandidates(
       mention_count: b.mention_count,
       topic_relevance_score: rel.score,
       topic_relevance_reasons: rel.reasons,
-      is_boilerplate: isBoilerplateHeading(b.normalized),
-      is_broad: isBroadTerm(b.term, signalKeys, b.mention_count),
+      is_boilerplate,
+      is_broad,
+      concept_score: score,
+      reject_reasons,
     };
   });
 
   // Sort by confidence desc, then mention count desc
-  candidates.sort((a, b) => b.confidence - a.confidence || b.mention_count - a.mention_count);
+  // Sort by deterministic concept_score first (best signal/noise ratio),
+  // then confidence as tiebreaker, then mention count.
+  candidates.sort((a, b) =>
+    b.concept_score - a.concept_score ||
+    b.confidence - a.confidence ||
+    b.mention_count - a.mention_count,
+  );
 
   // Equations: deterministic detection + proximity attach to nearest preceding
   // candidate. Drop any equation whose attached_term isn't actually a candidate

@@ -73,6 +73,8 @@ function seedCandidates(db: ReturnType<typeof openDb>) {
     topic_relevance_reasons: ['term: gradient'],
     is_boilerplate: false,
     is_broad: false,
+    concept_score: 0,
+    reject_reasons: [],
   });
   createConceptCandidate(db, source.id, {
     term: 'Momentum',
@@ -86,6 +88,8 @@ function seedCandidates(db: ReturnType<typeof openDb>) {
     topic_relevance_reasons: [],
     is_boilerplate: false,
     is_broad: false,
+    concept_score: 0,
+    reject_reasons: [],
   });
   return { source, candidates: listConceptCandidatesBySource(db, source.id) };
 }

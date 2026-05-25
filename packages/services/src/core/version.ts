@@ -3,9 +3,9 @@
 // input. Every candidate row + parse_runs row records these so historical
 // extractions can be traced to the exact code that produced them.
 
-export const PARSER_VERSION  = '0.3.1';  // promotion: skip synthetic-source evidence (repetition, capitalized_phrase) when seeding definition_text
+export const PARSER_VERSION  = '0.4.0';  // candidates.ts: weighted concept_score, conservative stemmer, acronym-alias normalize, fragment/generic/name guards via core/lexicon.ts
 export const GRAMMAR_VERSION = '0.2.1';  // equations.ts: currency-aware inline math filter
-export const LAYOUT_VERSION  = '0.2.0';  // layout.ts: unchanged this round
+export const LAYOUT_VERSION  = '0.3.0';  // layout.ts: TOC line detection (isTocLine inside isNoise) + cross-page repeating-header stripping (buildRepeatingMarginSet, doc must be ≥8 pages w/ text appearing on ≥40% of margins)
 
 export interface ParserVersions {
   parser_version: string;
