@@ -1,0 +1,474 @@
+import type { DatabaseSync } from '../../core/infra/sqlite';
+import type {
+  Concept,
+  ConceptImportance,
+  ConceptEdge,
+  EdgeType,
+} from '../../core/domain/types';
+
+// ─── Concepts ─────────────────────────────────────────────────────────────────
+
+interface ConceptRow {
+  id: number | bigint;
+  source_id: number | bigint;
+  name: string;
+  slug: string;
+  importance: string;
+  definition_text: string;
+  why_exists: string;
+  what_breaks: string;
+  where_reappears: string;
+  chunk_ids: string;
+  section_path: string;
+  exam_value: number;
+  misconception_risk: number;
+  centrality_score: number;
+  created_at: string;
+}
+
+function rowToConcept(row: ConceptRow): Concept {
+  return {
+    id: Number(row.id),
+    source_id: Number(row.source_id),
+    name: row.name,
+    slug: row.slug,
+    importance: row.importance as ConceptImportance,
+    definition_text: row.definition_text,
+    why_exists: row.why_exists,
+    what_breaks: row.what_breaks,
+    where_reappears: JSON.parse(row.where_reappears) as string[],
+    chunk_ids: JSON.parse(row.chunk_ids) as number[],
+    section_path: JSON.parse(row.section_path) as string[],
+    exam_value: row.exam_value,
+    misconception_risk: row.misconception_risk,
+    centrality_score: row.centrality_score,
+    created_at: row.created_at,
+  };
+}
+
+export function createConcept(
+  db: DatabaseSync,
+  input: Omit<Concept, 'id' | 'created_at'>,
+): Concept {
+  const result = db
+    .prepare(
+      `INSERT INTO concepts
+         (source_id, name, slug, importance, definition_text, why_exists,
+          what_breaks, where_reappears, chunk_ids,
+          section_path, exam_value, misconception_risk, centrality_score)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.source_id,
+      input.name,
+      input.slug,
+      input.importance,
+      input.definition_text,
+      input.why_exists,
+      input.what_breaks,
+      JSON.stringify(input.where_reappears),
+      JSON.stringify(input.chunk_ids),
+      JSON.stringify(input.section_path),
+      input.exam_value,
+      input.misconception_risk,
+      input.centrality_score,
+    );
+  return getConceptById(db, Number(result.lastInsertRowid))!;
+}
+
+export function updateCentralityScore(
+  db: DatabaseSync,
+  id: number,
+  score: number,
+): void {
+  db.prepare('UPDATE concepts SET centrality_score = ? WHERE id = ?').run(score, id);
+}
+
+// Delete a concept and all of its dependent rows (mastery, tasks, records,
+// edges, misconceptions). FK CASCADE handles the dependents.
+export function deleteConcept(db: DatabaseSync, id: number): void {
+  db.prepare('DELETE FROM concepts WHERE id = ?').run(id);
+}
+
+// Remove a single evidence span from a concept's evidence_json snapshot.
+// Match is (page + kind + quote). Returns updated concept.
+export function deleteConceptEvidenceSpan(
+  db: DatabaseSync,
+  conceptId: number,
+  page: number,
+  kind: string,
+  quote: string,
+): void {
+  const row = db
+    .prepare('SELECT evidence_json FROM concepts WHERE id = ?')
+    .get(conceptId) as { evidence_json?: string } | undefined;
+  if (!row?.evidence_json) return;
+  let spans: Array<{ source: string; quote: string; page: number; pattern?: string }>;
+  try {
+    spans = JSON.parse(row.evidence_json);
+    if (!Array.isArray(spans)) return;
+  } catch { return; }
+  const kindMatch = (s: { source: string }): string =>
+    s.source === 'heading' ? 'heading'
+    : s.source === 'definition_pattern' ? 'definition'
+    : 'chunk';
+  const next = spans.filter(s =>
+    !(s.page === page && kindMatch(s) === kind && (s.quote ?? '') === quote),
+  );
+  db.prepare('UPDATE concepts SET evidence_json = ? WHERE id = ?')
+    .run(JSON.stringify(next), conceptId);
+}
+
+// Manual edits to the narrative fields. Pass only the fields you want to
+// change; nullable means "leave existing value alone."
+export function updateConceptFields(
+  db: DatabaseSync,
+  id: number,
+  fields: {
+    definition_text?: string;
+    why_exists?: string;
+    what_breaks?: string;
+    where_reappears?: string[];
+  },
+): Concept | null {
+  const current = getConceptById(db, id);
+  if (!current) return null;
+  db.prepare(
+    `UPDATE concepts
+     SET definition_text = ?, why_exists = ?, what_breaks = ?, where_reappears = ?
+     WHERE id = ?`,
+  ).run(
+    fields.definition_text ?? current.definition_text,
+    fields.why_exists      ?? current.why_exists,
+    fields.what_breaks     ?? current.what_breaks,
+    JSON.stringify(fields.where_reappears ?? current.where_reappears),
+    id,
+  );
+  return getConceptById(db, id);
+}
+
+export function getConceptById(db: DatabaseSync, id: number): Concept | null {
+  const row = db
+    .prepare('SELECT * FROM concepts WHERE id = ?')
+    .get(id) as ConceptRow | undefined;
+  return row != null ? rowToConcept(row) : null;
+}
+
+export function getConceptBySlug(
+  db: DatabaseSync,
+  sourceId: number,
+  slug: string,
+): Concept | null {
+  const row = db
+    .prepare('SELECT * FROM concepts WHERE source_id = ? AND slug = ?')
+    .get(sourceId, slug) as ConceptRow | undefined;
+  return row != null ? rowToConcept(row) : null;
+}
+
+export function listConceptsBySource(db: DatabaseSync, sourceId: number): Concept[] {
+  return (
+    db
+      .prepare('SELECT * FROM concepts WHERE source_id = ? ORDER BY importance, name')
+      .all(sourceId) as unknown as ConceptRow[]
+  ).map(rowToConcept);
+}
+
+export function listConceptsByImportance(
+  db: DatabaseSync,
+  sourceId: number,
+  importance: ConceptImportance,
+): Concept[] {
+  return (
+    db
+      .prepare(
+        'SELECT * FROM concepts WHERE source_id = ? AND importance = ? ORDER BY name',
+      )
+      .all(sourceId, importance) as unknown as ConceptRow[]
+  ).map(rowToConcept);
+}
+
+// ─── Concept Edges ────────────────────────────────────────────────────────────
+
+interface EdgeRow {
+  id: number | bigint;
+  from_id: number | bigint;
+  to_id: number | bigint;
+  edge_type: string;
+}
+
+function rowToEdge(row: EdgeRow): ConceptEdge {
+  return {
+    id: Number(row.id),
+    from_id: Number(row.from_id),
+    to_id: Number(row.to_id),
+    edge_type: row.edge_type as EdgeType,
+  };
+}
+
+export function createEdge(
+  db: DatabaseSync,
+  fromId: number,
+  toId: number,
+  edgeType: EdgeType,
+): ConceptEdge | null {
+  try {
+    const result = db
+      .prepare('INSERT INTO concept_edges (from_id, to_id, edge_type) VALUES (?, ?, ?)')
+      .run(fromId, toId, edgeType);
+    const row = db
+      .prepare('SELECT * FROM concept_edges WHERE id = ?')
+      .get(Number(result.lastInsertRowid)) as unknown as EdgeRow;
+    return rowToEdge(row);
+  } catch {
+    return null; // silently drop duplicate edges (UNIQUE constraint)
+  }
+}
+
+export function listEdgesForConcept(db: DatabaseSync, conceptId: number): ConceptEdge[] {
+  return (
+    db
+      .prepare('SELECT * FROM concept_edges WHERE from_id = ? OR to_id = ?')
+      .all(conceptId, conceptId) as unknown as EdgeRow[]
+  ).map(rowToEdge);
+}
+
+export interface ReviewQueueItem {
+  concept: Concept;
+  source_title: string | null;
+  source_filename: string;
+  compression_stage: number;
+  last_reviewed_at: string | null;
+  attempts: number;
+}
+
+interface ReviewQueueRow {
+  id: number | bigint;
+  source_id: number | bigint;
+  name: string;
+  slug: string;
+  importance: string;
+  definition_text: string;
+  why_exists: string;
+  what_breaks: string;
+  where_reappears: string;
+  chunk_ids: string;
+  section_path: string;
+  exam_value: number;
+  misconception_risk: number;
+  centrality_score: number;
+  created_at: string;
+  source_title: string | null;
+  source_filename: string;
+  compression_stage: number | null;
+  last_reviewed_at: string | null;
+  attempts: number | null;
+}
+
+export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[] {
+  const rows = db
+    .prepare(
+      `SELECT c.*,
+              s.title    AS source_title,
+              s.filename AS source_filename,
+              COALESCE(m.compression_stage, 0) AS compression_stage,
+              r.last_reviewed_at,
+              COALESCE(r.attempts, 0) AS attempts
+       FROM concepts c
+       JOIN sources s ON s.id = c.source_id
+       LEFT JOIN mastery m ON m.concept_id = c.id
+       LEFT JOIN (
+         SELECT concept_id,
+                MAX(created_at) AS last_reviewed_at,
+                COUNT(*)        AS attempts
+         FROM evidence_records
+         GROUP BY concept_id
+       ) r ON r.concept_id = c.id
+       WHERE COALESCE(m.compression_stage, 0) < 5
+       ORDER BY
+         CASE WHEN r.last_reviewed_at IS NULL THEN 0 ELSE 1 END,
+         c.centrality_score DESC,
+         CASE c.importance
+           WHEN 'foundational' THEN 0
+           WHEN 'core' THEN 1
+           WHEN 'supporting' THEN 2
+           WHEN 'peripheral' THEN 3
+           ELSE 4 END,
+         c.created_at DESC
+       LIMIT ?`,
+    )
+    .all(limit) as unknown as ReviewQueueRow[];
+
+  return rows.map(row => ({
+    concept: rowToConcept(row),
+    source_title: row.source_title,
+    source_filename: row.source_filename,
+    compression_stage: row.compression_stage ?? 0,
+    last_reviewed_at: row.last_reviewed_at,
+    attempts: row.attempts ?? 0,
+  }));
+}
+
+// ─── Evidence aggregator (for source-viewer pane) ────────────────────────────
+
+export type SourceEvidenceKind = 'chunk' | 'equation' | 'relation' | 'heading' | 'definition' | 'first_page';
+
+export interface SourceEvidence {
+  page: number;
+  kind: SourceEvidenceKind;
+  label: string;
+  quote?: string;
+}
+
+export interface ConceptSourceEvidence {
+  sourceId: number;
+  filePath: string;
+  filename: string;
+  pageCount: number | null;
+  isPdf: boolean;
+  evidence: SourceEvidence[];
+}
+
+export function listConceptSourceEvidence(db: DatabaseSync, conceptId: number): ConceptSourceEvidence | null {
+  const c = db
+    .prepare('SELECT * FROM concepts WHERE id = ?')
+    .get(conceptId) as ConceptRow | undefined;
+  if (!c) return null;
+  const sourceId = Number(c.source_id);
+  const src = db
+    .prepare('SELECT file_path, filename, page_count FROM sources WHERE id = ?')
+    .get(sourceId) as { file_path: string; filename: string; page_count: number | null } | undefined;
+  if (!src) return null;
+
+  const evidence: SourceEvidence[] = [];
+
+  // Always anchor to first page seen for this concept
+  const concept = rowToConcept(c);
+  // chunk_ids refer to semantic_chunks
+  if (concept.chunk_ids.length > 0) {
+    const placeholders = concept.chunk_ids.map(() => '?').join(',');
+    const chunkRows = db
+      .prepare(`SELECT id, page_start, page_end, block_type, claim, example_quote
+                FROM semantic_chunks WHERE id IN (${placeholders})
+                ORDER BY page_start`)
+      .all(...concept.chunk_ids) as Array<{
+        id: number | bigint; page_start: number; page_end: number;
+        block_type: string; claim: string | null; example_quote: string | null;
+      }>;
+    for (const r of chunkRows) {
+      for (let p = r.page_start; p <= r.page_end; p++) {
+        evidence.push({
+          page: p,
+          kind: 'chunk',
+          label: r.block_type,
+          quote: r.claim ?? r.example_quote ?? undefined,
+        });
+      }
+    }
+  }
+
+  // Equations attached to this concept name
+  const normalizedName = concept.name.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9\s-]/g, '').trim();
+  const equations = db
+    .prepare('SELECT page, latex FROM equation_candidates WHERE source_id = ? AND attached_term = ? ORDER BY page')
+    .all(sourceId, normalizedName) as Array<{ page: number; latex: string }>;
+  for (const eq of equations) {
+    evidence.push({ page: eq.page, kind: 'equation', label: 'equation', quote: eq.latex });
+  }
+
+  // Relations mentioning this concept name as from or to
+  const relations = db
+    .prepare(
+      `SELECT page, from_term, to_term, relation_kind, quote
+       FROM relation_candidates
+       WHERE source_id = ? AND (LOWER(from_term) = ? OR LOWER(to_term) = ?)
+       ORDER BY page`,
+    )
+    .all(sourceId, concept.name.toLowerCase(), concept.name.toLowerCase()) as Array<{
+      page: number; from_term: string; to_term: string; relation_kind: string; quote: string;
+    }>;
+  for (const r of relations) {
+    evidence.push({
+      page: r.page, kind: 'relation',
+      label: `${r.from_term} → ${r.relation_kind} → ${r.to_term}`,
+      quote: r.quote,
+    });
+  }
+
+  // Concept candidate evidence (if a candidate with the same normalized name still exists).
+  // Side effect: lazy backfill — if the concept's own evidence_json is empty
+  // but a matching candidate has evidence, write it onto the concept so future
+  // reads don't depend on the candidate still being there.
+  const candidateRow = db
+    .prepare('SELECT evidence FROM concept_candidates WHERE source_id = ? AND normalized = ? LIMIT 1')
+    .get(sourceId, normalizedName) as { evidence: string } | undefined;
+  if (candidateRow) {
+    try {
+      const spans = JSON.parse(candidateRow.evidence) as Array<{ source: string; quote: string; page: number; pattern?: string }>;
+      for (const s of spans) {
+        const kind: SourceEvidenceKind = s.source === 'heading' ? 'heading'
+          : s.source === 'definition_pattern' ? 'definition'
+          : 'chunk';
+        evidence.push({ page: s.page, kind, label: s.source.replace(/_/g, ' '), quote: s.quote });
+      }
+      // Backfill: if concept has no preserved evidence, snapshot the
+      // candidate's evidence onto it so the data survives the next promote/wipe.
+      const existing = db
+        .prepare('SELECT evidence_json FROM concepts WHERE id = ?')
+        .get(conceptId) as { evidence_json?: string } | undefined;
+      const isEmpty = !existing?.evidence_json || existing.evidence_json === '[]' || existing.evidence_json === '';
+      if (isEmpty) {
+        db.prepare('UPDATE concepts SET evidence_json = ? WHERE id = ?')
+          .run(candidateRow.evidence, conceptId);
+      }
+    } catch { /* tolerate malformed */ }
+  }
+
+  // Concept's own preserved evidence (populated at promotion time so we
+  // still have page/quote spans after the candidate row is deleted).
+  const conceptRow = db
+    .prepare('SELECT evidence_json FROM concepts WHERE id = ?')
+    .get(conceptId) as { evidence_json?: string } | undefined;
+  if (conceptRow?.evidence_json) {
+    try {
+      const spans = JSON.parse(conceptRow.evidence_json) as Array<{ source: string; quote: string; page: number; pattern?: string }>;
+      for (const s of spans) {
+        const kind: SourceEvidenceKind = s.source === 'heading' ? 'heading'
+          : s.source === 'definition_pattern' ? 'definition'
+          : 'chunk';
+        evidence.push({ page: s.page, kind, label: s.source.replace(/_/g, ' '), quote: s.quote });
+      }
+    } catch { /* tolerate malformed */ }
+  }
+
+  // If nothing else, at least the first page
+  const firstPage = concept.chunk_ids.length > 0
+    ? (evidence[0]?.page ?? 1)
+    : 1;
+  if (evidence.length === 0) {
+    evidence.push({ page: firstPage, kind: 'first_page', label: 'first page' });
+  }
+
+  // Sort by page; collapse duplicates of (page, kind, label) but keep distinct quotes
+  evidence.sort((a, b) => a.page - b.page || a.kind.localeCompare(b.kind));
+
+  return {
+    sourceId,
+    filePath: src.file_path,
+    filename: src.filename,
+    pageCount: src.page_count,
+    isPdf: src.file_path.toLowerCase().endsWith('.pdf'),
+    evidence,
+  };
+}
+
+export function listRequirementsFor(db: DatabaseSync, conceptId: number): Concept[] {
+  return (
+    db
+      .prepare(
+        `SELECT c.* FROM concepts c
+         JOIN concept_edges e ON e.from_id = c.id
+         WHERE e.to_id = ? AND e.edge_type = 'requires'`,
+      )
+      .all(conceptId) as unknown as ConceptRow[]
+  ).map(rowToConcept);
+}

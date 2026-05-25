@@ -10,9 +10,16 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.98.0",
+    "groq-sdk": "^1.2.0",
+    "pdf-parse": "1.1.1",
+    "pdfjs-dist": "^3.11.174",
+    "zod": "^4.4.3"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/pdf-parse": "^1.1.5",
     "typescript": "*",
     "vitest": "^2.0.0"
   }

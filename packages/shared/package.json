@@ -10,5 +10,8 @@
   },
   "devDependencies": {
     "typescript": "*"
+  },
+  "dependencies": {
+    "@starcall/services": "workspace:*"
   }
 }

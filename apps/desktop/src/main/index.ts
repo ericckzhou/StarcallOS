@@ -1,0 +1,553 @@
+import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
+import path from 'path';
+import fs from 'fs';
+import {
+  openDb,
+  listSources, createSource, updateSourceStatus, getSourceById, deleteSource,
+  listConceptsBySource, getConceptById, listReviewQueue,
+  listConceptSourceEvidence, updateConceptFields, deleteConcept, deleteConceptEvidenceSpan,
+  enrichConceptDefinition,
+  listTasksByConcept, getMastery, listMisconceptionsByConcept,
+  createChunk, createConcept, updateCentralityScore, createEdge, createMisconception, createTask,
+  upsertMastery, createEvidenceRecord, listRecordsByConcept,
+  emitEvent,
+  segmentPdf, segmentText,
+  extractCandidates, buildSectionPath, persistCandidateExtraction,
+  selectBudgetedBlocks,
+  deriveTopicAnchors, setTopicAnchors,
+  listConceptCandidatesBySource, listRelationCandidatesBySource,
+  listMisconceptionCandidatesBySource, listEquationCandidatesBySource,
+  listEquationCandidatesForConcept,
+  ensureTasksForConcept,
+  promoteCandidate, rejectCandidate,
+  getLlmFilter, setLlmFilter,
+  segmentTextWithDiagnostics,
+  clearDerivedDataForSource, recoverInterruptedSources,
+  createParseRun, listParseRunsBySource,
+  loadSettings, saveSettings, applyEnvFallbacks, resolveProviderConfig,
+  type LLMSettings, type PassName,
+  runEnricher,
+  runConceptExtractor, runGraphBuilder,
+  runMisconceptionExtractor, runTaskGenerator, computeCentrality,
+  gradeResponse,
+  resetUsageStats, getUsageStats,
+} from '@starcall/services';
+import { IPC } from '@starcall/shared';
+import type { CreateSourceArgs, CreateTextSourceArgs, ProcessSourceArgs, SubmitEvidenceArgs } from '@starcall/shared';
+
+function createWindow(): void {
+  const win = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    backgroundColor: '#0a0a0f',
+    title: '',                       // no "StarcallOS" in OS taskbar/title bar
+    autoHideMenuBar: true,           // no File/Edit/View/Window/Help strip
+    show: false,                     // wait until we maximize before showing
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  // Belt-and-suspender: prevent the renderer's <title> from leaking back.
+  win.on('page-title-updated', e => e.preventDefault());
+  win.setMenuBarVisibility(false);
+  win.removeMenu();
+  win.maximize();
+  win.once('ready-to-show', () => win.show());
+
+  if (process.env['ELECTRON_RENDERER_URL']) {
+    win.loadURL(process.env['ELECTRON_RENDERER_URL']);
+  } else {
+    win.loadFile(path.join(__dirname, '../renderer/index.html'));
+  }
+}
+
+function envFallbacks(): { groq?: string; anthropic?: string } {
+  return {
+    groq:      (import.meta.env.GROQ_API_KEY      as string | undefined) || undefined,
+    anthropic: (import.meta.env.ANTHROPIC_API_KEY as string | undefined) || undefined,
+  };
+}
+
+function cfgFor(pass: PassName): ReturnType<typeof resolveProviderConfig> {
+  const dir = app.getPath('userData');
+  const s = applyEnvFallbacks(loadSettings(dir), envFallbacks());
+  return resolveProviderConfig(s, pass);
+}
+
+function registerIpc(db: ReturnType<typeof openDb>): void {
+  ipcMain.handle(IPC.SOURCES_LIST, () => listSources(db));
+
+  ipcMain.handle(IPC.SOURCES_CREATE, async (_e, args: CreateSourceArgs) => {
+    let filePath = args.filePath;
+    if (!filePath) {
+      const result = await dialog.showOpenDialog({
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+        properties: ['openFile'],
+      });
+      if (result.canceled || !result.filePaths[0]) return null;
+      filePath = result.filePaths[0];
+    }
+    const filename = path.basename(filePath);
+    const source = createSource(db, { filename, file_path: filePath, title: args.title, author: args.author });
+    emitEvent(db, 'source.created', { sourceId: source.id }, { entityType: 'source', entityId: source.id });
+    return source;
+  });
+
+  ipcMain.handle(IPC.SOURCES_PROCESS, async (_e, args: ProcessSourceArgs) => {
+    const { sourceId } = args;
+    resetUsageStats();
+    const startedAt = Date.now();
+
+    // Tracking state. Filled in as we progress; recorded on every exit.
+    let mode: 'deterministic' | 'candidate_gated' | 'full' = 'deterministic';
+    let pageCount = 0;
+    let blockCount = 0;
+    let candidateCount = 0;
+    let relationCount = 0;
+    let equationCount = 0;
+    let misconceptionCount = 0;
+    let layoutDiagnostics: Record<string, unknown> = {};
+
+    const logTotals = (label: string): void => {
+      const s = getUsageStats();
+      const passes = Object.entries(s.byPass)
+        .map(([k, v]) => `${k}=${v.total}(${v.calls})`)
+        .join(' ');
+      console.log(`[LLM TOTALS] ${label} source=${sourceId} ${passes} total=${s.total} calls=${s.calls}`);
+    };
+
+    const recordRun = (status: 'success' | 'failed', errorMsg?: string): void => {
+      const usage = getUsageStats();
+      try {
+        createParseRun(db, {
+          source_id: sourceId,
+          status,
+          error_msg: errorMsg ?? null,
+          mode,
+          page_count: pageCount,
+          block_count: blockCount,
+          candidate_count: candidateCount,
+          relation_count: relationCount,
+          equation_count: equationCount,
+          misconception_count: misconceptionCount,
+          duration_ms: Date.now() - startedAt,
+          llm_call_count: usage.calls,
+          llm_input_tokens: Object.values(usage.byPass).reduce((a, p) => a + p.prompt, 0),
+          llm_output_tokens: Object.values(usage.byPass).reduce((a, p) => a + p.completion, 0),
+          diagnostics: { ...layoutDiagnostics, llm_by_pass: usage.byPass },
+        });
+      } catch (e) {
+        console.error('[PARSE_RUN] failed to record parse_runs row:', e);
+      }
+    };
+
+    try {
+      // Idempotent retry: wipe derived artifacts before rebuilding. Keeps
+      // the source row, file path, and events lineage intact.
+      const wiped = clearDerivedDataForSource(db, sourceId);
+      const wipedTotal = Object.values(wiped).reduce((a, b) => a + b, 0);
+      const isRetry = wipedTotal > 0;
+      if (isRetry) {
+        console.log(`[RETRY] source=${sourceId} cleared derived data: ${JSON.stringify(wiped)}`);
+        emitEvent(db, 'source.retry_started', { sourceId, wiped }, { entityType: 'source', entityId: sourceId });
+      }
+
+      updateSourceStatus(db, sourceId, 'processing');
+      emitEvent(db, 'source.processing_started', { sourceId }, { entityType: 'source', entityId: sourceId });
+
+      const source = getSourceById(db, sourceId)!;
+      let rawChunks: Awaited<ReturnType<typeof runEnricher>>;
+
+      let blocksForLLM: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
+      if (source.file_path.endsWith('.txt')) {
+        const text = fs.readFileSync(source.file_path, 'utf-8');
+        const out = segmentTextWithDiagnostics(text);
+        blocksForLLM = out.blocks;
+        pageCount = 1;
+        layoutDiagnostics = { ...out.diagnostics };
+        updateSourceStatus(db, sourceId, 'processing', { page_count: pageCount });
+        console.log(`[EXTRACT] text blocks: ${blocksForLLM.length}`);
+      } else {
+        const { blocks: allBlocks, pageCount: pc, diagnostics: diag } = await segmentPdf(source.file_path);
+        pageCount = pc;
+        layoutDiagnostics = { ...diag };
+        updateSourceStatus(db, sourceId, 'processing', { page_count: pageCount });
+        blocksForLLM = allBlocks.filter(b =>
+          (args.pageStart == null || b.page >= args.pageStart) &&
+          (args.pageEnd   == null || b.page <= args.pageEnd),
+        );
+        console.log(`[EXTRACT] pdf blocks: ${blocksForLLM.length} (pages ${args.pageStart ?? 1}–${args.pageEnd ?? pageCount}) diag=${JSON.stringify(diag)}`);
+      }
+      blockCount = blocksForLLM.length;
+
+      // ─── Shadow pipeline: deterministic candidate extraction (zero LLM) ─────
+      // Always runs and persists BEFORE the LLM path so we keep something
+      // usable even when the LLM stage is rate-limited or fails.
+      let candResult: ReturnType<typeof extractCandidates> | null = null;
+      try {
+        const sectionPaths = buildSectionPath(blocksForLLM, []);
+        // Derive topic anchors from title + heading vocabulary, persist on
+        // sources so future passes can reuse without recomputing.
+        const anchors = deriveTopicAnchors(blocksForLLM, source.title);
+        setTopicAnchors(db, sourceId, anchors);
+        layoutDiagnostics = { ...layoutDiagnostics, topic_anchors: anchors };
+        const cand = extractCandidates(blocksForLLM, sectionPaths, anchors);
+        persistCandidateExtraction(db, sourceId, cand);
+        candResult = cand;
+        candidateCount     = cand.candidates.length;
+        relationCount      = cand.relations.length;
+        equationCount      = cand.equations.length;
+        misconceptionCount = cand.misconception_phrases.length;
+        layoutDiagnostics  = { ...layoutDiagnostics, candidate_diagnostics: cand.diagnostics };
+        const top = cand.candidates.slice(0, 10).map(c => `${c.term}(${c.confidence})`).join(', ');
+        console.log(
+          `[CANDIDATES] source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +
+          `concepts=${cand.candidates.length} relations=${cand.relations.length} ` +
+          `misconceptions=${cand.misconception_phrases.length} equations=${cand.equations.length} top=[${top}]`,
+        );
+      } catch (e) {
+        console.error('[CANDIDATES] failed for source', sourceId, e);
+      }
+
+      // ─── Mode dispatch ──────────────────────────────────────────────────────
+      // deterministic = no LLM. Candidates are the product.
+      // candidate_gated = LLM enriches only blocks near top-N candidate pages.
+      // full = legacy / benchmark.
+      const settingsForBudget = applyEnvFallbacks(loadSettings(app.getPath('userData')), envFallbacks());
+      mode = settingsForBudget.extractionMode ?? 'deterministic';
+
+      if (mode === 'deterministic') {
+        console.log(`[MODE] source=${sourceId} deterministic — skipping all LLM passes (candidates persisted, lazy task gen on review)`);
+        updateSourceStatus(db, sourceId, 'ready');
+        emitEvent(db, 'source.processing_completed', { sourceId, mode: 'deterministic' }, { entityType: 'source', entityId: sourceId });
+        if (isRetry) emitEvent(db, 'source.retry_completed', { sourceId, mode: 'deterministic' }, { entityType: 'source', entityId: sourceId });
+        logTotals('ok-deterministic');
+        recordRun('success');
+        return { ok: true, mode: 'deterministic' as const };
+      }
+
+      if (mode === 'candidate_gated' && candResult) {
+        const budget = selectBudgetedBlocks(blocksForLLM, candResult.candidates);
+        console.log(
+          `[BUDGET] source=${sourceId} mode=gated input=${budget.diagnostics.inputBlocks} ` +
+          `selected=${budget.diagnostics.selectedBlocks} pages=${budget.diagnostics.pagesKept} ` +
+          `candidates_used=${budget.diagnostics.candidatesUsed}` +
+          (budget.diagnostics.fallbackToFull ? ' fallback=full' : ''),
+        );
+        blocksForLLM = budget.blocks;
+      } else {
+        console.log(`[BUDGET] source=${sourceId} mode=full blocks=${blocksForLLM.length}`);
+      }
+
+      // Guard: refuse to call the LLM extractor on zero blocks. Empty input
+      // makes the chunker hallucinate generic concepts (we hit this on a
+      // scanned PDF where pdfjs returned no text). Mark the source ready
+      // with what the candidate pipeline produced and exit early.
+      if (blocksForLLM.length === 0) {
+        console.warn(`[EXTRACT] skipping LLM passes for source ${sourceId}: 0 blocks extracted (likely scanned/image PDF)`);
+        updateSourceStatus(db, sourceId, 'ready');
+        emitEvent(db, 'source.processing_completed', { sourceId, llm_skipped: 'no_blocks' }, { entityType: 'source', entityId: sourceId });
+        if (isRetry) emitEvent(db, 'source.retry_completed', { sourceId, llm_skipped: 'no_blocks' }, { entityType: 'source', entityId: sourceId });
+        logTotals('ok-no-blocks');
+        recordRun('success');
+        return { ok: true, warning: 'No extractable text — candidate pipeline only. Likely a scanned PDF.' };
+      }
+
+      rawChunks = await runEnricher(cfgFor('enrich'), blocksForLLM);
+      console.log(`[EXTRACT] enriched chunks: ${rawChunks.length}`);
+      const savedChunks = rawChunks.map(c =>
+        createChunk(db, {
+          source_id: sourceId, content: c.content, page_start: c.page_start, page_end: c.page_end,
+          block_type: c.block_type, section_path: c.section_path,
+          claim: c.claim, assumptions: c.assumptions, example_quote: c.example_quote,
+        }),
+      );
+
+      const rawConcepts = await runConceptExtractor(cfgFor('concepts'), rawChunks);
+      const conceptIdBySlug = new Map<string, number>();
+      for (const rc of rawConcepts) {
+        const chunkIds = rc.chunk_indices.map(i => savedChunks[i]?.id ?? 0).filter(Boolean);
+        const saved = createConcept(db, {
+          source_id: sourceId, name: rc.name, slug: rc.slug, importance: rc.importance,
+          definition_text: rc.definition_text, why_exists: rc.why_exists,
+          what_breaks: rc.what_breaks, where_reappears: rc.where_reappears, chunk_ids: chunkIds,
+          section_path: rc.section_path, exam_value: rc.exam_value,
+          misconception_risk: rc.misconception_risk, centrality_score: 0,
+        });
+        conceptIdBySlug.set(rc.slug, saved.id);
+        upsertMastery(db, saved.id, 0);
+        emitEvent(db, 'concept.created', { conceptId: saved.id }, { entityType: 'concept', entityId: saved.id });
+      }
+
+      const edges = await runGraphBuilder(cfgFor('graph'), rawConcepts);
+      const savedEdges: Array<{ from_id: number; to_id: number }> = [];
+      for (const e of edges) {
+        const fromId = conceptIdBySlug.get(e.from_slug);
+        const toId = conceptIdBySlug.get(e.to_slug);
+        if (fromId && toId) {
+          createEdge(db, fromId, toId, e.edge_type);
+          savedEdges.push({ from_id: fromId, to_id: toId });
+        }
+      }
+
+      // Pass 6: centrality scoring (no LLM)
+      const conceptIds = [...conceptIdBySlug.values()];
+      const centrality = computeCentrality(conceptIds, savedEdges);
+      for (const [id, score] of centrality) {
+        updateCentralityScore(db, id, score);
+      }
+
+      const misconceptions = await runMisconceptionExtractor(cfgFor('misconceptions'), rawConcepts);
+      for (const m of misconceptions) {
+        const conceptId = conceptIdBySlug.get(m.concept_slug);
+        if (conceptId) createMisconception(db, { concept_id: conceptId, description: m.description, why_think_it: m.why_think_it, why_wrong: m.why_wrong, test_prompt: m.test_prompt });
+      }
+
+      const tasks = await runTaskGenerator(cfgFor('tasks'), rawConcepts);
+      for (const t of tasks) {
+        const conceptId = conceptIdBySlug.get(t.concept_slug);
+        if (conceptId) createTask(db, { concept_id: conceptId, kind: t.kind, prompt: t.prompt, difficulty: t.difficulty });
+      }
+
+      updateSourceStatus(db, sourceId, 'ready');
+      emitEvent(db, 'source.processing_completed', { sourceId }, { entityType: 'source', entityId: sourceId });
+      if (isRetry) emitEvent(db, 'source.retry_completed', { sourceId }, { entityType: 'source', entityId: sourceId });
+      logTotals('ok');
+      recordRun('success');
+      return { ok: true };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[EXTRACT] pipeline failed for source', sourceId, err);
+      updateSourceStatus(db, sourceId, 'failed', { error_msg: msg });
+      emitEvent(db, 'source.processing_failed', { sourceId, error: msg }, { entityType: 'source', entityId: sourceId });
+      logTotals('fail');
+      recordRun('failed', msg);
+      return { ok: false, error: msg };
+    }
+  });
+
+  ipcMain.handle(IPC.SOURCES_DELETE, (_e, sourceId: number) => deleteSource(db, sourceId));
+
+  ipcMain.handle(IPC.SOURCES_CREATE_TEXT, (_e, args: CreateTextSourceArgs) => {
+    const textDir = path.join(app.getPath('userData'), 'texts');
+    fs.mkdirSync(textDir, { recursive: true });
+    const filename = `text-${Date.now()}.txt`;
+    const filePath = path.join(textDir, filename);
+    fs.writeFileSync(filePath, args.text, 'utf-8');
+    const title = args.title?.trim() || `Pasted text (${new Date().toLocaleDateString()})`;
+    const source = createSource(db, { filename, file_path: filePath, title });
+    emitEvent(db, 'source.created', { sourceId: source.id }, { entityType: 'source', entityId: source.id });
+    return source;
+  });
+  ipcMain.handle(IPC.CONCEPTS_BY_SOURCE, (_e, sourceId: number) => listConceptsBySource(db, sourceId));
+  ipcMain.handle(IPC.CONCEPTS_TASKS, (_e, conceptId: number) => listTasksByConcept(db, conceptId));
+  ipcMain.handle(IPC.CONCEPTS_MASTERY, (_e, conceptId: number) => getMastery(db, conceptId));
+  ipcMain.handle(IPC.CONCEPTS_MISCONCEPTIONS, (_e, conceptId: number) => listMisconceptionsByConcept(db, conceptId));
+  ipcMain.handle(IPC.CONCEPTS_EQUATIONS, (_e, conceptId: number) => listEquationCandidatesForConcept(db, conceptId));
+  ipcMain.handle(IPC.CONCEPTS_ENSURE_TASKS, async (_e, conceptId: number) => {
+    return ensureTasksForConcept(cfgFor('lazy_tasks'), db, conceptId);
+  });
+  ipcMain.handle(IPC.CONCEPTS_ENRICH, async (_e, conceptId: number) => {
+    return enrichConceptDefinition(cfgFor('lazy_tasks'), db, conceptId);
+  });
+  ipcMain.handle(IPC.CONCEPTS_UPDATE_FIELDS, (_e, args: {
+    conceptId: number;
+    definition_text?: string;
+    why_exists?: string;
+    what_breaks?: string;
+    where_reappears?: string[];
+  }) => {
+    return updateConceptFields(db, args.conceptId, args);
+  });
+  ipcMain.handle(IPC.CONCEPTS_DELETE, (_e, conceptId: number) => {
+    deleteConcept(db, conceptId);
+    return { ok: true as const };
+  });
+  ipcMain.handle(IPC.CONCEPTS_DELETE_EVIDENCE_SPAN, (_e, args: {
+    conceptId: number; page: number; kind: string; quote: string;
+  }) => {
+    deleteConceptEvidenceSpan(db, args.conceptId, args.page, args.kind, args.quote);
+    return listConceptSourceEvidence(db, args.conceptId);
+  });
+  ipcMain.handle(IPC.REVIEW_QUEUE_LIST, (_e, limit?: number) => listReviewQueue(db, limit ?? 50));
+
+  ipcMain.handle(IPC.CONCEPTS_SOURCE_EVIDENCE, (_e, conceptId: number) => listConceptSourceEvidence(db, conceptId));
+  ipcMain.handle(IPC.PARSE_RUNS_BY_SOURCE, (_e, sourceId: number, limit?: number) =>
+    listParseRunsBySource(db, sourceId, limit ?? 10),
+  );
+
+  ipcMain.handle(IPC.SOURCES_LLM_FILTER_GET, (_e, sourceId: number) => getLlmFilter(db, sourceId));
+  ipcMain.handle(IPC.SOURCES_LLM_FILTER_SET, (_e, args: { sourceId: number; keepTerms: string[] | null }) => {
+    setLlmFilter(db, args.sourceId, args.keepTerms);
+    return { ok: true as const };
+  });
+
+  ipcMain.handle(IPC.SOURCES_BYTES, (_e, sourceId: number) => {
+    const src = getSourceById(db, sourceId);
+    if (!src) throw new Error(`source ${sourceId} not found`);
+    if (!fs.existsSync(src.file_path)) throw new Error(`source file missing: ${src.file_path}`);
+    const buf = fs.readFileSync(src.file_path);
+    // Return as ArrayBuffer for renderer pdfjs consumption
+    return new Uint8Array(buf).buffer;
+  });
+
+  ipcMain.handle(IPC.SETTINGS_GET, () => {
+    const dir = app.getPath('userData');
+    const fb  = envFallbacks();
+    const s   = applyEnvFallbacks(loadSettings(dir), fb);
+    return {
+      provider: s.provider,
+      groqApiKeyConfigured:      !!s.groqApiKey,
+      anthropicApiKeyConfigured: !!s.anthropicApiKey,
+      modelOverrides: s.modelOverrides ?? {},
+      extractionMode: s.extractionMode ?? 'deterministic',
+      heavyModel: s.heavyModel ?? '',
+      lightModel: s.lightModel ?? '',
+    };
+  });
+  ipcMain.handle(IPC.SETTINGS_SET, (_e, input: Partial<LLMSettings>) => {
+    const dir = app.getPath('userData');
+    const current = loadSettings(dir);
+    const next: LLMSettings = {
+      ...current,
+      provider:        input.provider        ?? current.provider,
+      // Preserve previously stored keys when the renderer omits them.
+      groqApiKey:      input.groqApiKey      !== undefined ? input.groqApiKey      : current.groqApiKey,
+      anthropicApiKey: input.anthropicApiKey !== undefined ? input.anthropicApiKey : current.anthropicApiKey,
+      modelOverrides:  input.modelOverrides  ?? current.modelOverrides ?? {},
+      extractionMode:  input.extractionMode  ?? current.extractionMode ?? 'deterministic',
+      heavyModel:      input.heavyModel      !== undefined ? input.heavyModel      : current.heavyModel,
+      lightModel:      input.lightModel      !== undefined ? input.lightModel      : current.lightModel,
+    };
+    saveSettings(dir, next);
+    return { ok: true as const };
+  });
+  ipcMain.handle(IPC.EVIDENCE_HISTORY, (_e, conceptId: number) => listRecordsByConcept(db, conceptId));
+
+  ipcMain.handle(IPC.CANDIDATES_BY_SOURCE, (_e, sourceId: number) => ({
+    concepts:       listConceptCandidatesBySource(db, sourceId),
+    relations:      listRelationCandidatesBySource(db, sourceId),
+    misconceptions: listMisconceptionCandidatesBySource(db, sourceId),
+    equations:      listEquationCandidatesBySource(db, sourceId),
+  }));
+  ipcMain.handle(IPC.CANDIDATES_PROMOTE, (_e, candidateId: number) => promoteCandidate(db, candidateId));
+  ipcMain.handle(IPC.CANDIDATES_PROMOTE_BULK, (_e, candidateIds: number[]) => {
+    // Return the *candidate* IDs we promoted (not the new concept IDs) so the
+    // renderer can drop them from the visible list with a simple set lookup.
+    const promoted: number[] = [];
+    const errors: Array<{ candidateId: number; error: string }> = [];
+    for (const id of candidateIds) {
+      try {
+        promoteCandidate(db, id);
+        promoted.push(id);
+      } catch (e) {
+        errors.push({ candidateId: id, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    console.log(`[BULK PROMOTE] requested=${candidateIds.length} promoted=${promoted.length} errors=${errors.length}`);
+    return { promoted, errors };
+  });
+  ipcMain.handle(IPC.CANDIDATES_REJECT,  (_e, candidateId: number) => {
+    rejectCandidate(db, candidateId);
+    return { ok: true };
+  });
+  ipcMain.handle(IPC.CANDIDATES_EXTRACT, async (_e, sourceId: number) => {
+    const source = getSourceById(db, sourceId);
+    if (!source) throw new Error(`source ${sourceId} not found`);
+    const fileExists = fs.existsSync(source.file_path);
+    console.log(`[CANDIDATES] (manual) start source=${sourceId} path="${source.file_path}" exists=${fileExists}`);
+    if (!fileExists) {
+      throw new Error(`source file no longer exists: ${source.file_path}`);
+    }
+    let blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
+    if (source.file_path.endsWith('.txt')) {
+      blocks = segmentText(fs.readFileSync(source.file_path, 'utf-8'));
+      console.log(`[CANDIDATES] (manual) text blocks=${blocks.length}`);
+    } else {
+      try {
+        const out = await segmentPdf(source.file_path);
+        blocks = out.blocks;
+        console.log(`[CANDIDATES] (manual) pdf pages=${out.pageCount} blocks=${blocks.length}`);
+      } catch (e) {
+        console.error('[CANDIDATES] (manual) segmentPdf failed:', e);
+        throw e;
+      }
+    }
+    const sectionPaths = buildSectionPath(blocks, []);
+    const cand = extractCandidates(blocks, sectionPaths);
+    persistCandidateExtraction(db, sourceId, cand);
+    console.log(
+      `[CANDIDATES] (manual) source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +
+      `concepts=${cand.candidates.length} relations=${cand.relations.length} ` +
+      `misconceptions=${cand.misconception_phrases.length} equations=${cand.equations.length}`,
+    );
+    return {
+      ok: true as const,
+      blocks: cand.diagnostics.blocks_seen,
+      concepts: cand.candidates.length,
+      relations: cand.relations.length,
+      misconceptions: cand.misconception_phrases.length,
+      equations: cand.equations.length,
+    };
+  });
+
+  ipcMain.handle(IPC.EVIDENCE_SUBMIT, async (_e, args: SubmitEvidenceArgs) => {
+    const { taskId, conceptId, userResponse } = args;
+    const concept = getConceptById(db, conceptId);
+    const task = listTasksByConcept(db, conceptId).find(t => t.id === taskId);
+    if (!task || !concept) throw new Error('Task or concept not found');
+
+    resetUsageStats();
+    const grade = await gradeResponse(cfgFor('grader'), {
+      concept_name: concept.name, concept_definition: concept.definition_text,
+      task_kind: task.kind, task_prompt: task.prompt, user_response: userResponse,
+    });
+    {
+      const s = getUsageStats();
+      const passes = Object.entries(s.byPass)
+        .map(([k, v]) => `${k}=${v.total}(${v.calls})`)
+        .join(' ');
+      console.log(`[LLM TOTALS] grade concept=${conceptId} task=${taskId} ${passes} total=${s.total} calls=${s.calls}`);
+    }
+
+    const record = createEvidenceRecord(db, {
+      task_id: taskId, concept_id: conceptId, user_response: userResponse,
+      score: grade.score, compression_stage: grade.compression_stage,
+      gaps_detected: grade.gaps_detected, misconceptions_detected: grade.misconceptions_detected,
+      grader_reasoning: grade.reasoning,
+    });
+
+    upsertMastery(db, conceptId, grade.compression_stage);
+    emitEvent(db, 'evidence_record.graded', { recordId: record.id, score: grade.score }, { entityType: 'concept', entityId: conceptId });
+    return record;
+  });
+}
+
+// ─── App lifecycle ─────────────────────────────────────────────────────────────
+
+// Application name (used in OS process list, dock, notifications). Setting at
+// module top so it applies before app.whenReady fires.
+app.setName('StarcallOS');
+
+app.whenReady().then(() => {
+  // Disable the app-level menu entirely (kills the File/Edit/View/Window/Help bar).
+  // Per-window calls (`removeMenu`, `setMenuBarVisibility(false)`) belt-and-suspender it.
+  Menu.setApplicationMenu(null);
+
+  const DB_PATH = path.join(app.getPath('userData'), 'stellaria.db');
+  const db = openDb(DB_PATH);
+
+  // Recovery scan: anything still 'processing' was killed mid-run. Mark
+  // failed so the user can retry deliberately.
+  const recovered = recoverInterruptedSources(db);
+  if (recovered.length > 0) {
+    console.log(`[RECOVERY] marked ${recovered.length} interrupted source(s) as failed: ids=[${recovered.join(', ')}]`);
+  }
+
+  registerIpc(db);
+  createWindow();
+});
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

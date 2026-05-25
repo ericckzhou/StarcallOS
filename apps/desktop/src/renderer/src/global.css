@@ -1,0 +1,53 @@
+/* Global theme overrides — scrollbars, selection, focus rings. */
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #0a0a0f;
+  color: #e2e8f0;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* Themed scrollbars (Chromium / WebKit) — applies to every scrollable area. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+::-webkit-scrollbar-track {
+  background: #0a0a0f;
+  border-left: 1px solid #111827;
+}
+::-webkit-scrollbar-thumb {
+  background: #1f2937;
+  border-radius: 5px;
+  border: 2px solid #0a0a0f;       /* shrinks the visible thumb, creates padding effect */
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #312e81;
+}
+::-webkit-scrollbar-thumb:active {
+  background: #4338ca;
+}
+::-webkit-scrollbar-corner {
+  background: #0a0a0f;
+}
+
+/* Firefox fallback (less granular, no padding control). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1f2937 #0a0a0f;
+}
+
+/* Selection — keep the brand indigo. */
+::selection {
+  background: #312e81;
+  color: #e2e8f0;
+}
+
+/* Default focus ring tamed for the dark theme. */
+:focus-visible {
+  outline: 1px solid #818cf8;
+  outline-offset: 1px;
+}
