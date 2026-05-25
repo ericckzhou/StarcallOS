@@ -171,7 +171,7 @@ export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: STAGE_COLORS[stage], flexShrink: 0 }} />
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 16, fontWeight: 500, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {c.name}
                 </div>
                 <span style={{ fontSize: 10, color: IMP_COLOR[c.importance] ?? '#6b7280', marginLeft: 'auto' }}>
@@ -188,12 +188,7 @@ export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
                 {it.attempts > 0 ? (
                   <span>{it.attempts} attempt{it.attempts === 1 ? '' : 's'}</span>
                 ) : (
-                  <span style={{ color: '#f59e0b' }}>never reviewed</span>
-                )}
-                {c.section_path?.length > 0 && (
-                  <span style={{ color: '#4b5563', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
-                    {c.section_path.join(' > ')}
-                  </span>
+                  <span style={{ color: '#f59e0b', marginLeft: 'auto' }}>never reviewed</span>
                 )}
               </div>
             </div>
