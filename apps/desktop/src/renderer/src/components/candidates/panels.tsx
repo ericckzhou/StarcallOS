@@ -53,11 +53,17 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
               >
                 {isOpen ? 'v' : '>'}
               </button>
-              <div style={{
+              <div title="confidence (signal stack)" style={{
                 minWidth: 36, textAlign: 'right', fontFamily: 'monospace',
                 fontSize: 12, color: confColor(c.confidence), fontWeight: 600,
               }}>
                 {c.confidence.toFixed(2)}
+              </div>
+              <div title="concept_score (heading*0.35 + domain*0.25 + localCtx*0.20 + recurrence*0.10 + phrase*0.10)" style={{
+                minWidth: 32, textAlign: 'right', fontFamily: 'monospace',
+                fontSize: 10, color: confColor(c.concept_score ?? 0), fontWeight: 600, opacity: 0.85,
+              }}>
+                Q{(c.concept_score ?? 0).toFixed(2)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 500, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -99,6 +105,19 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                       {c.bucket}
                     </span>
                   )}
+                  {c.reject_reasons && c.reject_reasons.length > 0 && c.reject_reasons.map(r => (
+                    <span
+                      key={r}
+                      title="Deterministic reject reason. Lower the score so the LLM filter / promote gate skips this."
+                      style={{
+                        fontSize: 9, color: '#fca5a5',
+                        border: '1px solid #7f1d1d',
+                        borderRadius: 2, padding: '1px 5px',
+                        fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em',
+                      }}>
+                      {r}
+                    </span>
+                  ))}
                   {llmKept && (
                     <span title="Kept by your saved LLM topic-fit filter" style={{
                       fontSize: 9, color: '#c7d2fe',
