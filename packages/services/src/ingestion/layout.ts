@@ -160,7 +160,65 @@ function isNoise(line: Line, pageHeight: number): boolean {
   // Running header/footer: short line in top or bottom 6% of page
   const relY = line.y / pageHeight;
   if ((relY > 0.94 || relY < 0.06) && t.length < 80) return true;
+  if (isTocLine(t)) return true;
   return false;
+}
+
+// "Introduction ............ 12" / "3.2 Foundations . . . . . 42" / wide-gap variants.
+// Catches TOC entries and most index lines so they don't pollute the candidate list.
+function isTocLine(text: string): boolean {
+  const t = text.trim();
+  if (t.length < 5 || t.length > 160) return false;
+  // Pattern A: text + 3+ dot leaders + trailing page number
+  if (/[\.…·]{3,}\s*\d{1,4}\s*$/.test(t)) return true;
+  // Pattern B: non-empty text + ≥6 spaces + trailing page number
+  if (/^\S.{4,}?\s{6,}\d{1,4}\s*$/.test(t)) return true;
+  // Pattern C: dotted leader with intermittent spaces ". . . . ."
+  if (/(?:\.\s){4,}\d{1,4}\s*$/.test(t)) return true;
+  return false;
+}
+
+// ─── Cross-page repeating header / footer detection ──────────────────────────
+// Books usually print the chapter title + page number in the margin of every
+// page. Even after isNoise drops the obvious page numbers, the chapter-title
+// strings survive as candidates. Strategy: scan margin text across all pages,
+// mark anything appearing on >40% of pages (only for docs ≥8 pages where the
+// signal is statistically meaningful), then filter those texts from the main
+// pass.
+const REPEAT_FRACTION    = 0.40;
+const REPEAT_MIN_PAGES   = 8;
+const REPEAT_MARGIN_FRAC = 0.08;          // top / bottom 8 % of page
+
+function buildRepeatingMarginSet(
+  perPageRaw: Array<{ raw: RawItem[]; pageHeight: number }>,
+): Set<string> {
+  if (perPageRaw.length < REPEAT_MIN_PAGES) return new Set();
+  const counts = new Map<string, number>();
+  for (const { raw, pageHeight } of perPageRaw) {
+    if (!raw.length) continue;
+    const lines = groupIntoLines(raw);
+    const seenOnPage = new Set<string>();
+    for (const ln of lines) {
+      const relY = ln.y / pageHeight;
+      if (relY > 1 - REPEAT_MARGIN_FRAC || relY < REPEAT_MARGIN_FRAC) {
+        const norm = ln.text.trim().toLowerCase().replace(/\s+/g, ' ').replace(/\d+/g, '#');
+        if (norm.length >= 2 && norm.length < 100) seenOnPage.add(norm);
+      }
+    }
+    for (const n of seenOnPage) counts.set(n, (counts.get(n) ?? 0) + 1);
+  }
+  const threshold = Math.max(3, Math.floor(perPageRaw.length * REPEAT_FRACTION));
+  const out = new Set<string>();
+  for (const [text, count] of counts) {
+    if (count >= threshold) out.add(text);
+  }
+  return out;
+}
+
+function isRepeatingHeader(line: Line, repeats: Set<string>): boolean {
+  if (repeats.size === 0) return false;
+  const norm = line.text.trim().toLowerCase().replace(/\s+/g, ' ').replace(/\d+/g, '#');
+  return repeats.has(norm);
 }
 
 // ─── Pass 4: two-column detection ─────────────────────────────────────────────
@@ -278,7 +336,8 @@ export interface LayoutDiagnostics {
   heading_block_count: number;
   body_block_count: number;
   two_column_pages: number;
-  noise_removed_count: number;
+  noise_removed_count: number;     // includes TOC lines (matched by isTocLine inside isNoise)
+  repeating_header_stripped: number;
   avg_blocks_per_page: number;
 }
 
@@ -296,24 +355,44 @@ export async function segmentPdf(filePath: string): Promise<{
   let pagesWithText = 0;
   let twoColumnPages = 0;
   let noiseRemovedCount = 0;
+  let repeatingHeaderStrippedCount = 0;
 
   const debug = process.env.STARCALL_LAYOUT_DEBUG === '1';
+
+  // ─── Pre-pass: gather raw items per page so we can find repeating margin text
+  //     across the whole doc before the main strip pass runs.
+  const perPageRaw: Array<{ raw: RawItem[]; pageHeight: number }> = [];
   for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
     const page = await doc.getPage(pageNum);
     const { height: pageHeight } = page.getViewport({ scale: 1.0 });
     const { items } = await page.getTextContent();
-
     const rawItems = toRawItems(items, pageNum);
+    perPageRaw.push({ raw: rawItems, pageHeight });
+  }
+  const repeatingHeaders = buildRepeatingMarginSet(perPageRaw);
+  if (debug && repeatingHeaders.size > 0) {
+    console.log(`[LAYOUT] repeating margin texts detected (${repeatingHeaders.size}): ${[...repeatingHeaders].slice(0, 5).join(' | ')}`);
+  }
+
+  for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+    const { raw: rawItems, pageHeight } = perPageRaw[pageNum - 1];
     if (debug && pageNum <= 3) {
-      const sample = (items as PdfTextItem[]).slice(0, 3).map(i => JSON.stringify(i.str)).join(' | ');
-      console.log(`[LAYOUT] p${pageNum} raw_items=${items.length} kept=${rawItems.length} sample=[${sample}]`);
+      const sample = rawItems.slice(0, 3).map(i => JSON.stringify(i.str)).join(' | ');
+      console.log(`[LAYOUT] p${pageNum} kept=${rawItems.length} sample=[${sample}]`);
     }
     if (!rawItems.length) continue;
     pagesWithText++;
 
     let lines = groupIntoLines(rawItems);
     const linesBefore = lines.length;
-    lines = lines.filter(l => !isNoise(l, pageHeight));
+    lines = lines.filter(l => {
+      if (isNoise(l, pageHeight)) return false;
+      if (isRepeatingHeader(l, repeatingHeaders)) {
+        repeatingHeaderStrippedCount += 1;
+        return false;
+      }
+      return true;
+    });
     noiseRemovedCount += linesBefore - lines.length;
     if (debug && pageNum <= 3) {
       console.log(`[LAYOUT] p${pageNum} lines=${linesBefore} after_noise=${lines.length}`);
@@ -357,6 +436,7 @@ export async function segmentPdf(filePath: string): Promise<{
     body_block_count:    allBlocks.filter(b => b.hint === 'body').length,
     two_column_pages:    twoColumnPages,
     noise_removed_count: noiseRemovedCount,
+    repeating_header_stripped: repeatingHeaderStrippedCount,
     avg_blocks_per_page: pagesWithText === 0 ? 0
                          : +(allBlocks.length / pagesWithText).toFixed(2),
   };
@@ -379,6 +459,7 @@ export function segmentTextWithDiagnostics(text: string): { blocks: SegmentedBlo
       body_block_count:    blocks.filter(b => b.hint === 'body').length,
       two_column_pages:    0,
       noise_removed_count: 0,
+      repeating_header_stripped: 0,
       avg_blocks_per_page: blocks.length,
     },
   };

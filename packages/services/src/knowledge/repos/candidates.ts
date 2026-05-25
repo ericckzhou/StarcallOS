@@ -38,6 +38,7 @@ interface ConceptCandidateRow {
   topic_relevance_reasons_json?: string;
   is_boilerplate?: number;
   is_broad?: number;
+  concept_score?: number;
 }
 
 function rowToConceptCandidate(row: ConceptCandidateRow): StoredConceptCandidate {
@@ -59,6 +60,8 @@ function rowToConceptCandidate(row: ConceptCandidateRow): StoredConceptCandidate
       : [],
     is_boilerplate: !!row.is_boilerplate,
     is_broad: !!row.is_broad,
+    concept_score: row.concept_score ?? 0,
+    reject_reasons: [], // not persisted yet; recompute on demand if needed
   };
 }
 
@@ -72,8 +75,9 @@ export function createConceptCandidate(
     `INSERT INTO concept_candidates
        (source_id, term, normalized, confidence, mention_count, first_page,
         section_path, evidence, signals, parser_version,
-        topic_relevance_score, topic_relevance_reasons_json, is_boilerplate, is_broad)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        topic_relevance_score, topic_relevance_reasons_json, is_boilerplate, is_broad,
+        concept_score)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     sourceId,
     c.term,
@@ -89,6 +93,7 @@ export function createConceptCandidate(
     JSON.stringify(c.topic_relevance_reasons ?? []),
     c.is_boilerplate ? 1 : 0,
     c.is_broad ? 1 : 0,
+    c.concept_score ?? 0,
   );
 }
 
@@ -101,7 +106,7 @@ export function listConceptCandidatesBySource(
       .prepare(
         `SELECT * FROM concept_candidates
          WHERE source_id = ?
-         ORDER BY confidence DESC, mention_count DESC`,
+         ORDER BY concept_score DESC, confidence DESC, mention_count DESC`,
       )
       .all(sourceId) as unknown as ConceptCandidateRow[]
   ).map(rowToConceptCandidate);
