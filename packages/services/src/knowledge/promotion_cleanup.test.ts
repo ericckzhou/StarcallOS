@@ -5,6 +5,7 @@ import { createConceptCandidate, listConceptCandidatesBySource } from './repos/c
 import { createSource, getTopicAnchors, setTopicAnchors } from './repos/sources';
 import { createConcept, getConceptById, listConceptsBySource, listConceptSourceEvidence } from './repos/concepts';
 import { createEvidenceRecord, createTask, getMastery } from './repos/evidence';
+import { createNote, listNotesByConcept } from './repos/concept_notes';
 import { promoteCandidate } from './promotion';
 import { clearDerivedDataForSource } from './cleanup';
 import { deriveTopicAnchors } from '../core/topic';
@@ -191,6 +192,68 @@ describe('candidate promotion and cleanup', () => {
     const remainingNames = listConceptsBySource(db, source.id).map(c => c.name).sort();
     expect(remainingNames).toEqual(['Gradient Descent', 'Studied LLM Concept']);
     expect(getTopicAnchors(db, source.id).length).toBeGreaterThan(0);
+
+    db.close();
+  });
+});
+
+describe('cleanup preserves user-authored notes on surviving concepts', () => {
+  it('keeps notes on a studied concept, drops notes only when the concept itself is dropped', () => {
+    const db = openDb(':memory:');
+    const source = createSource(db, { filename: 'b.txt', file_path: 'b.txt' });
+
+    const studied = createConcept(db, {
+      source_id: source.id,
+      name: 'Studied',
+      slug: 'studied',
+      importance: 'core',
+      definition_text: '',
+      why_exists: '',
+      what_breaks: '',
+      where_reappears: [],
+      chunk_ids: [],
+      section_path: [],
+      exam_value: 0,
+      misconception_risk: 0,
+      centrality_score: 0,
+    });
+    const task = createTask(db, { concept_id: studied.id, kind: 'definition', prompt: 'q', difficulty: 1 });
+    createEvidenceRecord(db, {
+      task_id: task.id,
+      concept_id: studied.id,
+      user_response: 'a',
+      score: 'understood',
+      compression_stage: 2,
+      gaps_detected: [],
+      misconceptions_detected: [],
+      grader_reasoning: 'ok',
+      task_prompt_snapshot: 'q',
+      task_kind_snapshot: 'definition',
+    });
+    createNote(db, studied.id, { heading: 'my followup', body: 'check chapter 8' });
+
+    const orphan = createConcept(db, {
+      source_id: source.id,
+      name: 'Orphan',
+      slug: 'orphan',
+      importance: 'peripheral',
+      definition_text: '',
+      why_exists: '',
+      what_breaks: '',
+      where_reappears: [],
+      chunk_ids: [],
+      section_path: [],
+      exam_value: 0,
+      misconception_risk: 0,
+      centrality_score: 0,
+    });
+    createNote(db, orphan.id, { heading: 'doomed', body: '' });
+
+    clearDerivedDataForSource(db, source.id, { preserveUserData: true });
+
+    expect(listNotesByConcept(db, studied.id).map(n => n.heading)).toEqual(['my followup']);
+    expect(getConceptById(db, orphan.id)).toBeNull();
+    expect(listNotesByConcept(db, orphan.id)).toEqual([]);
 
     db.close();
   });

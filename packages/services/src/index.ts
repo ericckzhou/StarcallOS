@@ -13,6 +13,7 @@ export * from './core/domain/types';
 export * from './knowledge/repos/sources';
 export * from './knowledge/repos/concepts';
 export * from './knowledge/repos/evidence';
+export * from './knowledge/repos/concept_notes';
 export * from './knowledge/repos/candidates';
 export * from './knowledge/repos/parse_runs';
 export * from './knowledge/promotion';

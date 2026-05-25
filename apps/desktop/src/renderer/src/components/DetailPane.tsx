@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { Concept } from './ConceptPane';
 import LatexMath from './LatexMath';
 import PdfViewer from './PdfViewer';
+import UserNotesSection from './UserNotesSection';
 
 type Task = { id: number; kind: string; prompt: string; difficulty: number };
 type Mastery = { compression_stage: number };
@@ -561,6 +562,8 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
           </div>
         </Section>
       )}
+
+      <UserNotesSection conceptId={concept.id} />
 
       {/* ChatGPT prompt generator — paste to external LLM if you don't want to spend on enrich */}
       <div style={{

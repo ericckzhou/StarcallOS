@@ -8,6 +8,7 @@ import {
   listConceptSourceEvidence, updateConceptFields, deleteConcept, deleteConceptEvidenceSpan,
   enrichConceptDefinition,
   listTasksByConcept, getMastery, listMisconceptionsByConcept,
+  listNotesByConcept, createNote, updateNote, deleteNote, reorderNotes,
   createChunk, createConcept, updateCentralityScore, createEdge, createMisconception, createTask,
   upsertMastery, createEvidenceRecord, listRecordsByConcept, deleteEvidenceRecord,
   emitEvent,
@@ -381,6 +382,21 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CONCEPTS_REGENERATE_TASKS, async (_e, conceptId: number) => {
     return regenerateTasksForConcept(cfgFor('lazy_tasks'), db, conceptId);
   });
+
+  ipcMain.handle(IPC.CONCEPT_NOTES_LIST, (_e, conceptId: number) => listNotesByConcept(db, conceptId));
+  ipcMain.handle(IPC.CONCEPT_NOTES_CREATE, (_e, args: { conceptId: number; heading: string; body?: string }) =>
+    createNote(db, args.conceptId, { heading: args.heading, body: args.body }),
+  );
+  ipcMain.handle(IPC.CONCEPT_NOTES_UPDATE, (_e, args: { id: number; heading?: string; body?: string }) =>
+    updateNote(db, args.id, { heading: args.heading, body: args.body }),
+  );
+  ipcMain.handle(IPC.CONCEPT_NOTES_DELETE, (_e, id: number) => {
+    deleteNote(db, id);
+    return { ok: true };
+  });
+  ipcMain.handle(IPC.CONCEPT_NOTES_REORDER, (_e, args: { conceptId: number; orderedIds: number[] }) =>
+    reorderNotes(db, args.conceptId, args.orderedIds),
+  );
   ipcMain.handle(IPC.CONCEPTS_ENRICH, async (_e, conceptId: number) => {
     return enrichConceptDefinition(cfgFor('lazy_tasks'), db, conceptId);
   });

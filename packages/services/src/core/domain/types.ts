@@ -156,6 +156,18 @@ export interface Mastery {
   last_updated: string;
 }
 
+// ─── Concept Notes (user-authored) ────────────────────────────────────────────
+
+export interface ConceptNote {
+  id: number;
+  concept_id: number;
+  position: number;
+  heading: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Evidence Records ─────────────────────────────────────────────────────────
 
 export type EvidenceScore = 'understood' | 'recognizes' | 'gap' | 'misconception';
