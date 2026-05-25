@@ -46,6 +46,16 @@ export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Refetch whenever another part of the app signals that mastery /
+  // review-history state changed (evidence submit, history delete, task
+  // regenerate). Avoids the "never reviewed" mismatch where the queue
+  // is stale until manually clicking Refresh.
+  useEffect(() => {
+    const onChanged = () => refresh();
+    window.addEventListener('starcall:review-queue-stale', onChanged);
+    return () => window.removeEventListener('starcall:review-queue-stale', onChanged);
+  }, [refresh]);
+
   useEffect(() => {
     localStorage.setItem(COLLAPSED_KEY, String(collapsed));
   }, [collapsed]);
@@ -186,9 +196,9 @@ export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
                   {it.source_title || it.source_filename}
                 </span>
                 {it.attempts > 0 ? (
-                  <span>{it.attempts} attempt{it.attempts === 1 ? '' : 's'}</span>
+                  <span style={{ marginLeft: 'auto', whiteSpace: 'nowrap' }}>{it.attempts} {it.attempts === 1 ? 'try' : 'tries'}</span>
                 ) : (
-                  <span style={{ color: '#f59e0b', marginLeft: 'auto' }}>never reviewed</span>
+                  <span style={{ color: '#f59e0b', marginLeft: 'auto', whiteSpace: 'nowrap' }}>never reviewed</span>
                 )}
               </div>
             </div>
