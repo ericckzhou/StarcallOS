@@ -89,9 +89,7 @@ export default function App() {
         </div>
       ) : topLevel === 'review' ? (
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <div style={{ width: 420, borderRight: '1px solid #1f2937', display: 'flex', flexDirection: 'column' }}>
-            <ReviewQueue onSelect={handleReviewSelect} />
-          </div>
+          <ReviewQueue onSelect={handleReviewSelect} selectedConcept={selectedConcept} />
           <DetailPane
             concept={selectedConcept}
             onDeleted={() => {

@@ -3,7 +3,7 @@
 
 import type { CandidatesBundle } from '@starcall/shared';
 
-// ─── Lightweight aliases so panel files don't reach into shared internals ────
+// Lightweight aliases so panel files don't reach into shared internals.
 
 export type EvidenceSpan         = CandidatesBundle['concepts'][number]['evidence'][number];
 export type ConceptCandidate     = CandidatesBundle['concepts'][number];
@@ -15,7 +15,17 @@ export type Bundle               = CandidatesBundle;
 export type SubTab = 'concepts' | 'relations' | 'misconceptions' | 'equations';
 export type Bucket = 'all' | 'high' | 'medium' | 'low' | 'suspicious' | 'off_topic' | 'boilerplate' | 'broad';
 
-// ─── Color palettes ─────────────────────────────────────────────────────────
+export interface TopicFitDecision {
+  id?: number;
+  term?: string;
+  keep: boolean;
+}
+
+export interface TopicFitResponse {
+  decisions?: TopicFitDecision[];
+}
+
+// Color palettes.
 
 export const BUCKET_COLOR: Record<Bucket, string> = {
   all:         '#9ca3af',
@@ -30,8 +40,8 @@ export const BUCKET_COLOR: Record<Bucket, string> = {
 
 export const BUCKET_LABEL: Record<Bucket, string> = {
   all:         'All',
-  high:        'High (≥0.85)',
-  medium:      'Medium (0.55–0.84)',
+  high:        'High (>=0.85)',
+  medium:      'Medium (0.55-0.84)',
   low:         'Low (<0.55)',
   suspicious:  'Suspicious',
   off_topic:   'Off-topic',
@@ -55,7 +65,7 @@ export const RELATION_COLOR: Record<string, string> = {
   example_of:     '#22d3ee',
 };
 
-// ─── Pure-function helpers ───────────────────────────────────────────────────
+// Pure-function helpers.
 
 export function confColor(c: number): string {
   if (c >= 0.9) return '#22c55e';
@@ -103,3 +113,51 @@ export const SIGNAL_CHIPS: Array<{ key: string; label: string; color: string }> 
   { key: 'repetition',         label: 'Repetition',   color: SIGNAL_COLOR.repetition },
   { key: 'capitalized_phrase', label: 'Cap. phrase',  color: SIGNAL_COLOR.capitalized_phrase },
 ];
+
+export function parseTopicFitJson(raw: string): TopicFitResponse | null {
+  if (!raw.trim()) return null;
+  let body = raw.trim();
+  const fenced = body.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced) body = fenced[1].trim();
+  if (!body.startsWith('{')) {
+    const start = body.indexOf('{');
+    const end = body.lastIndexOf('}');
+    if (start >= 0 && end > start) body = body.slice(start, end + 1);
+  }
+  try {
+    const obj = JSON.parse(body) as TopicFitResponse;
+    if (!Array.isArray(obj.decisions)) return null;
+    return obj;
+  } catch {
+    return null;
+  }
+}
+
+export function buildTopicFitPrompt(
+  sourceTitle: string | undefined,
+  candidates: Array<Pick<ConceptCandidate, 'normalized' | 'term' | 'mention_count' | 'first_page'>>,
+): string {
+  const list = candidates.slice(0, 400).map(c =>
+    JSON.stringify({
+      term: c.normalized,
+      display: c.term,
+      mentions: c.mention_count,
+      page: c.first_page,
+    }),
+  ).join('\n');
+  const title = sourceTitle || '(unknown source title)';
+  return [
+    `You're filtering candidate concepts extracted from a book.`,
+    `Book title: "${title}"`,
+    ``,
+    `For each candidate below, decide whether it ACTUALLY belongs to this book's domain.`,
+    `Reject: overly broad terms, boilerplate ("Summary", "References"), generic words, and concepts that aren't really about this book's subject.`,
+    `Keep: concepts that a reader of this book would specifically want to learn.`,
+    ``,
+    `Candidates (one JSON object per line, use the "term" value as the key):`,
+    list,
+    ``,
+    `Respond ONLY with this JSON shape (one entry per candidate term you decide on - you can omit ones you're unsure about):`,
+    `{"decisions":[{"term":"<term verbatim>","keep":true|false}]}`,
+  ].join('\n');
+}

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "pdfjs-dist": "^4.9.0",
-    "typescript": "*"
+    "typescript": "*",
+    "vitest": "^2.0.0"
   }
 }

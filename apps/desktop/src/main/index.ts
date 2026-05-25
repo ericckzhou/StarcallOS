@@ -24,7 +24,7 @@ import {
   segmentTextWithDiagnostics,
   clearDerivedDataForSource, recoverInterruptedSources,
   createParseRun, listParseRunsBySource,
-  loadSettings, saveSettings, applyEnvFallbacks, resolveProviderConfig,
+  loadSettings, saveSettings, applyEnvFallbacks, resolveProviderConfig, MODEL_CHOICES,
   type LLMSettings, type PassName,
   runEnricher,
   runConceptExtractor, runGraphBuilder,
@@ -225,7 +225,16 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         if (isRetry) emitEvent(db, 'source.retry_completed', { sourceId, mode: 'deterministic' }, { entityType: 'source', entityId: sourceId });
         logTotals('ok-deterministic');
         recordRun('success');
-        return { ok: true, mode: 'deterministic' as const };
+        return {
+          ok: true,
+          mode: 'deterministic' as const,
+          blocks: blockCount,
+          candidates: candidateCount,
+          relations: relationCount,
+          equations: equationCount,
+          misconceptions: misconceptionCount,
+          llmCalls: getUsageStats().calls,
+        };
       }
 
       if (mode === 'candidate_gated' && candResult) {
@@ -252,7 +261,17 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         if (isRetry) emitEvent(db, 'source.retry_completed', { sourceId, llm_skipped: 'no_blocks' }, { entityType: 'source', entityId: sourceId });
         logTotals('ok-no-blocks');
         recordRun('success');
-        return { ok: true, warning: 'No extractable text — candidate pipeline only. Likely a scanned PDF.' };
+        return {
+          ok: true,
+          warning: 'No extractable text - candidate pipeline only. Likely a scanned PDF.',
+          mode,
+          blocks: blockCount,
+          candidates: candidateCount,
+          relations: relationCount,
+          equations: equationCount,
+          misconceptions: misconceptionCount,
+          llmCalls: getUsageStats().calls,
+        };
       }
 
       rawChunks = await runEnricher(cfgFor('enrich'), blocksForLLM);
@@ -316,7 +335,16 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       if (isRetry) emitEvent(db, 'source.retry_completed', { sourceId }, { entityType: 'source', entityId: sourceId });
       logTotals('ok');
       recordRun('success');
-      return { ok: true };
+      return {
+        ok: true,
+        mode,
+        blocks: blockCount,
+        candidates: candidateCount,
+        relations: relationCount,
+        equations: equationCount,
+        misconceptions: misconceptionCount,
+        llmCalls: getUsageStats().calls,
+      };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[EXTRACT] pipeline failed for source', sourceId, err);
@@ -405,6 +433,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       extractionMode: s.extractionMode ?? 'deterministic',
       heavyModel: s.heavyModel ?? '',
       lightModel: s.lightModel ?? '',
+      modelChoices: MODEL_CHOICES,
     };
   });
   ipcMain.handle(IPC.SETTINGS_SET, (_e, input: Partial<LLMSettings>) => {
@@ -476,7 +505,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       }
     }
     const sectionPaths = buildSectionPath(blocks, []);
-    const cand = extractCandidates(blocks, sectionPaths);
+    const anchors = deriveTopicAnchors(blocks, source.title);
+    setTopicAnchors(db, sourceId, anchors);
+    const cand = extractCandidates(blocks, sectionPaths, anchors);
     persistCandidateExtraction(db, sourceId, cand);
     console.log(
       `[CANDIDATES] (manual) source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +

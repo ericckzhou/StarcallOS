@@ -11,6 +11,7 @@ interface Snapshot {
   extractionMode: ExtractionMode;
   heavyModel: string;
   lightModel: string;
+  modelChoices: Record<ProviderId, { heavy: string[]; light: string[] }>;
 }
 
 const PROVIDER_INFO: Record<ProviderId, { label: string; tagline: string }> = {
@@ -39,19 +40,6 @@ const MODE_INFO: Record<ExtractionMode, { label: string; desc: string; accent: s
     label: 'Full (legacy)',
     accent: '#f59e0b',
     desc: 'Sends every block through the enricher. Expensive on long docs. Use as a benchmark only.',
-  },
-};
-
-// Curated model lists; mirror MODEL_CHOICES in packages/services/src/core/settings.ts.
-// Keep in sync — if the backend rejects a model the UI shouldn't offer it.
-const MODEL_CHOICES: Record<ProviderId, { heavy: string[]; light: string[] }> = {
-  groq: {
-    heavy: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
-    light: ['llama-3.1-8b-instant'],
-  },
-  anthropic: {
-    heavy: ['claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-opus-4-7'],
-    light: ['claude-haiku-4-5-20251001'],
   },
 };
 
@@ -134,10 +122,11 @@ export default function SettingsPane() {
   // heavy/light split. User picks one; that's what gets used for the heavy
   // passes (enrichment, concepts, grader, tasks). Light passes (structure,
   // graph) still auto-fall to the provider's cheap default behind the scenes.
-  const allChoices = [...MODEL_CHOICES[provider].heavy, ...MODEL_CHOICES[provider].light];
+  const providerChoices = snap.modelChoices[provider];
+  const allChoices = [...providerChoices.heavy, ...providerChoices.light];
   const modelValue = (heavyModel && allChoices.includes(heavyModel)) ? heavyModel : allChoices[0];
   const modelSaved = !!snap.heavyModel && allChoices.includes(snap.heavyModel);
-  const lightFallback = MODEL_CHOICES[provider].light[0];
+  const lightFallback = providerChoices.light[0];
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 32 }}>

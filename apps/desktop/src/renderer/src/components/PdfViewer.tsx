@@ -30,6 +30,7 @@ const KIND_COLOR: Record<string, string> = {
   chunk:      '#818cf8',
   first_page: '#6b7280',
 };
+const EVIDENCE_RAIL_KEY = 'starcall.layout.evidenceRailCollapsed';
 
 interface Props {
   conceptId: number;
@@ -45,8 +46,13 @@ export default function PdfViewer({ conceptId, conceptName }: Props) {
   const [evidenceOnly, setEvidenceOnly] = useState(true);
   const [pdfDoc, setPdfDoc] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const [renderingPage, setRenderingPage] = useState(false);
+  const [evidenceRailCollapsed, setEvidenceRailCollapsed] = useState(() => localStorage.getItem(EVIDENCE_RAIL_KEY) === 'true');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<pdfjs.RenderTask | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem(EVIDENCE_RAIL_KEY, String(evidenceRailCollapsed));
+  }, [evidenceRailCollapsed]);
 
   // Pages that have any evidence (deduped + sorted)
   const evidencePages = useMemo(() => {
@@ -178,12 +184,35 @@ export default function PdfViewer({ conceptId, conceptName }: Props) {
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
       {/* Side rail of evidence chips */}
       <aside style={{
-        width: 260, borderRight: '1px solid #1f2937', background: '#0d0d16',
-        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        width: evidenceRailCollapsed ? 36 : 260, borderRight: '1px solid #1f2937', background: '#0d0d16',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden', alignItems: evidenceRailCollapsed ? 'center' : 'stretch',
       }}>
-        <div style={{ padding: '10px 14px', borderBottom: '1px solid #1f2937' }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
+        {evidenceRailCollapsed ? (
+          <button
+            onClick={() => setEvidenceRailCollapsed(false)}
+            title={`Evidence (${data.evidence.length}) - click to expand`}
+            style={{
+              marginTop: 8, background: 'transparent', border: '1px solid #1f2937', borderRadius: 3,
+              color: '#fbbf24', fontSize: 12, padding: '4px 6px', cursor: 'pointer',
+              writingMode: 'vertical-rl', textOrientation: 'mixed',
+            }}
+          >
             Evidence ({data.evidence.length})
+          </button>
+        ) : (
+          <>
+        <div style={{ padding: '10px 14px', borderBottom: '1px solid #1f2937' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Evidence ({data.evidence.length})
+            </div>
+            <button
+              onClick={() => setEvidenceRailCollapsed(true)}
+              title="Minimize evidence rail"
+              style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '2px 7px', color: '#6b7280', fontSize: 11, cursor: 'pointer' }}
+            >
+              ‹
+            </button>
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#9ca3af', cursor: 'pointer' }}>
             <input
@@ -244,6 +273,8 @@ export default function PdfViewer({ conceptId, conceptName }: Props) {
             </div>
           )}
         </div>
+          </>
+        )}
       </aside>
 
       {/* PDF render area */}

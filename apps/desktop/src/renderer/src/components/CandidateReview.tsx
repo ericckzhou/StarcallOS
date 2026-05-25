@@ -1,150 +1,29 @@
-import React, { useEffect, useState, useCallback } from 'react';
-
-interface EvidenceSpan {
-  source: string;
-  quote: string;
-  page: number;
-  pattern?: string;
-}
-
-interface ConceptCandidate {
-  id: number;
-  source_id: number;
-  term: string;
-  normalized: string;
-  confidence: number;
-  mention_count: number;
-  first_page: number;
-  section_path: string[];
-  evidence: EvidenceSpan[];
-  signals: string[];
-  topic_relevance_score?: number;
-  topic_relevance_reasons?: string[];
-  is_boilerplate?: boolean;
-  is_broad?: boolean;
-}
-
-interface RelationCandidate {
-  id: number;
-  from: string;
-  to: string;
-  kind: string;
-  quote: string;
-  page: number;
-}
-
-interface MisconceptionCandidate {
-  id: number;
-  quote: string;
-  page: number;
-  section_path: string[];
-}
-
-interface EquationCandidate {
-  id: number;
-  latex: string;
-  variables: string[];
-  page: number;
-  reading_order: number;
-  section_path: string[];
-  attached_term: string | null;
-}
-
-interface Bundle {
-  concepts: ConceptCandidate[];
-  relations: RelationCandidate[];
-  misconceptions: MisconceptionCandidate[];
-  equations: EquationCandidate[];
-}
-
-type SubTab = 'concepts' | 'relations' | 'misconceptions' | 'equations';
-type Bucket = 'all' | 'high' | 'medium' | 'low' | 'suspicious' | 'off_topic' | 'boilerplate' | 'broad';
-
-const BUCKET_COLOR: Record<Bucket, string> = {
-  all:         '#9ca3af',
-  high:        '#22c55e',
-  medium:      '#818cf8',
-  low:         '#f59e0b',
-  suspicious:  '#ef4444',
-  off_topic:   '#a855f7',
-  boilerplate: '#6b7280',
-  broad:       '#06b6d4',
-};
-
-const BUCKET_LABEL: Record<Bucket, string> = {
-  all:         'All',
-  high:        'High (≥0.85)',
-  medium:      'Medium (0.55–0.84)',
-  low:         'Low (<0.55)',
-  suspicious:  'Suspicious',
-  off_topic:   'Off-topic',
-  boilerplate: 'Boilerplate',
-  broad:       'Too broad',
-};
-
-function isSuspicious(c: ConceptCandidate): boolean {
-  // High confidence but no evidence quote
-  const hasAnyQuote = c.evidence.some(e => e.quote && e.quote.trim().length > 0);
-  if (c.confidence >= 0.7 && !hasAnyQuote) return true;
-  // Term length outliers
-  if (c.term.length > 80) return true;
-  if (c.term.replace(/\s+/g, '').length <= 1) return true;
-  // Formula / math symbols leaked through
-  if (/[\\{}=<>∑∫∂∇αβγδεζηθικλμνξπρστυφχψω]/.test(c.term)) return true;
-  // Code fence leak
-  if (c.term.includes('```') || c.term.startsWith('`')) return true;
-  // Long all-caps run (probably a shout sentence, not a concept name)
-  if (c.term.length >= 30 && /[A-Z]/.test(c.term) && c.term === c.term.toUpperCase()) return true;
-  return false;
-}
-
-function classifyBucket(c: ConceptCandidate): Bucket {
-  // Quality flags from parser have priority over confidence-band classification.
-  // Off-topic is the most subjective of the three — a token-overlap miss can
-  // happen even on genuinely on-topic high-confidence concepts. Don't let it
-  // override a strong confidence signal.
-  if (c.is_boilerplate)                                return 'boilerplate';
-  if (c.is_broad)                                      return 'broad';
-  if (isSuspicious(c))                                 return 'suspicious';
-  if (c.confidence >= 0.85)                            return 'high';
-  if ((c.topic_relevance_score ?? 1.0) < 0.15)         return 'off_topic';
-  if (c.confidence >= 0.55)                            return 'medium';
-  return 'low';
-}
-
-// Bulk-promote gate: only the obviously safe candidates qualify automatically.
-function passesBulkPromoteGate(c: ConceptCandidate & { bucket: Bucket }): boolean {
-  if (c.is_boilerplate) return false;
-  if (c.is_broad) return false;
-  if (c.bucket === 'suspicious') return false;
-  if ((c.topic_relevance_score ?? 1.0) < 0.55) return false;
-  if (c.confidence < 0.9) return false;
-  if (c.mention_count < 2) return false;
-  return true;
-}
-
-const SIGNAL_COLOR: Record<string, string> = {
-  heading:            '#f59e0b',
-  definition_pattern: '#22c55e',
-  bold_block:         '#a855f7',
-  repetition:         '#22d3ee',
-  capitalized_phrase: '#6b7280',
-};
-
-const RELATION_COLOR: Record<string, string> = {
-  requires:       '#f59e0b',
-  causes:         '#ef4444',
-  enables:        '#22c55e',
-  contrasts_with: '#a855f7',
-  example_of:     '#22d3ee',
-};
-
-function confColor(c: number): string {
-  if (c >= 0.9) return '#22c55e';
-  if (c >= 0.55) return '#818cf8';
-  if (c >= 0.3) return '#f59e0b';
-  return '#6b7280';
-}
+﻿import React, { useEffect, useState, useCallback } from 'react';
+import {
+  BUCKET_COLOR,
+  BUCKET_LABEL,
+  RELATION_COLOR,
+  SIGNAL_CHIPS,
+  SIGNAL_COLOR,
+  buildTopicFitPrompt,
+  classifyBucket,
+  confColor,
+  parseTopicFitJson,
+  passesBulkPromoteGate,
+  type Bucket,
+  type Bundle,
+  type ConceptCandidate,
+  type EquationCandidate,
+  type MisconceptionCandidate,
+  type RelationCandidate,
+  type SubTab,
+} from './candidates/shared';
+import {
+  ConceptsPanel as CandidateConceptsPanel,
+  EquationsPanel as CandidateEquationsPanel,
+  MisconceptionsPanel as CandidateMisconceptionsPanel,
+  RelationsPanel as CandidateRelationsPanel,
+} from './candidates/panels';
 
 interface Props {
   sourceId: number;
@@ -166,7 +45,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState<'visible' | 'eligible'>('visible');
-  // LLM topic-fit filter — soft filter on top of the bucket/signal pass.
+  // LLM topic-fit filter â€” soft filter on top of the bucket/signal pass.
   const [llmFilterOpen, setLlmFilterOpen]   = useState(false);
   const [llmKeepIds, setLlmKeepIds]         = useState<Set<number> | null>(null);
   const [llmFilterEnabled, setLlmFilterEnabled] = useState(true); // toggle without losing the saved set
@@ -175,11 +54,11 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
   const [llmPaste, setLlmPaste]             = useState('');
 
   // Persisted LLM filter is stored as normalized terms (stable across
-  // re-extracts where row IDs churn). We map terms → current candidate IDs
+  // re-extracts where row IDs churn). We map terms â†’ current candidate IDs
   // every time the bundle reloads.
   const [llmKeepTerms, setLlmKeepTerms] = useState<Set<string> | null>(null);
 
-  // Single combined refresh — loads bundle and saved filter in parallel,
+  // Single combined refresh â€” loads bundle and saved filter in parallel,
   // sets both atomically. Kills the source-switch flicker where one races
   // ahead of the other and briefly shows "All candidates filtered out".
   const refresh = useCallback(() => {
@@ -217,60 +96,19 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
     if (keep.size === 0) setLlmFilterMsg(null);
   }, [bundle, llmKeepTerms]);
 
-  // ── LLM topic-fit filter helpers ─────────────────────────────────────────
+  // â”€â”€ LLM topic-fit filter helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Generates a prompt that hands the LLM the source title + the current
   // candidate list, asks it to flag which belong to the book's topic. Parses
   // the response and sets a soft filter on the list (no DB writes).
-  function buildTopicFitPrompt(): string {
-    // Send the normalized term as the stable key. Row IDs change on every
-    // Re-extract; terms don't. The LLM keys its response by "term" so the
-    // filter survives re-extracts.
-    const list = withBucket.slice(0, 400).map(c =>
-      JSON.stringify({ term: c.normalized, display: c.term, mentions: c.mention_count, page: c.first_page }),
-    ).join('\n');
-    const title = sourceTitle || '(unknown source title)';
-    return [
-      `You're filtering candidate concepts extracted from a book.`,
-      `Book title: "${title}"`,
-      ``,
-      `For each candidate below, decide whether it ACTUALLY belongs to this book's domain.`,
-      `Reject: overly broad terms, boilerplate ("Summary", "References"), generic words, and concepts that aren't really about this book's subject.`,
-      `Keep: concepts that a reader of this book would specifically want to learn.`,
-      ``,
-      `Candidates (one JSON object per line, use the "term" value as the key):`,
-      list,
-      ``,
-      `Respond ONLY with this JSON shape (one entry per candidate term you decide on — you can omit ones you're unsure about):`,
-      `{"decisions":[{"term":"<term verbatim>","keep":true|false}]}`,
-    ].join('\n');
-  }
   async function copyTopicFitPrompt(): Promise<void> {
-    await navigator.clipboard.writeText(buildTopicFitPrompt());
+    await navigator.clipboard.writeText(topicFitPrompt);
     setLlmCopied(true);
     setTimeout(() => setLlmCopied(false), 2000);
-  }
-  function parseTopicFitJson(raw: string): { decisions?: Array<{ id?: number; term?: string; keep: boolean }> } | null {
-    if (!raw.trim()) return null;
-    let body = raw.trim();
-    const fenced = body.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-    if (fenced) body = fenced[1].trim();
-    if (!body.startsWith('{')) {
-      const start = body.indexOf('{');
-      const end   = body.lastIndexOf('}');
-      if (start >= 0 && end > start) body = body.slice(start, end + 1);
-    }
-    try {
-      const obj = JSON.parse(body) as { decisions?: Array<{ id?: number; term?: string; keep: boolean }> };
-      if (!Array.isArray(obj.decisions)) return null;
-      return obj;
-    } catch {
-      return null;
-    }
   }
   function applyTopicFitFilter(raw: string): void {
     const parsed = parseTopicFitJson(raw);
     if (!parsed?.decisions) {
-      setLlmFilterMsg('Could not parse JSON. Expected {"decisions":[{"term":"…","keep":true|false}, …]}.');
+      setLlmFilterMsg('Could not parse JSON. Expected {"decisions":[{"term":"â€¦","keep":true|false}, â€¦]}.');
       return;
     }
     // Build lookup maps from current candidates so we can resolve both
@@ -313,7 +151,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
     setLlmKeepTerms(new Set(termsArr));
     setLlmKeepIds(keepIds);
     setLlmFilterEnabled(true);
-    const unmatchedPart = unmatched > 0 ? ` (${unmatched} stale id${unmatched === 1 ? '' : 's'} ignored)` : '';
+    const unmatchedPart = unmatched > 0 ? ` (${unmatched} stale decision${unmatched === 1 ? '' : 's'} ignored)` : '';
     setLlmFilterMsg(`Filter active: ${keepIds.size} candidate${keepIds.size === 1 ? '' : 's'} kept${unmatchedPart}.`);
     setLlmFilterOpen(false);
     setLlmPaste('');
@@ -340,7 +178,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
         ...b,
         concepts: b.concepts.filter(c => !ids.includes(c.id) || failedIds.has(c.id) || !promotedSet.has(c.id)),
       }));
-      const errPart = r.errors.length > 0 ? ` · ${r.errors.length} failed` : '';
+      const errPart = r.errors.length > 0 ? ` Â· ${r.errors.length} failed` : '';
       setBulkMsg(`Promoted ${r.promoted.length} of ${ids.length}${errPart}`);
       onPromoted?.();
     } catch (e) {
@@ -392,15 +230,8 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
     if (llmFilterEnabled && llmKeepIds !== null && !llmKeepIds.has(c.id)) continue;
     for (const s of c.signals) signalCounts[s] = (signalCounts[s] ?? 0) + 1;
   }
-  const signalChips: Array<{ key: string; label: string; color: string }> = [
-    { key: 'any',                label: 'Any signal',   color: '#9ca3af' },
-    { key: 'heading',            label: 'Heading',      color: SIGNAL_COLOR.heading },
-    { key: 'definition_pattern', label: 'Definition',   color: SIGNAL_COLOR.definition_pattern },
-    { key: 'bold_block',         label: 'Bold',         color: SIGNAL_COLOR.bold_block },
-    { key: 'repetition',         label: 'Repetition',   color: SIGNAL_COLOR.repetition },
-    { key: 'capitalized_phrase', label: 'Cap. phrase',  color: SIGNAL_COLOR.capitalized_phrase },
-  ];
   const knownNormalized = new Set(bundle.concepts.map(c => c.normalized));
+  const topicFitPrompt = buildTopicFitPrompt(sourceTitle, withBucket);
   const equationsByTerm = new Map<string, EquationCandidate[]>();
   for (const eq of bundle.equations) {
     if (!eq.attached_term) continue;
@@ -434,8 +265,8 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           ? withBucket.filter(passesBulkPromoteGate)
           : filtered;
         const description = confirmTarget === 'eligible'
-          ? `Promotes every candidate that passes the safe-default gate: confidence ≥ 0.9, mention_count ≥ 2, topic_relevance_score ≥ 0.55, and not suspicious / boilerplate / broad. Ignores the current bucket and signal filters.`
-          : `Bulk-creates concept rows from every visible candidate (bucket "${BUCKET_LABEL[bucket]}", signal "${signalFilter}", min confidence ${minConf.toFixed(2)}). No LLM calls — pure DB upserts. Tasks generate lazily on first review.`;
+          ? `Promotes every candidate that passes the safe-default gate: confidence â‰¥ 0.9, mention_count â‰¥ 2, topic_relevance_score â‰¥ 0.55, and not suspicious / boilerplate / broad. Ignores the current bucket and signal filters.`
+          : `Bulk-creates concept rows from every visible candidate (bucket "${BUCKET_LABEL[bucket]}", signal "${signalFilter}", min confidence ${minConf.toFixed(2)}). No LLM calls â€” pure DB upserts. Tasks generate lazily on first review.`;
         return (
           <div style={{
             position: 'absolute', inset: 0, zIndex: 50,
@@ -451,7 +282,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               <div style={{ fontSize: 12, color: '#9ca3af', lineHeight: 1.6 }}>
                 {description}
                 <div style={{ marginTop: 8, color: '#6b7280', fontSize: 11 }}>
-                  Top of list: {targetList.slice(0, 3).map(c => c.term).join(' · ')}{targetList.length > 3 ? ` … +${targetList.length - 3} more` : ''}
+                  Top of list: {targetList.slice(0, 3).map(c => c.term).join(' Â· ')}{targetList.length > 3 ? ` â€¦ +${targetList.length - 3} more` : ''}
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
@@ -467,7 +298,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                   disabled={bulkBusy}
                   style={{ background: '#14532d', border: '1px solid #22c55e', borderRadius: 4, padding: '5px 14px', color: '#bbf7d0', fontSize: 12, cursor: bulkBusy ? 'wait' : 'pointer', fontWeight: 600 }}
                 >
-                  {bulkBusy ? 'Promoting…' : `Promote ${targetList.length}`}
+                  {bulkBusy ? 'Promotingâ€¦' : `Promote ${targetList.length}`}
                 </button>
               </div>
             </div>
@@ -482,7 +313,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
           <span>{bulkMsg}</span>
-          <button onClick={() => setBulkMsg(null)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: '#4b5563', cursor: 'pointer', fontSize: 14 }}>×</button>
+          <button onClick={() => setBulkMsg(null)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: '#4b5563', cursor: 'pointer', fontSize: 14 }}>Ã—</button>
         </div>
       )}
 
@@ -514,7 +345,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                 marginLeft: 'auto', background: '#1e1b4b', border: '1px solid #4338ca', borderRadius: 3,
                 padding: '3px 10px', fontSize: 11, color: llmCopied ? '#86efac' : '#c7d2fe', cursor: 'pointer', fontWeight: 600,
               }}>
-                {llmCopied ? '✓ Copied' : 'Copy Prompt'}
+                {llmCopied ? 'âœ“ Copied' : 'Copy Prompt'}
               </button>
             </div>
             <pre style={{
@@ -522,7 +353,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               color: '#9ca3af', fontSize: 10, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               fontFamily: 'ui-monospace, Consolas, monospace', maxHeight: 140, overflow: 'auto',
             }}>
-              {buildTopicFitPrompt().slice(0, 600)}{buildTopicFitPrompt().length > 600 ? '\n… (truncated; full prompt is on your clipboard)' : ''}
+              {topicFitPrompt.slice(0, 600)}{topicFitPrompt.length > 600 ? '\nâ€¦ (truncated; full prompt is on your clipboard)' : ''}
             </pre>
 
             <div style={{ fontSize: 11, color: '#9ca3af' }}>2. Paste the LLM&apos;s JSON answer here (auto-parses on paste):</div>
@@ -538,7 +369,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                   applyTopicFitFilter(v);
                 }
               }}
-              placeholder='Paste e.g. {"decisions":[{"id":123,"keep":true},{"id":124,"keep":false}, …]}'
+              placeholder='Paste e.g. {"decisions":[{"term":"gradient descent","keep":true},{"term":"summary","keep":false}]}'
               rows={8}
               style={{
                 width: '100%', boxSizing: 'border-box', resize: 'vertical',
@@ -575,7 +406,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
         </div>
       )}
 
-      {/* Top bar — bucket chips, counters, slider, refresh, run-extraction */}
+      {/* Top bar â€” bucket chips, counters, slider, refresh, run-extraction */}
       <div style={{
         padding: '8px 16px', borderBottom: '1px solid #1f2937',
         display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap',
@@ -614,7 +445,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               fontWeight: 700, letterSpacing: '0.03em',
             }}
           >
-            {llmFilterEnabled ? '● LLM-kept' : '○ LLM-kept'} <span style={{ color: llmFilterEnabled ? '#818cf8' : '#4b5563', marginLeft: 4 }}>{llmKeepIds.size}</span>
+            {llmFilterEnabled ? 'â— LLM-kept' : 'â—‹ LLM-kept'} <span style={{ color: llmFilterEnabled ? '#818cf8' : '#4b5563', marginLeft: 4 }}>{llmKeepIds.size}</span>
           </button>
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -629,14 +460,14 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                       setConfirming(true);
                     }}
                     disabled={bulkBusy}
-                    title={`Promote every candidate that passes the safe-default gate: confidence ≥ 0.9, mention_count ≥ 2, topic_relevance ≥ 0.55, not suspicious / boilerplate / broad. Ignores the current bucket filter.`}
+                    title={`Promote every candidate that passes the safe-default gate: confidence â‰¥ 0.9, mention_count â‰¥ 2, topic_relevance â‰¥ 0.55, not suspicious / boilerplate / broad. Ignores the current bucket filter.`}
                     style={{
                       background: '#0e3a25', border: '1px solid #22c55e', borderRadius: 3,
                       padding: '3px 10px', fontSize: 10, cursor: bulkBusy ? 'wait' : 'pointer',
                       color: '#bbf7d0', opacity: bulkBusy ? 0.5 : 1, fontWeight: 700,
                     }}
                   >
-                    {bulkBusy ? 'Promoting…' : `Promote ${eligible.length} eligible`}
+                    {bulkBusy ? 'Promotingâ€¦' : `Promote ${eligible.length} eligible`}
                   </button>
                 )}
                 {filtered.length > 0 && (
@@ -653,7 +484,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                       color: '#bbf7d0', opacity: bulkBusy ? 0.5 : 1, fontWeight: 600,
                     }}
                   >
-                    {bulkBusy ? 'Promoting…' : `Promote ${filtered.length} visible`}
+                    {bulkBusy ? 'Promotingâ€¦' : `Promote ${filtered.length} visible`}
                   </button>
                 )}
                 <button
@@ -706,7 +537,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           background: '#0a0a0f',
         }}>
           <span style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 4 }}>signal</span>
-          {signalChips.map(({ key, label, color }) => {
+          {SIGNAL_CHIPS.map(({ key, label, color }) => {
             const selected = signalFilter === key;
             const count = key === 'any'
               ? Object.values(signalCounts).reduce((a, b) => a + b, 0)
@@ -732,11 +563,11 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {loading && (
-          <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>Loading candidates…</div>
+          <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>Loading candidatesâ€¦</div>
         )}
 
         {!loading && subTab === 'concepts' && (
-          <ConceptsPanel
+          <CandidateConceptsPanel
             filtered={filtered}
             totalConcepts={bundle.concepts.length}
             extractMsg={extractMsg}
@@ -750,15 +581,15 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
         )}
 
         {!loading && subTab === 'relations' && (
-          <RelationsPanel relations={bundle.relations} knownTerms={knownNormalized} />
+          <CandidateRelationsPanel relations={bundle.relations} knownTerms={knownNormalized} />
         )}
 
         {!loading && subTab === 'misconceptions' && (
-          <MisconceptionsPanel misconceptions={bundle.misconceptions} />
+          <CandidateMisconceptionsPanel misconceptions={bundle.misconceptions} />
         )}
 
         {!loading && subTab === 'equations' && (
-          <EquationsPanel
+          <CandidateEquationsPanel
             equations={bundle.equations}
             unattached={unattachedEquations}
             byTerm={equationsByTerm}
@@ -769,316 +600,3 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
   );
 }
 
-// ─── Concepts panel (existing list) ───────────────────────────────────────────
-
-function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, setExpanded, busy, equationsByTerm, act, llmKeepIds }: {
-  filtered: Array<ConceptCandidate & { bucket?: Bucket }>;
-  totalConcepts: number;
-  extractMsg: string | null;
-  expanded: number | null;
-  setExpanded: (n: number | null) => void;
-  busy: Set<number>;
-  equationsByTerm: Map<string, EquationCandidate[]>;
-  act: (id: number, fn: () => Promise<unknown>) => Promise<void>;
-  llmKeepIds: Set<number> | null;
-}) {
-  if (filtered.length === 0) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>
-        {totalConcepts === 0
-          ? 'No candidates for this source. Click "Re-extract" on the source in the left panel to (re-)parse it.'
-          : 'All candidates filtered out. Lower the confidence threshold.'}
-        {extractMsg && (
-          <div style={{ marginTop: 12, color: '#9ca3af', fontSize: 11 }}>{extractMsg}</div>
-        )}
-      </div>
-    );
-  }
-  return (
-    <>
-      {filtered.map(c => {
-        const isOpen = expanded === c.id;
-        const isBusy = busy.has(c.id);
-        const topQuote = c.evidence[0]?.quote ?? '';
-        const attachedEqs = equationsByTerm.get(c.normalized) ?? [];
-        const llmKept = !!llmKeepIds?.has(c.id);
-        return (
-          <div key={c.id} style={{ borderBottom: '1px solid #111827', padding: '10px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <button
-                onClick={() => setExpanded(isOpen ? null : c.id)}
-                style={{ background: 'transparent', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 11, width: 14 }}
-              >
-                {isOpen ? '▾' : '▸'}
-              </button>
-              <div style={{
-                minWidth: 36, textAlign: 'right', fontFamily: 'monospace',
-                fontSize: 12, color: confColor(c.confidence), fontWeight: 600,
-              }}>
-                {c.confidence.toFixed(2)}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {c.term}
-                </div>
-                <div style={{ marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: 10, color: '#6b7280' }}>×{c.mention_count}</span>
-                  <span style={{ fontSize: 10, color: '#6b7280' }}>p.{c.first_page}</span>
-                  {c.section_path.length > 0 && (
-                    <span style={{ fontSize: 10, color: '#4b5563', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
-                      {c.section_path.join(' › ')}
-                    </span>
-                  )}
-                  {c.signals.map(s => (
-                    <span key={s} style={{
-                      fontSize: 9, color: SIGNAL_COLOR[s] ?? '#6b7280',
-                      border: `1px solid ${SIGNAL_COLOR[s] ?? '#374151'}`,
-                      borderRadius: 2, padding: '1px 5px',
-                    }}>
-                      {s.replace(/_/g, ' ')}
-                    </span>
-                  ))}
-                  {attachedEqs.length > 0 && (
-                    <span style={{
-                      fontSize: 9, color: '#fbbf24',
-                      border: '1px solid #b45309',
-                      borderRadius: 2, padding: '1px 5px',
-                    }}>
-                      ƒ ×{attachedEqs.length}
-                    </span>
-                  )}
-                  {c.bucket && (c.bucket === 'low' || c.bucket === 'suspicious') && (
-                    <span style={{
-                      fontSize: 9, color: BUCKET_COLOR[c.bucket],
-                      border: `1px solid ${BUCKET_COLOR[c.bucket]}`,
-                      borderRadius: 2, padding: '1px 5px',
-                      fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em',
-                    }}>
-                      {c.bucket}
-                    </span>
-                  )}
-                  {llmKept && (
-                    <span title="Kept by your saved LLM topic-fit filter" style={{
-                      fontSize: 9, color: '#c7d2fe',
-                      border: '1px solid #4338ca',
-                      borderRadius: 2, padding: '1px 5px',
-                      fontWeight: 700, letterSpacing: '0.03em',
-                    }}>
-                      ● LLM
-                    </span>
-                  )}
-                </div>
-              </div>
-              <button
-                disabled={isBusy}
-                onClick={() => act(c.id, () => window.api.candidates.promote(c.id))}
-                style={{
-                  background: '#14532d', border: '1px solid #22c55e', borderRadius: 3,
-                  padding: '4px 10px', fontSize: 11, cursor: isBusy ? 'wait' : 'pointer',
-                  color: '#bbf7d0', opacity: isBusy ? 0.5 : 1,
-                }}
-              >
-                Promote
-              </button>
-              <button
-                disabled={isBusy}
-                onClick={() => act(c.id, () => window.api.candidates.reject(c.id))}
-                style={{
-                  background: 'transparent', border: '1px solid #374151', borderRadius: 3,
-                  padding: '4px 10px', fontSize: 11, cursor: isBusy ? 'wait' : 'pointer',
-                  color: '#9ca3af', opacity: isBusy ? 0.5 : 1,
-                }}
-              >
-                Reject
-              </button>
-            </div>
-
-            {!isOpen && topQuote && (
-              <div style={{ marginLeft: 64, marginTop: 4, fontSize: 11, color: '#6b7280', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                “{topQuote}”
-              </div>
-            )}
-
-            {isOpen && (
-              <div style={{ marginLeft: 64, marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {c.evidence.map((e, i) => (
-                  <div key={i} style={{ fontSize: 11, color: '#9ca3af', lineHeight: 1.5 }}>
-                    <span style={{
-                      display: 'inline-block', minWidth: 72, color: SIGNAL_COLOR[e.source] ?? '#6b7280',
-                      fontWeight: 600, fontSize: 10,
-                    }}>
-                      {e.source}{e.pattern ? `:${e.pattern}` : ''}
-                    </span>
-                    <span style={{ color: '#4b5563', marginRight: 6 }}>p.{e.page}</span>
-                    <span style={{ fontStyle: 'italic' }}>“{e.quote}”</span>
-                  </div>
-                ))}
-                {attachedEqs.length > 0 && (
-                  <div style={{ marginTop: 4, paddingTop: 6, borderTop: '1px dashed #1f2937' }}>
-                    <div style={{ fontSize: 10, color: '#fbbf24', fontWeight: 600, marginBottom: 4 }}>
-                      EQUATIONS ({attachedEqs.length})
-                    </div>
-                    {attachedEqs.map(eq => (
-                      <div key={eq.id} style={{ fontSize: 11, color: '#d1d5db', lineHeight: 1.6, marginBottom: 4 }}>
-                        <span style={{ color: '#4b5563', marginRight: 6, fontSize: 10 }}>p.{eq.page}</span>
-                        <code style={{
-                          background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 3,
-                          padding: '2px 6px', fontSize: 11, color: '#fde68a',
-                        }}>
-                          {eq.latex}
-                        </code>
-                        {eq.variables.length > 0 && (
-                          <span style={{ marginLeft: 8, fontSize: 10, color: '#6b7280' }}>
-                            vars: {eq.variables.slice(0, 6).join(', ')}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </>
-  );
-}
-
-// ─── Relations panel ──────────────────────────────────────────────────────────
-
-function RelationsPanel({ relations, knownTerms }: { relations: RelationCandidate[]; knownTerms: Set<string> }) {
-  if (relations.length === 0) {
-    return <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>No relation candidates.</div>;
-  }
-  function norm(s: string): string {
-    return s.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9\s-]/g, '').trim();
-  }
-  return (
-    <>
-      {relations.map(r => {
-        const fromKnown = knownTerms.has(norm(r.from));
-        const toKnown   = knownTerms.has(norm(r.to));
-        const color = RELATION_COLOR[r.kind] ?? '#6b7280';
-        return (
-          <div key={r.id} style={{ borderBottom: '1px solid #111827', padding: '10px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <Term name={r.from} known={fromKnown} />
-              <span style={{
-                fontSize: 10, fontWeight: 600, color, textTransform: 'uppercase',
-                border: `1px solid ${color}`, borderRadius: 2, padding: '1px 6px',
-              }}>
-                {r.kind.replace(/_/g, ' ')}
-              </span>
-              <Term name={r.to} known={toKnown} />
-              <span style={{ marginLeft: 'auto', fontSize: 10, color: '#4b5563' }}>p.{r.page}</span>
-            </div>
-            <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', lineHeight: 1.5 }}>
-              “{r.quote}”
-            </div>
-          </div>
-        );
-      })}
-    </>
-  );
-}
-
-function Term({ name, known }: { name: string; known: boolean }) {
-  return (
-    <span style={{
-      fontSize: 13, color: known ? '#e2e8f0' : '#6b7280',
-      fontWeight: 500,
-      borderBottom: known ? '1px solid #312e81' : '1px dashed #1f2937',
-      paddingBottom: 1,
-    }}>
-      {name}
-    </span>
-  );
-}
-
-// ─── Misconceptions panel ─────────────────────────────────────────────────────
-
-function MisconceptionsPanel({ misconceptions }: { misconceptions: MisconceptionCandidate[] }) {
-  if (misconceptions.length === 0) {
-    return <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>No misconception phrases detected.</div>;
-  }
-  return (
-    <>
-      {misconceptions.map(m => (
-        <div key={m.id} style={{ borderBottom: '1px solid #111827', padding: '12px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span style={{
-              fontSize: 9, color: '#fca5a5', border: '1px solid #7f1d1d',
-              borderRadius: 2, padding: '1px 5px', textTransform: 'uppercase', letterSpacing: '0.05em',
-            }}>
-              misconception phrase
-            </span>
-            <span style={{ marginLeft: 'auto', fontSize: 10, color: '#4b5563' }}>p.{m.page}</span>
-          </div>
-          <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.6, fontStyle: 'italic' }}>
-            “{m.quote}”
-          </div>
-          {m.section_path.length > 0 && (
-            <div style={{ marginTop: 4, fontSize: 10, color: '#4b5563' }}>
-              {m.section_path.join(' › ')}
-            </div>
-          )}
-        </div>
-      ))}
-    </>
-  );
-}
-
-// ─── Equations panel ─────────────────────────────────────────────────────────
-
-function EquationsPanel({ equations, unattached, byTerm }: {
-  equations: EquationCandidate[];
-  unattached: EquationCandidate[];
-  byTerm: Map<string, EquationCandidate[]>;
-}) {
-  if (equations.length === 0) {
-    return <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>No equation candidates.</div>;
-  }
-  const attached = [...byTerm.entries()].sort((a, b) => b[1].length - a[1].length);
-  return (
-    <>
-      {attached.map(([term, eqs]) => (
-        <div key={term} style={{ borderBottom: '1px solid #111827', padding: '10px 16px' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#c7d2fe', marginBottom: 6 }}>
-            {term} <span style={{ color: '#4b5563', fontWeight: 400, fontSize: 10 }}>· {eqs.length} equation{eqs.length === 1 ? '' : 's'}</span>
-          </div>
-          {eqs.map(eq => (
-            <EquationRow key={eq.id} eq={eq} />
-          ))}
-        </div>
-      ))}
-      {unattached.length > 0 && (
-        <div style={{ borderTop: '1px solid #1f2937', padding: '12px 16px' }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
-            Unattached ({unattached.length})
-          </div>
-          {unattached.map(eq => <EquationRow key={eq.id} eq={eq} />)}
-        </div>
-      )}
-    </>
-  );
-}
-
-function EquationRow({ eq }: { eq: EquationCandidate }) {
-  return (
-    <div style={{ fontSize: 11, color: '#d1d5db', lineHeight: 1.6, marginBottom: 4 }}>
-      <span style={{ color: '#4b5563', marginRight: 6, fontSize: 10 }}>p.{eq.page}</span>
-      <code style={{
-        background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 3,
-        padding: '2px 6px', fontSize: 11, color: '#fde68a',
-      }}>
-        {eq.latex}
-      </code>
-      {eq.variables.length > 0 && (
-        <span style={{ marginLeft: 8, fontSize: 10, color: '#6b7280' }}>
-          vars: {eq.variables.slice(0, 6).join(', ')}
-        </span>
-      )}
-    </div>
-  );
-}

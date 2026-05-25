@@ -26,11 +26,13 @@ const IMP_LABEL: Record<string, string> = {
   supporting: 'Supp.', peripheral: 'Periph.', reference_only: 'Ref.',
 };
 const STAGE_COLORS = ['#374151', '#6b7280', '#3b82f6', '#8b5cf6', '#f59e0b', '#22c55e'];
+const COLLAPSED_KEY = 'starcall.layout.conceptsCollapsed';
 
 export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [filter, setFilter] = useState('all');
   const [masteries, setMasteries] = useState<Map<number, number>>(new Map());
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === 'true');
 
   useEffect(() => {
     setConcepts([]);
@@ -47,18 +49,53 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
     ).then(entries => setMasteries(new Map(entries)));
   }, [concepts]);
 
+  useEffect(() => {
+    localStorage.setItem(COLLAPSED_KEY, String(collapsed));
+  }, [collapsed]);
+
   const displayed = filter === 'all' ? concepts : concepts.filter(c => c.importance === filter);
   const masteredCount = [...masteries.values()].filter(s => s >= 3).length;
+  const selectedConcept = selectedId != null ? concepts.find(c => c.id === selectedId) : null;
+
+  if (collapsed) {
+    return (
+      <aside style={{
+        width: 36, borderRight: '1px solid #1f2937', background: '#0d0d16',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 8,
+      }}>
+        <button
+          onClick={() => setCollapsed(false)}
+          title={`Concepts (${concepts.length}) - click to expand`}
+          style={{
+            background: 'transparent', border: '1px solid #1f2937', borderRadius: 3,
+            color: selectedConcept ? '#c7d2fe' : '#9ca3af', fontSize: 12, padding: '4px 6px', cursor: 'pointer',
+            writingMode: 'vertical-rl', textOrientation: 'mixed', maxHeight: 180,
+          }}
+        >
+          {selectedConcept?.name ?? `Concepts (${concepts.length})`}
+        </button>
+      </aside>
+    );
+  }
 
   return (
     <aside style={{ width: 260, borderRight: '1px solid #1f2937', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid #1f2937', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ padding: '10px 10px 10px 14px', borderBottom: '1px solid #1f2937', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
           Concepts ({concepts.length})
         </span>
-        {concepts.length > 0 && (
-          <span style={{ fontSize: 10, color: '#22c55e' }}>{masteredCount} connected+</span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {concepts.length > 0 && (
+            <span style={{ fontSize: 10, color: '#22c55e' }}>{masteredCount} connected+</span>
+          )}
+          <button
+            onClick={() => setCollapsed(true)}
+            title="Minimize concepts"
+            style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '3px 7px', color: '#6b7280', fontSize: 11, cursor: 'pointer' }}
+          >
+            ‹
+          </button>
+        </div>
       </div>
       <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         {['all', ...IMPORTANCE_ORDER].map(imp => (

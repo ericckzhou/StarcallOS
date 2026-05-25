@@ -1,5 +1,13 @@
 # StarcallOS — Implementation Plan
 
+> **Historical note:** this plan records an earlier product/architecture
+> direction and is not the source of truth for the current codebase. The current
+> implementation uses the candidate-first Electron app described in
+> `AGENTS.md`: Node built-in `node:sqlite`, no `better-sqlite3`, no Drizzle,
+> no Zustand/TanStack Query layer, no CLI app, and no Python in the critical
+> path. Treat details below as background only unless they have been reconciled
+> with the current code.
+
 > **Status:** plan, not committed. WAITING FOR CONFIRMATION before Phase 0.
 > **Last revised:** 2026-05-23 (rev 2 — GUI direction)
 

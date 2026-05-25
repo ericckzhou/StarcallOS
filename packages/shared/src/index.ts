@@ -88,6 +88,7 @@ export interface SettingsSnapshot {
   extractionMode: ExtractionMode;
   heavyModel: string;
   lightModel: string;
+  modelChoices: Record<ProviderId, { heavy: string[]; light: string[] }>;
 }
 
 export interface SettingsPatch {
@@ -144,6 +145,12 @@ export interface ProcessSourceResult {
   error?: string;
   warning?: string;
   mode?: ExtractionMode;
+  blocks?: number;
+  candidates?: number;
+  relations?: number;
+  equations?: number;
+  misconceptions?: number;
+  llmCalls?: number;
 }
 
 export interface ParseRunRecord {

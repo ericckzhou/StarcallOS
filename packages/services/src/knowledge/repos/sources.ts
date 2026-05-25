@@ -91,27 +91,49 @@ export function getTopicAnchors(db: DatabaseSync, sourceId: number): string[] {
 
 // Persisted LLM topic-fit filter: list of normalized candidate TERMS the LLM
 // marked keep:true. Terms are stable across re-extracts (where row IDs churn).
-// Legacy saves contained numeric IDs and are silently wiped on read so the user
-// recovers cleanly instead of getting stuck with orphaned filters.
+// 0010 used a legacy `*_ids_json` column name; 0011 added the correctly named
+// `*_terms_json` column. Write both for compatibility; read terms first.
 export function setLlmFilter(db: DatabaseSync, sourceId: number, keepTerms: string[] | null): void {
-  db.prepare('UPDATE sources SET llm_filter_keep_ids_json = ? WHERE id = ?')
-    .run(keepTerms === null ? null : JSON.stringify(keepTerms), sourceId);
+  const raw = keepTerms === null ? null : JSON.stringify(keepTerms);
+  db.prepare(
+    `UPDATE sources
+     SET llm_filter_keep_terms_json = ?,
+         llm_filter_keep_ids_json = ?
+     WHERE id = ?`,
+  ).run(raw, raw, sourceId);
 }
 
 export function getLlmFilter(db: DatabaseSync, sourceId: number): string[] | null {
   const row = db
-    .prepare('SELECT llm_filter_keep_ids_json FROM sources WHERE id = ?')
-    .get(sourceId) as { llm_filter_keep_ids_json?: string | null } | undefined;
-  if (!row?.llm_filter_keep_ids_json) return null;
+    .prepare(
+      `SELECT llm_filter_keep_terms_json, llm_filter_keep_ids_json
+       FROM sources WHERE id = ?`,
+    )
+    .get(sourceId) as {
+      llm_filter_keep_terms_json?: string | null;
+      llm_filter_keep_ids_json?: string | null;
+    } | undefined;
+  if (!row) return null;
+  const raw = row.llm_filter_keep_terms_json || row.llm_filter_keep_ids_json;
+  if (!raw) return null;
   try {
-    const arr = JSON.parse(row.llm_filter_keep_ids_json) as unknown;
+    const arr = JSON.parse(raw) as unknown;
     if (!Array.isArray(arr)) return null;
     const strings = arr.filter((v): v is string => typeof v === 'string');
     // If nothing parses as a string, the stored data is the legacy numeric
     // format. Wipe it in-place so future loads are clean.
     if (strings.length === 0) {
-      db.prepare('UPDATE sources SET llm_filter_keep_ids_json = NULL WHERE id = ?').run(sourceId);
+      db.prepare(
+        `UPDATE sources
+         SET llm_filter_keep_terms_json = NULL,
+             llm_filter_keep_ids_json = NULL
+         WHERE id = ?`,
+      ).run(sourceId);
       return null;
+    }
+    if (!row.llm_filter_keep_terms_json) {
+      db.prepare('UPDATE sources SET llm_filter_keep_terms_json = ? WHERE id = ?')
+        .run(JSON.stringify(strings), sourceId);
     }
     return strings;
   } catch {

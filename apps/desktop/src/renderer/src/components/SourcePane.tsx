@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 export type Source = {
   id: number;
@@ -23,13 +23,19 @@ const STATUS: Record<string, { color: string; label: string }> = {
   ready:      { color: '#22c55e', label: 'Ready' },
   failed:     { color: '#ef4444', label: 'Failed' },
 };
+const COLLAPSED_KEY = 'starcall.layout.sourcesCollapsed';
 
 export default function SourcePane({ sources, selectedId, onSelect, onSourcesChange }: Props) {
   const [extracting, setExtracting] = useState<number | null>(null);
   const [textModal, setTextModal] = useState(false);
   const [textContent, setTextContent] = useState('');
   const [textTitle, setTextTitle] = useState('');
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === 'true');
+  const [processSummaries, setProcessSummaries] = useState<Record<number, string>>({});
+
+  useEffect(() => {
+    localStorage.setItem(COLLAPSED_KEY, String(collapsed));
+  }, [collapsed]);
 
   if (collapsed) {
     return (
@@ -39,14 +45,14 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
       }}>
         <button
           onClick={() => setCollapsed(false)}
-          title={`Sources (${sources.length}) — click to expand`}
+          title={`Sources (${sources.length}) - click to expand`}
           style={{
             background: 'transparent', border: '1px solid #1f2937', borderRadius: 3,
             color: '#9ca3af', fontSize: 12, padding: '4px 6px', cursor: 'pointer',
             writingMode: 'vertical-rl', textOrientation: 'mixed',
           }}
         >
-          › Sources ({sources.length})
+          Sources ({sources.length})
         </button>
       </aside>
     );
@@ -77,6 +83,19 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
     setExtracting(sourceId);
     onSourcesChange(sources.map(s => s.id === sourceId ? { ...s, status: 'processing', error_msg: null } : s));
     const result = await window.api.sources.process({ sourceId });
+    if (result.ok) {
+      const parts = [
+        result.mode ?? 'processed',
+        result.blocks != null ? `${result.blocks} blocks` : null,
+        result.candidates != null ? `${result.candidates} candidates` : null,
+        result.equations != null ? `${result.equations} equations` : null,
+        result.llmCalls != null ? `${result.llmCalls} LLM calls` : null,
+      ].filter(Boolean);
+      setProcessSummaries(prev => ({
+        ...prev,
+        [sourceId]: result.warning ? `${parts.join(' · ')} · ${result.warning}` : parts.join(' · '),
+      }));
+    }
     // On success, error_msg is cleared in the DB by updateSourceStatus — mirror that locally.
     onSourcesChange(sources.map(s => s.id === sourceId
       ? { ...s, status: result.ok ? 'ready' : 'failed', error_msg: result.ok ? null : (result.error ?? s.error_msg) }
@@ -87,11 +106,18 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
 
   return (
     <aside style={{ width: 220, borderRight: '1px solid #1f2937', display: 'flex', flexDirection: 'column', background: '#0d0d16' }}>
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid #1f2937', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ padding: '10px 10px 10px 14px', borderBottom: '1px solid #1f2937', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Sources</span>
         <div style={{ display: 'flex', gap: 4 }}>
           <button onClick={handleAdd} style={{ background: '#312e81', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#a5b4fc', fontSize: 11, cursor: 'pointer' }}>+ PDF</button>
           <button onClick={() => setTextModal(true)} style={{ background: '#1e3a2f', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#6ee7b7', fontSize: 11, cursor: 'pointer' }}>+ Text</button>
+          <button
+            onClick={() => setCollapsed(true)}
+            title="Minimize sources"
+            style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '3px 7px', color: '#6b7280', fontSize: 11, cursor: 'pointer' }}
+          >
+            ‹
+          </button>
         </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -119,6 +145,11 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
               {src.error_msg && (
                 <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={src.error_msg}>
                   {src.error_msg}
+                </div>
+              )}
+              {!src.error_msg && processSummaries[src.id] && (
+                <div style={{ fontSize: 10, color: '#4b5563', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={processSummaries[src.id]}>
+                  {processSummaries[src.id]}
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>

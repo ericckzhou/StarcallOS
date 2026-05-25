@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Concept } from './ConceptPane';
+import LatexMath from './LatexMath';
 import PdfViewer from './PdfViewer';
 
 type Task = { id: number; kind: string; prompt: string; difficulty: number };
@@ -29,6 +30,8 @@ const IMP_COLOR: Record<string, string> = {
   foundational: '#f59e0b', core: '#818cf8', supporting: '#22d3ee',
   peripheral: '#6b7280', reference_only: '#374151',
 };
+const SOURCE_PREVIEW_KEY = 'starcall.layout.sourcePreviewOpen';
+const SOURCE_PREVIEW_NOTES_WIDTH_KEY = 'starcall.layout.sourcePreviewNotesWidth';
 
 interface Props { concept: Concept | null; onDeleted?: (conceptId: number) => void; }
 
@@ -45,6 +48,9 @@ export default function DetailPane({ concept, onDeleted }: Props) {
   const [grade, setGrade] = useState<Grade | null>(null);
   const [generatingTasks, setGeneratingTasks] = useState(false);
   const [taskGenError, setTaskGenError] = useState<string | null>(null);
+  const [sourcePreviewOpen, setSourcePreviewOpen] = useState(() => localStorage.getItem(SOURCE_PREVIEW_KEY) === 'true');
+  const [sourcePreviewNotesWidth, setSourcePreviewNotesWidth] = useState(() => Number(localStorage.getItem(SOURCE_PREVIEW_NOTES_WIDTH_KEY)) || 760);
+  const sourcePreviewSplitRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!concept) return;
@@ -67,6 +73,35 @@ export default function DetailPane({ concept, onDeleted }: Props) {
       if (tl.length > 0) setSelectedTask(tl[0]);
     });
   }, [concept?.id]);
+
+  useEffect(() => {
+    localStorage.setItem(SOURCE_PREVIEW_KEY, String(sourcePreviewOpen));
+  }, [sourcePreviewOpen]);
+
+  useEffect(() => {
+    localStorage.setItem(SOURCE_PREVIEW_NOTES_WIDTH_KEY, String(sourcePreviewNotesWidth));
+  }, [sourcePreviewNotesWidth]);
+
+  function beginSourcePreviewResize(e: React.MouseEvent<HTMLDivElement>): void {
+    e.preventDefault();
+    const container = sourcePreviewSplitRef.current;
+    if (!container) return;
+    const onMove = (moveEvent: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      const next = Math.max(360, Math.min(moveEvent.clientX - rect.left, rect.width - 420));
+      setSourcePreviewNotesWidth(next);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
 
   async function generateTasks() {
     if (!concept) return;
@@ -116,6 +151,22 @@ export default function DetailPane({ concept, onDeleted }: Props) {
     history: `History${history.length ? ` (${history.length})` : ''}`,
     source: 'Source',
   };
+  const activeTabContent = (
+    <>
+      {tab === 'overview' && <OverviewTab concept={concept} misconceptions={misconceptions} equations={equations} />}
+      {tab === 'challenge' && (
+        <ChallengeTab
+          tasks={tasks} selectedTask={selectedTask} onSelectTask={setSelectedTask}
+          response={response} onResponseChange={setResponse}
+          grading={grading} grade={grade}
+          generatingTasks={generatingTasks} taskGenError={taskGenError}
+          onGenerateTasks={generateTasks}
+          onSubmit={handleSubmit} onReset={() => { setGrade(null); setResponse(''); }}
+        />
+      )}
+      {tab === 'history' && <HistoryTab records={history} />}
+    </>
+  );
 
   return (
     <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -128,6 +179,19 @@ export default function DetailPane({ concept, onDeleted }: Props) {
           <span style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 10px', borderRadius: 12, background: `${STAGE_COLORS[stage]}22`, color: STAGE_COLORS[stage], fontWeight: 600 }}>
             {STAGES[stage]}
           </span>
+          <button
+            onClick={() => setSourcePreviewOpen(v => !v)}
+            title="Show or hide source beside the overview"
+            style={{
+              background: sourcePreviewOpen ? '#1e1b4b' : 'transparent',
+              border: `1px solid ${sourcePreviewOpen ? '#4338ca' : '#1f2937'}`,
+              borderRadius: 4, padding: '3px 10px',
+              color: sourcePreviewOpen ? '#c7d2fe' : '#6b7280',
+              fontSize: 11, cursor: 'pointer',
+            }}
+          >
+            Source Preview
+          </button>
           <button
             onClick={async () => {
               if (!concept) return;
@@ -163,20 +227,31 @@ export default function DetailPane({ concept, onDeleted }: Props) {
 
       <div style={{
         flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column',
-        ...(tab === 'source' ? {} : { overflowY: 'auto', padding: 24 }),
+        ...(tab === 'source' || sourcePreviewOpen ? {} : { overflowY: 'auto', padding: 24 }),
       }}>
-        {tab === 'overview' && <OverviewTab concept={concept} misconceptions={misconceptions} equations={equations} />}
-        {tab === 'challenge' && (
-          <ChallengeTab
-            tasks={tasks} selectedTask={selectedTask} onSelectTask={setSelectedTask}
-            response={response} onResponseChange={setResponse}
-            grading={grading} grade={grade}
-            generatingTasks={generatingTasks} taskGenError={taskGenError}
-            onGenerateTasks={generateTasks}
-            onSubmit={handleSubmit} onReset={() => { setGrade(null); setResponse(''); }}
-          />
+        {tab !== 'source' && (
+          sourcePreviewOpen ? (
+            <div ref={sourcePreviewSplitRef} style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+              <div style={{ flex: `0 0 ${sourcePreviewNotesWidth}px`, minWidth: 360, maxWidth: '70%', overflowY: 'auto', padding: 24 }}>
+                {activeTabContent}
+              </div>
+              <div
+                onMouseDown={beginSourcePreviewResize}
+                title="Drag to resize content and source"
+                style={{
+                  width: 8, flexShrink: 0, cursor: 'col-resize',
+                  borderLeft: '1px solid #1f2937', borderRight: '1px solid #111827',
+                  background: '#0d0d16',
+                }}
+              />
+              <div style={{ flex: 1, minWidth: 520, display: 'flex', overflow: 'hidden' }}>
+                <PdfViewer key={`preview:${concept.id}`} conceptId={concept.id} conceptName={concept.name} />
+              </div>
+            </div>
+          ) : (
+            activeTabContent
+          )
         )}
-        {tab === 'history' && <HistoryTab records={history} />}
         {tab === 'source' && (
           <PdfViewer key={concept.id} conceptId={concept.id} conceptName={concept.name} />
         )}
@@ -390,11 +465,9 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {equations.map(eq => (
               <div key={eq.id} style={{ background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 6, padding: '10px 12px' }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: eq.variables.length ? 6 : 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: eq.variables.length ? 6 : 0, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 10, color: '#4b5563' }}>p.{eq.page}</span>
-                  <code style={{ fontSize: 13, color: '#fde68a', fontFamily: 'ui-monospace, Consolas, monospace', wordBreak: 'break-all' }}>
-                    {eq.latex}
-                  </code>
+                  <LatexMath value={eq.latex} size={14} />
                 </div>
                 {eq.variables.length > 0 && (
                   <div style={{ fontSize: 10, color: '#6b7280' }}>
@@ -639,7 +712,7 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
     return (
       <div style={{ maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ color: '#9ca3af', fontSize: 13, lineHeight: 1.6 }}>
-          No evidence tasks for this concept yet. Generating them is a single Groq call (~500 tokens) and only happens once per concept.
+          No evidence tasks for this concept yet. Generating them is one call to your configured LLM provider and only happens once per concept.
         </div>
         <button
           onClick={onGenerateTasks}
