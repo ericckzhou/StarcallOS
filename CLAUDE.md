@@ -1,7 +1,7 @@
 # StarcallOS - Claude Code Guide
 
 This file is the Claude-oriented operating guide for the current StarcallOS
-codebase. `AGENTS.md` is the canonical product and architecture reference; keep
+codebase. `ARCHITECTURE.md` is the canonical product and architecture reference; keep
 this file short, current, and action-oriented.
 
 ## Working Memory
@@ -10,18 +10,18 @@ Remember these as the active state of the repo:
 
 - The current app is already implemented as the candidate-first Electron system;
   it is not the older broad "cognition evidence platform" from `PLAN.md`.
-- `AGENTS.md` is the source of truth for product behavior. This file is a
+- `ARCHITECTURE.md` is the source of truth for product behavior. This file is a
   Claude memory/operations layer and should not drift into a full duplicate.
 - The default user promise is "$0/book processing" through deterministic
   extraction. LLM calls in normal use happen after promotion or challenge
   interaction. `candidate_gated` and `full` are explicit compare/debug modes.
 - `README.md` was normalized from UTF-16 to UTF-8 and now points readers to
-  `AGENTS.md`.
+  `ARCHITECTURE.md`.
 - `sources.llm_filter_keep_terms_json` is the current LLM topic-filter column.
   The old `llm_filter_keep_ids_json` column remains as a compatibility mirror.
 - User-facing provider text should say "configured LLM provider" unless a
   feature is truly Groq-specific.
-- `AGENTS.md` may be untracked in this workspace; do not remove or overwrite it.
+- `ARCHITECTURE.md` may be untracked in this workspace; do not remove or overwrite it.
 - `pnpm` may not be on PATH in this shell. If verification cannot run, say so
   plainly instead of implying tests passed.
 - PowerShell may render UTF-8 box drawing and arrows as mojibake. Do not treat
@@ -171,4 +171,4 @@ response and still report what was changed.
 `PLAN.md` is historical background. It mentions old choices such as
 `better-sqlite3`, Zustand/TanStack Query, Drizzle, CLI-first flows, and broader
 screens that are not the current implementation. Do not treat it as active
-architecture unless a detail has been reconciled with `AGENTS.md` and the code.
+architecture unless a detail has been reconciled with `ARCHITECTURE.md` and the code.
