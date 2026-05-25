@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('api', {
     misconceptions: (conceptId: number) => ipcRenderer.invoke('concepts:misconceptions', conceptId),
     equations: (conceptId: number) => ipcRenderer.invoke('concepts:equations', conceptId),
     ensureTasks: (conceptId: number) => ipcRenderer.invoke('concepts:ensureTasks', conceptId),
+    regenerateTasks: (conceptId: number) => ipcRenderer.invoke('concepts:regenerateTasks', conceptId),
     sourceEvidence: (conceptId: number) => ipcRenderer.invoke('concepts:sourceEvidence', conceptId),
     delete: (conceptId: number) => ipcRenderer.invoke('concepts:delete', conceptId),
     deleteEvidenceSpan: (args: { conceptId: number; page: number; kind: string; quote: string }) =>
@@ -29,6 +30,7 @@ contextBridge.exposeInMainWorld('api', {
   evidence: {
     submit: (args: unknown) => ipcRenderer.invoke('evidence:submit', args),
     history: (conceptId: number) => ipcRenderer.invoke('evidence:history', conceptId),
+    delete: (recordId: number) => ipcRenderer.invoke('evidence:delete', recordId),
   },
   candidates: {
     bySource: (sourceId: number) => ipcRenderer.invoke('candidates:bySource', sourceId),

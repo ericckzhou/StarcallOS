@@ -203,6 +203,10 @@ export function listTasksByConcept(db: DatabaseSync, conceptId: number): Evidenc
   ).map(rowToTask);
 }
 
+export function deleteTasksForConcept(db: DatabaseSync, conceptId: number): void {
+  db.prepare('DELETE FROM evidence_tasks WHERE concept_id = ?').run(conceptId);
+}
+
 // ─── Mastery ──────────────────────────────────────────────────────────────────
 
 interface MasteryRow {
@@ -269,6 +273,8 @@ interface RecordRow {
   misconceptions_detected: string;
   grader_reasoning: string | null;
   created_at: string;
+  task_prompt_snapshot: string | null;
+  task_kind_snapshot: string | null;
 }
 
 function rowToRecord(row: RecordRow): EvidenceRecord {
@@ -283,6 +289,8 @@ function rowToRecord(row: RecordRow): EvidenceRecord {
     misconceptions_detected: JSON.parse(row.misconceptions_detected) as string[],
     grader_reasoning: row.grader_reasoning,
     created_at: row.created_at,
+    task_prompt_snapshot: row.task_prompt_snapshot ?? null,
+    task_kind_snapshot: row.task_kind_snapshot ?? null,
   };
 }
 
@@ -294,8 +302,9 @@ export function createEvidenceRecord(
     .prepare(
       `INSERT INTO evidence_records
          (task_id, concept_id, user_response, score, compression_stage,
-          gaps_detected, misconceptions_detected, grader_reasoning)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          gaps_detected, misconceptions_detected, grader_reasoning,
+          task_prompt_snapshot, task_kind_snapshot)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.task_id,
@@ -306,6 +315,8 @@ export function createEvidenceRecord(
       JSON.stringify(input.gaps_detected),
       JSON.stringify(input.misconceptions_detected),
       input.grader_reasoning,
+      input.task_prompt_snapshot ?? null,
+      input.task_kind_snapshot ?? null,
     );
   const row = db
     .prepare('SELECT * FROM evidence_records WHERE id = ?')
@@ -313,11 +324,25 @@ export function createEvidenceRecord(
   return rowToRecord(row);
 }
 
+export function deleteEvidenceRecord(db: DatabaseSync, id: number): void {
+  db.prepare('DELETE FROM evidence_records WHERE id = ?').run(id);
+}
+
 export function listRecordsByConcept(db: DatabaseSync, conceptId: number): EvidenceRecord[] {
+  // LEFT JOIN evidence_tasks so legacy records (created before the snapshot
+  // columns existed) still display the question — falling back to the live
+  // task row when the snapshot is null. If the task was hard-deleted via
+  // Regenerate, both sides are null and the UI hides the prompt block.
   return (
     db
       .prepare(
-        'SELECT * FROM evidence_records WHERE concept_id = ? ORDER BY created_at DESC',
+        `SELECT r.*,
+                COALESCE(r.task_prompt_snapshot, t.prompt) AS task_prompt_snapshot,
+                COALESCE(r.task_kind_snapshot,   t.kind)   AS task_kind_snapshot
+           FROM evidence_records r
+           LEFT JOIN evidence_tasks t ON t.id = r.task_id
+          WHERE r.concept_id = ?
+          ORDER BY r.created_at DESC`,
       )
       .all(conceptId) as unknown as RecordRow[]
   ).map(rowToRecord);

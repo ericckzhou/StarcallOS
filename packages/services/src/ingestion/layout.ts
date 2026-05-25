@@ -338,6 +338,8 @@ export interface LayoutDiagnostics {
   two_column_pages: number;
   noise_removed_count: number;     // includes TOC lines (matched by isTocLine inside isNoise)
   repeating_header_stripped: number;
+  merged_broken_headings: number;
+  index_blocks_stripped: number;
   avg_blocks_per_page: number;
 }
 
@@ -427,21 +429,103 @@ export async function segmentPdf(filePath: string): Promise<{
     }
   }
 
+  const mergedBlocks = mergeBrokenHeadings(allBlocks);
+  const mergedHeadingCount = allBlocks.length - mergedBlocks.length;
+  const beforeIndexStrip = mergedBlocks.length;
+  const postIndexBlocks = stripIndexRegion(mergedBlocks);
+  const indexStrippedCount = beforeIndexStrip - postIndexBlocks.length;
+
   const diagnostics: LayoutDiagnostics = {
     pages_with_text:     pagesWithText,
-    unknown_hint_rate:   allBlocks.length === 0 ? 0
-                         : +(allBlocks.filter(b => b.hint === 'unknown').length / allBlocks.length).toFixed(3),
-    formula_block_count: allBlocks.filter(b => b.hint === 'formula').length,
-    heading_block_count: allBlocks.filter(b => b.hint === 'heading' || b.hint === 'subheading').length,
-    body_block_count:    allBlocks.filter(b => b.hint === 'body').length,
+    unknown_hint_rate:   postIndexBlocks.length === 0 ? 0
+                         : +(postIndexBlocks.filter(b => b.hint === 'unknown').length / postIndexBlocks.length).toFixed(3),
+    formula_block_count: postIndexBlocks.filter(b => b.hint === 'formula').length,
+    heading_block_count: postIndexBlocks.filter(b => b.hint === 'heading' || b.hint === 'subheading').length,
+    body_block_count:    postIndexBlocks.filter(b => b.hint === 'body').length,
     two_column_pages:    twoColumnPages,
     noise_removed_count: noiseRemovedCount,
     repeating_header_stripped: repeatingHeaderStrippedCount,
+    merged_broken_headings: mergedHeadingCount,
+    index_blocks_stripped: indexStrippedCount,
     avg_blocks_per_page: pagesWithText === 0 ? 0
-                         : +(allBlocks.length / pagesWithText).toFixed(2),
+                         : +(postIndexBlocks.length / pagesWithText).toFixed(2),
   };
 
-  return { blocks: allBlocks, pageCount, diagnostics };
+  return { blocks: postIndexBlocks, pageCount, diagnostics };
+}
+
+// After-the-fact filter: once we see a heading whose text is exactly "Index"
+// (or close variants) near the end of the doc, drop everything from that
+// heading onward. Index entries otherwise pollute the candidate list with
+// alphabetical short phrases that have nothing to do with the book's content.
+function stripIndexRegion(blocks: SegmentedBlock[]): SegmentedBlock[] {
+  if (blocks.length === 0) return blocks;
+  // Look only in the last 25% of the doc to avoid stripping a body mention of
+  // the word "index" early on.
+  const cutoffStart = Math.floor(blocks.length * 0.75);
+  for (let i = blocks.length - 1; i >= cutoffStart; i--) {
+    const b = blocks[i];
+    if (b.hint !== 'heading' && b.hint !== 'subheading') continue;
+    const norm = b.text.trim().toLowerCase().replace(/[^a-z\s]/g, '').trim();
+    if (norm === 'index' || norm === 'subject index' || norm === 'name index' || norm === 'general index') {
+      // Strip this block and everything after.
+      return blocks.slice(0, i);
+    }
+  }
+  return blocks;
+}
+
+// Concatenate consecutive heading-classified blocks when the first one ends
+// mid-word ("Few-") or lacks terminal punctuation AND the next has the same
+// font-size class. Catches split headings across line/page breaks like
+// "In-Context Learning: Zero-Shot and Few-" + "Shot".
+function mergeBrokenHeadings(blocks: SegmentedBlock[]): SegmentedBlock[] {
+  if (blocks.length < 2) return blocks;
+  const out: SegmentedBlock[] = [];
+  let i = 0;
+  while (i < blocks.length) {
+    const cur  = blocks[i];
+    const next = blocks[i + 1];
+    if (
+      next &&
+      (cur.hint === 'heading' || cur.hint === 'subheading') &&
+      (next.hint === 'heading' || next.hint === 'subheading') &&
+      cur.hintConfidence >= 1 && next.hintConfidence >= 1 &&
+      Math.abs(cur.signals.fontSizeRatio - next.signals.fontSizeRatio) < 0.05 &&
+      isUnterminatedHeading(cur.text) &&
+      next.text.length < 60
+    ) {
+      out.push({
+        ...cur,
+        text: joinHeadingFragments(cur.text, next.text),
+      });
+      i += 2;
+      continue;
+    }
+    out.push(cur);
+    i += 1;
+  }
+  return out;
+}
+
+function isUnterminatedHeading(t: string): boolean {
+  const s = t.trim();
+  if (!s || s.length > 80) return false;
+  if (s.endsWith('-')) return true;
+  // No terminal punctuation AND doesn't look like a complete title (single token of digits etc.)
+  if (/[.!?:;]\s*$/.test(s)) return false;
+  // Ends with a lowercase word-boundary letter — strong continuation signal for headings
+  return /[a-zA-Z]$/.test(s);
+}
+
+function joinHeadingFragments(a: string, b: string): string {
+  const aTrim = a.trim();
+  const bTrim = b.trim();
+  if (aTrim.endsWith('-')) {
+    // Soft hyphen — drop dash and join with no space ("Few-" + "Shot" → "Few-Shot")
+    return aTrim.slice(0, -1) + bTrim;
+  }
+  return aTrim + ' ' + bTrim;
 }
 
 // ─── Public: text source fallback ────────────────────────────────────────────
@@ -460,6 +544,8 @@ export function segmentTextWithDiagnostics(text: string): { blocks: SegmentedBlo
       two_column_pages:    0,
       noise_removed_count: 0,
       repeating_header_stripped: 0,
+      merged_broken_headings: 0,
+      index_blocks_stripped: 0,
       avg_blocks_per_page: blocks.length,
     },
   };

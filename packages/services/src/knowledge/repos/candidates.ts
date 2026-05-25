@@ -39,6 +39,7 @@ interface ConceptCandidateRow {
   is_boilerplate?: number;
   is_broad?: number;
   concept_score?: number;
+  reject_reasons_json?: string;
 }
 
 function rowToConceptCandidate(row: ConceptCandidateRow): StoredConceptCandidate {
@@ -61,7 +62,9 @@ function rowToConceptCandidate(row: ConceptCandidateRow): StoredConceptCandidate
     is_boilerplate: !!row.is_boilerplate,
     is_broad: !!row.is_broad,
     concept_score: row.concept_score ?? 0,
-    reject_reasons: [], // not persisted yet; recompute on demand if needed
+    reject_reasons: row.reject_reasons_json
+      ? (JSON.parse(row.reject_reasons_json) as string[])
+      : [],
   };
 }
 
@@ -76,8 +79,8 @@ export function createConceptCandidate(
        (source_id, term, normalized, confidence, mention_count, first_page,
         section_path, evidence, signals, parser_version,
         topic_relevance_score, topic_relevance_reasons_json, is_boilerplate, is_broad,
-        concept_score)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        concept_score, reject_reasons_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     sourceId,
     c.term,
@@ -94,6 +97,7 @@ export function createConceptCandidate(
     c.is_boilerplate ? 1 : 0,
     c.is_broad ? 1 : 0,
     c.concept_score ?? 0,
+    JSON.stringify(c.reject_reasons ?? []),
   );
 }
 

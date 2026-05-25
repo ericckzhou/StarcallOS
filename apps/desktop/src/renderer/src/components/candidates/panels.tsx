@@ -53,7 +53,7 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
               >
                 {isOpen ? 'v' : '>'}
               </button>
-              <div style={{
+              <div title={`concept_score ${(c.concept_score ?? 0).toFixed(2)} (heading*0.35 + domain*0.25 + localCtx*0.20 + recurrence*0.10 + phrase*0.10)`} style={{
                 minWidth: 36, textAlign: 'right', fontFamily: 'monospace',
                 fontSize: 12, color: confColor(c.confidence), fontWeight: 600,
               }}>
@@ -99,6 +99,19 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                       {c.bucket}
                     </span>
                   )}
+                  {c.reject_reasons && c.reject_reasons.length > 0 && c.reject_reasons.map(r => (
+                    <span
+                      key={r}
+                      title="Deterministic reject reason. Lower the score so the LLM filter / promote gate skips this."
+                      style={{
+                        fontSize: 9, color: '#fca5a5',
+                        border: '1px solid #7f1d1d',
+                        borderRadius: 2, padding: '1px 5px',
+                        fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em',
+                      }}>
+                      {r}
+                    </span>
+                  ))}
                   {llmKept && (
                     <span title="Kept by your saved LLM topic-fit filter" style={{
                       fontSize: 9, color: '#c7d2fe',
@@ -143,18 +156,27 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
 
             {isOpen && (
               <div style={{ marginLeft: 64, marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {c.evidence.map((e, i) => (
-                  <div key={i} style={{ fontSize: 11, color: '#9ca3af', lineHeight: 1.5 }}>
-                    <span style={{
-                      display: 'inline-block', minWidth: 72, color: SIGNAL_COLOR[e.source] ?? '#6b7280',
-                      fontWeight: 600, fontSize: 10,
-                    }}>
-                      {e.source}{e.pattern ? `:${e.pattern}` : ''}
-                    </span>
-                    <span style={{ color: '#4b5563', marginRight: 6 }}>p.{e.page}</span>
-                    <span style={{ fontStyle: 'italic' }}>"{e.quote}"</span>
-                  </div>
-                ))}
+                {(() => {
+                  // Hide evidence quotes that are tautological with the term itself
+                  // (heading evidence usually IS the term repeated — no signal).
+                  const normTerm = c.term.trim().toLowerCase().replace(/^\d+(?:\.\d+)*\.?\s*/, '').replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+                  const meaningful = c.evidence.filter(e => {
+                    const q = (e.quote ?? '').trim().toLowerCase().replace(/^\d+(?:\.\d+)*\.?\s*/, '').replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+                    return q.length > 0 && q !== normTerm;
+                  });
+                  return meaningful.map((e, i) => (
+                    <div key={i} style={{ fontSize: 11, color: '#9ca3af', lineHeight: 1.5 }}>
+                      <span style={{
+                        display: 'inline-block', minWidth: 72, color: SIGNAL_COLOR[e.source] ?? '#6b7280',
+                        fontWeight: 600, fontSize: 10,
+                      }}>
+                        {e.source}{e.pattern ? `:${e.pattern}` : ''}
+                      </span>
+                      <span style={{ color: '#4b5563', marginRight: 6 }}>p.{e.page}</span>
+                      <span style={{ fontStyle: 'italic' }}>"{e.quote}"</span>
+                    </div>
+                  ));
+                })()}
                 {attachedEqs.length > 0 && (
                   <div style={{ marginTop: 4, paddingTop: 6, borderTop: '1px dashed #1f2937' }}>
                     <div style={{ fontSize: 10, color: '#fbbf24', fontWeight: 600, marginBottom: 4 }}>

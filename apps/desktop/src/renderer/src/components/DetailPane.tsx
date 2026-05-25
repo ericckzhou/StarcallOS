@@ -7,8 +7,9 @@ type Task = { id: number; kind: string; prompt: string; difficulty: number };
 type Mastery = { compression_stage: number };
 type Misconception = { id: number; description: string; why_think_it: string; why_wrong: string };
 type Equation = { id: number; latex: string; variables: string[]; page: number };
+type EvidenceScore = 'understood' | 'recognizes' | 'gap' | 'misconception';
 type Grade = {
-  score: number;
+  score: EvidenceScore;
   compression_stage: number;
   gaps_detected: string[];
   misconceptions_detected: string[];
@@ -16,12 +17,28 @@ type Grade = {
 };
 type HistoryRecord = {
   id: number;
-  score: number;
+  score: EvidenceScore;
   compression_stage: number;
   gaps_detected: string[];
   misconceptions_detected: string[];
   grader_reasoning: string;
   created_at: string;
+  user_response?: string | null;
+  task_prompt_snapshot?: string | null;
+  task_kind_snapshot?: string | null;
+};
+
+const SCORE_COLOR: Record<EvidenceScore, string> = {
+  understood:    '#22c55e',
+  recognizes:    '#f59e0b',
+  gap:           '#ef4444',
+  misconception: '#b91c1c',
+};
+const SCORE_LABEL: Record<EvidenceScore, string> = {
+  understood:    'understood',
+  recognizes:    'recognizes',
+  gap:           'gap',
+  misconception: 'misconception',
 };
 
 const STAGES = ['Unseen', 'Memorized', 'Can Explain', 'Connected', 'Compressed', 'Predicts Failures'];
@@ -119,6 +136,39 @@ export default function DetailPane({ concept, onDeleted }: Props) {
     }
   }
 
+  async function regenerateTasks() {
+    if (!concept) return;
+    const ok = window.confirm(
+      'Regenerate all 5 challenge tasks for this concept? Existing tasks will be replaced. Past History entries are kept.',
+    );
+    if (!ok) return;
+    setGeneratingTasks(true);
+    setTaskGenError(null);
+    try {
+      const result = await window.api.concepts.regenerateTasks(concept.id);
+      const tl = result as Task[];
+      setTasks(tl);
+      setSelectedTask(tl.length > 0 ? tl[0] : null);
+      setGrade(null);
+      setResponse('');
+    } catch (e) {
+      setTaskGenError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGeneratingTasks(false);
+    }
+  }
+
+  async function handleDeleteRecord(recordId: number) {
+    const ok = window.confirm('Delete this history entry? This cannot be undone. Mastery stage is not recomputed.');
+    if (!ok) return;
+    try {
+      await window.api.evidence.delete(recordId);
+      setHistory(prev => prev.filter(h => h.id !== recordId));
+    } catch (e) {
+      window.alert(`Failed to delete: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   async function handleSubmit() {
     if (!selectedTask || !concept || !response.trim()) return;
     setGrading(true);
@@ -161,10 +211,11 @@ export default function DetailPane({ concept, onDeleted }: Props) {
           grading={grading} grade={grade}
           generatingTasks={generatingTasks} taskGenError={taskGenError}
           onGenerateTasks={generateTasks}
+          onRegenerateTasks={regenerateTasks}
           onSubmit={handleSubmit} onReset={() => { setGrade(null); setResponse(''); }}
         />
       )}
-      {tab === 'history' && <HistoryTab records={history} />}
+      {tab === 'history' && <HistoryTab records={history} onDelete={handleDeleteRecord} />}
     </>
   );
 
@@ -413,23 +464,8 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
     setTimeout(() => setPasteApplied(false), 2500);
   }
 
-  const isEmpty = !local.definition_text && !local.why_exists && !local.what_breaks;
-
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {isEmpty && (
-        <div style={{
-          background: '#1a1a2e', border: '1px solid #312e81', borderRadius: 6,
-          padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12,
-        }}>
-          <div style={{ flex: 1, fontSize: 12, color: '#c7d2fe', lineHeight: 1.5 }}>
-            No definition recorded yet. Auto-fill with one LLM call, or paste in your own answer.
-          </div>
-          <button onClick={enrich} disabled={enriching} style={btnPrimary(enriching)}>
-            {enriching ? 'Enriching…' : 'Enrich with LLM'}
-          </button>
-        </div>
-      )}
       {enrichErr && (
         <div style={{ background: '#1a0a0a', border: '1px solid #3f1515', borderRadius: 6, padding: '8px 12px', color: '#fca5a5', fontSize: 12 }}>
           {enrichErr}
@@ -635,13 +671,6 @@ function EditableSection({ title, value, saving, onChange, onSave, placeholder }
   );
 }
 
-function btnPrimary(busy: boolean): React.CSSProperties {
-  return {
-    background: busy ? '#1e1e2e' : '#4f46e5', border: 'none', borderRadius: 4,
-    padding: '6px 14px', fontSize: 12, fontWeight: 600,
-    color: busy ? '#6b7280' : '#fff', cursor: busy ? 'wait' : 'pointer',
-  };
-}
 function btnSecondary(busy: boolean): React.CSSProperties {
   return {
     background: 'transparent', border: '1px solid #4338ca', borderRadius: 4,
@@ -657,33 +686,57 @@ function btnTiny(busy: boolean): React.CSSProperties {
   };
 }
 
-function HistoryTab({ records }: { records: HistoryRecord[] }) {
+function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete: (id: number) => void }) {
   if (records.length === 0) {
     return <div style={{ color: '#374151', fontSize: 13 }}>No challenge attempts yet. Head to Challenge Me to start.</div>;
   }
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 12 }}>
       {records.map(r => {
-        const scoreColor = r.score >= 80 ? '#22c55e' : r.score >= 50 ? '#f59e0b' : '#ef4444';
+        const scoreColor = SCORE_COLOR[r.score] ?? '#6b7280';
         const date = new Date(r.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         return (
           <div key={r.id} style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <span style={{ fontSize: 22, fontWeight: 800, color: scoreColor, lineHeight: 1 }}>{r.score}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+              <span style={{ fontSize: 20, fontWeight: 800, color: scoreColor, lineHeight: 1, textTransform: 'lowercase' }}>
+                {SCORE_LABEL[r.score] ?? r.score}
+              </span>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: STAGE_COLORS[r.compression_stage] }}>
                   Stage {r.compression_stage}: {STAGES[r.compression_stage]}
                 </div>
                 <div style={{ fontSize: 10, color: '#4b5563', marginTop: 1 }}>{date}</div>
               </div>
-              <div style={{ marginLeft: 'auto', flex: '0 0 80px' }}>
-                <div style={{ height: 4, background: '#1f2937', borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${r.score}%`, background: scoreColor, borderRadius: 2 }} />
-                </div>
-              </div>
+              <button
+                onClick={() => onDelete(r.id)}
+                title="Delete this history entry"
+                style={{
+                  marginLeft: 'auto',
+                  background: 'transparent', border: '1px solid #3f1515', borderRadius: 4,
+                  padding: '4px 10px', fontSize: 11, color: '#fca5a5', cursor: 'pointer',
+                }}
+              >
+                Delete
+              </button>
             </div>
+            {r.task_prompt_snapshot && (
+              <div style={{ marginBottom: 8 }}>
+                {r.task_kind_snapshot && (
+                  <div style={{ fontSize: 9, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
+                    {r.task_kind_snapshot.replace(/_/g, ' ')}
+                  </div>
+                )}
+                <p style={{ margin: 0, fontSize: 12, color: '#cbd5e1', lineHeight: 1.55 }}>{r.task_prompt_snapshot}</p>
+              </div>
+            )}
+            {r.user_response && (
+              <div style={{ marginBottom: 8, background: '#0b1220', border: '1px solid #1f2937', borderRadius: 4, padding: '8px 10px' }}>
+                <div style={{ fontSize: 9, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Your Answer</div>
+                <p style={{ margin: 0, fontSize: 12, color: '#9ca3af', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{r.user_response}</p>
+              </div>
+            )}
             <p style={{ margin: 0, fontSize: 12, color: '#6b7280', lineHeight: 1.55 }}>
-              {r.grader_reasoning.length > 160 ? r.grader_reasoning.slice(0, 160) + '…' : r.grader_reasoning}
+              {r.grader_reasoning.length > 240 ? r.grader_reasoning.slice(0, 240) + '…' : r.grader_reasoning}
             </p>
             {r.gaps_detected.length > 0 && (
               <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -700,12 +753,13 @@ function HistoryTab({ records }: { records: HistoryRecord[] }) {
   );
 }
 
-function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseChange, grading, grade, generatingTasks, taskGenError, onGenerateTasks, onSubmit, onReset }: {
+function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseChange, grading, grade, generatingTasks, taskGenError, onGenerateTasks, onRegenerateTasks, onSubmit, onReset }: {
   tasks: Task[]; selectedTask: Task | null; onSelectTask: (t: Task) => void;
   response: string; onResponseChange: (v: string) => void;
   grading: boolean; grade: Grade | null;
   generatingTasks: boolean; taskGenError: string | null;
   onGenerateTasks: () => void;
+  onRegenerateTasks: () => void;
   onSubmit: () => void; onReset: () => void;
 }) {
   if (tasks.length === 0) {
@@ -734,11 +788,11 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
       </div>
     );
   }
-  if (grade) return <GradeCard grade={grade} onReset={onReset} />;
+  if (grade) return <GradeCard grade={grade} task={selectedTask} userResponse={response} onReset={onReset} />;
 
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         {tasks.map(t => (
           <button key={t.id} onClick={() => onSelectTask(t)} style={{
             background: selectedTask?.id === t.id ? '#312e81' : '#111827',
@@ -749,7 +803,25 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
             {t.kind.replace(/_/g, ' ')}
           </button>
         ))}
+        <button
+          onClick={onRegenerateTasks}
+          disabled={generatingTasks}
+          title="Replace all 5 tasks with newly generated ones"
+          style={{
+            marginLeft: 'auto',
+            background: 'transparent',
+            border: '1px solid #1f2937',
+            borderRadius: 4, padding: '4px 10px', fontSize: 11,
+            color: generatingTasks ? '#4b5563' : '#9ca3af',
+            cursor: generatingTasks ? 'wait' : 'pointer',
+          }}
+        >
+          {generatingTasks ? 'Regenerating…' : 'Regenerate'}
+        </button>
       </div>
+      {taskGenError && (
+        <div style={{ color: '#fca5a5', fontSize: 12, lineHeight: 1.5 }}>{taskGenError}</div>
+      )}
       {selectedTask && (
         <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
           <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
@@ -780,23 +852,33 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
   );
 }
 
-function GradeCard({ grade, onReset }: { grade: Grade; onReset: () => void }) {
-  const scoreColor = grade.score >= 80 ? '#22c55e' : grade.score >= 50 ? '#f59e0b' : '#ef4444';
+function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task: Task | null; userResponse: string; onReset: () => void }) {
+  const scoreColor = SCORE_COLOR[grade.score] ?? '#6b7280';
   const stage = grade.compression_stage;
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-        <div style={{ fontSize: 52, fontWeight: 800, color: scoreColor, lineHeight: 1 }}>{grade.score}</div>
-        <div>
-          <div style={{ fontSize: 11, color: '#4b5563', marginBottom: 2 }}>Score / 100</div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: STAGE_COLORS[stage] }}>
-            Stage {stage}: {STAGES[stage]}
-          </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+        <div style={{ fontSize: 38, fontWeight: 800, color: scoreColor, lineHeight: 1, textTransform: 'lowercase' }}>
+          {SCORE_LABEL[grade.score] ?? grade.score}
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: STAGE_COLORS[stage] }}>
+          Stage {stage}: {STAGES[stage]}
         </div>
       </div>
-      <div style={{ height: 6, background: '#1f2937', borderRadius: 3, overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${grade.score}%`, background: scoreColor, borderRadius: 3 }} />
-      </div>
+      {task && (
+        <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
+          <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
+            {task.kind.replace(/_/g, ' ')} · difficulty {task.difficulty}/5
+          </div>
+          <p style={{ margin: 0, fontSize: 14, color: '#e2e8f0', lineHeight: 1.65 }}>{task.prompt}</p>
+        </div>
+      )}
+      {userResponse.trim().length > 0 && (
+        <div style={{ background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8, padding: '12px 14px' }}>
+          <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Your Answer</div>
+          <p style={{ margin: 0, fontSize: 13, color: '#cbd5e1', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{userResponse}</p>
+        </div>
+      )}
       <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 6, padding: '12px 14px' }}>
         <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Grader Feedback</div>
         <p style={{ margin: 0, fontSize: 13, color: '#9ca3af', lineHeight: 1.6 }}>{grade.grader_reasoning}</p>

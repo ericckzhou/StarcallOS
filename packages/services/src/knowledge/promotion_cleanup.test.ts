@@ -176,6 +176,8 @@ describe('candidate promotion and cleanup', () => {
       gaps_detected: [],
       misconceptions_detected: [],
       grader_reasoning: 'Good enough for preservation.',
+      task_prompt_snapshot: 'Define it.',
+      task_kind_snapshot: 'definition',
     });
 
     const counts = clearDerivedDataForSource(db, source.id);

@@ -5,7 +5,7 @@
 
 export const PARSER_VERSION  = '0.4.0';  // candidates.ts: weighted concept_score, conservative stemmer, acronym-alias normalize, fragment/generic/name guards via core/lexicon.ts
 export const GRAMMAR_VERSION = '0.2.1';  // equations.ts: currency-aware inline math filter
-export const LAYOUT_VERSION  = '0.3.0';  // layout.ts: TOC line detection (isTocLine inside isNoise) + cross-page repeating-header stripping (buildRepeatingMarginSet, doc must be ≥8 pages w/ text appearing on ≥40% of margins)
+export const LAYOUT_VERSION  = '0.3.1';  // layout.ts: + mergeBrokenHeadings (concatenate split heading lines: trailing dash joins with no space, otherwise space) + stripIndexRegion (drops everything from last 25% of doc starting at an "Index" heading)
 
 export interface ParserVersions {
   parser_version: string;

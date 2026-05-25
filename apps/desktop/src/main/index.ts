@@ -9,7 +9,7 @@ import {
   enrichConceptDefinition,
   listTasksByConcept, getMastery, listMisconceptionsByConcept,
   createChunk, createConcept, updateCentralityScore, createEdge, createMisconception, createTask,
-  upsertMastery, createEvidenceRecord, listRecordsByConcept,
+  upsertMastery, createEvidenceRecord, listRecordsByConcept, deleteEvidenceRecord,
   emitEvent,
   segmentPdf, segmentText,
   extractCandidates, buildSectionPath, persistCandidateExtraction,
@@ -19,6 +19,7 @@ import {
   listMisconceptionCandidatesBySource, listEquationCandidatesBySource,
   listEquationCandidatesForConcept,
   ensureTasksForConcept,
+  regenerateTasksForConcept,
   promoteCandidate, rejectCandidate,
   getLlmFilter, setLlmFilter,
   segmentTextWithDiagnostics,
@@ -377,6 +378,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CONCEPTS_ENSURE_TASKS, async (_e, conceptId: number) => {
     return ensureTasksForConcept(cfgFor('lazy_tasks'), db, conceptId);
   });
+  ipcMain.handle(IPC.CONCEPTS_REGENERATE_TASKS, async (_e, conceptId: number) => {
+    return regenerateTasksForConcept(cfgFor('lazy_tasks'), db, conceptId);
+  });
   ipcMain.handle(IPC.CONCEPTS_ENRICH, async (_e, conceptId: number) => {
     return enrichConceptDefinition(cfgFor('lazy_tasks'), db, conceptId);
   });
@@ -454,6 +458,10 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     return { ok: true as const };
   });
   ipcMain.handle(IPC.EVIDENCE_HISTORY, (_e, conceptId: number) => listRecordsByConcept(db, conceptId));
+  ipcMain.handle(IPC.EVIDENCE_DELETE, (_e, recordId: number) => {
+    deleteEvidenceRecord(db, recordId);
+    return { ok: true };
+  });
 
   ipcMain.handle(IPC.CANDIDATES_BY_SOURCE, (_e, sourceId: number) => ({
     concepts:       listConceptCandidatesBySource(db, sourceId),
@@ -548,6 +556,8 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       score: grade.score, compression_stage: grade.compression_stage,
       gaps_detected: grade.gaps_detected, misconceptions_detected: grade.misconceptions_detected,
       grader_reasoning: grade.reasoning,
+      task_prompt_snapshot: task.prompt,
+      task_kind_snapshot: task.kind,
     });
 
     upsertMastery(db, conceptId, grade.compression_stage);
