@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Concept } from './ConceptPane';
 
 interface QueueItem {
@@ -22,8 +22,20 @@ const IMP_COLOR: Record<string, string> = {
   foundational: '#f59e0b', core: '#818cf8', supporting: '#22d3ee',
   peripheral: '#6b7280', reference_only: '#374151',
 };
+const IMP_RANK: Record<string, number> = {
+  foundational: 0, core: 1, supporting: 2, peripheral: 3, reference_only: 4,
+};
 const COLLAPSED_KEY = 'starcall.layout.reviewQueueCollapsed';
 const WIDTH_KEY = 'starcall.layout.reviewQueueWidth';
+const SORT_KEY = 'starcall.layout.reviewQueueSort';
+
+type SortMode = 'default' | 'importance' | 'stage';
+const SORT_CYCLE: SortMode[] = ['default', 'importance', 'stage'];
+const SORT_LABEL: Record<SortMode, string> = {
+  default:    'default',
+  importance: 'importance',
+  stage:      'stage',
+};
 
 interface Props {
   onSelect: (concept: Concept) => void;
@@ -35,6 +47,10 @@ export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === 'true');
   const [width, setWidth] = useState(() => Number(localStorage.getItem(WIDTH_KEY)) || 420);
+  const [sortMode, setSortMode] = useState<SortMode>(() => {
+    const stored = localStorage.getItem(SORT_KEY);
+    return SORT_CYCLE.includes(stored as SortMode) ? (stored as SortMode) : 'default';
+  });
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -63,6 +79,32 @@ export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
   useEffect(() => {
     localStorage.setItem(WIDTH_KEY, String(width));
   }, [width]);
+
+  useEffect(() => {
+    localStorage.setItem(SORT_KEY, sortMode);
+  }, [sortMode]);
+
+  function cycleSort() {
+    const idx = SORT_CYCLE.indexOf(sortMode);
+    setSortMode(SORT_CYCLE[(idx + 1) % SORT_CYCLE.length]);
+  }
+
+  // Apply sort over the already-fetched list. Default keeps the backend
+  // ordering (never-reviewed → centrality → importance → recency). Tiebreaker
+  // for the explicit sorts is concept name A→Z.
+  const displayedItems = useMemo(() => {
+    if (sortMode === 'default') return items;
+    const cmpName = (a: QueueItem, b: QueueItem) => a.concept.name.localeCompare(b.concept.name);
+    if (sortMode === 'importance') {
+      return [...items].sort((a, b) => {
+        const ai = IMP_RANK[a.concept.importance] ?? 99;
+        const bi = IMP_RANK[b.concept.importance] ?? 99;
+        return ai - bi || cmpName(a, b);
+      });
+    }
+    // stage: highest stage on top
+    return [...items].sort((a, b) => (b.compression_stage - a.compression_stage) || cmpName(a, b));
+  }, [items, sortMode]);
 
   function beginResize(e: React.MouseEvent<HTMLDivElement>): void {
     e.preventDefault();
@@ -157,18 +199,20 @@ export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
             ‹
           </button>
           <button
-            onClick={refresh}
+            onClick={cycleSort}
+            title="Cycle sort: default → importance → stage"
             style={{
               background: 'transparent', border: '1px solid #263244', borderRadius: 4,
               padding: '3px 10px', fontSize: 10, cursor: 'pointer', color: '#94a3b8',
+              whiteSpace: 'nowrap',
             }}
           >
-            Refresh
+            sort: {SORT_LABEL[sortMode]}
           </button>
         </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {items.map(it => {
+        {displayedItems.map(it => {
           const c = it.concept;
           const stage = it.compression_stage;
           return (
