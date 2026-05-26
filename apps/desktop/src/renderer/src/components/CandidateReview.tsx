@@ -219,7 +219,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
   });
   const filtered = withBucket.filter(c =>
     (bucket === 'all' || c.bucket === bucket) &&
-    (c.bucket === 'suspicious' || c.confidence >= minConf) &&
+    (c.bucket === 'suspicious' || (c.final_score ?? c.concept_score ?? c.confidence) >= minConf) &&
     (signalFilter === 'any' || c.signals.includes(signalFilter)) &&
     (!llmFilterEnabled || llmKeepIds === null || llmKeepIds.has(c.id)),
   );
@@ -265,8 +265,8 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           ? withBucket.filter(passesBulkPromoteGate)
           : filtered;
         const description = confirmTarget === 'eligible'
-          ? `Promotes every candidate that passes the safe-default gate: confidence â‰¥ 0.9, mention_count â‰¥ 2, topic_relevance_score â‰¥ 0.55, and not suspicious / boilerplate / broad. Ignores the current bucket and signal filters.`
-          : `Bulk-creates concept rows from every visible candidate (bucket "${BUCKET_LABEL[bucket]}", signal "${signalFilter}", min confidence ${minConf.toFixed(2)}). No LLM calls â€” pure DB upserts. Tasks generate lazily on first review.`;
+          ? `Promotes every candidate that passes the safe-default gate: final_score >= 0.80, no suspicious labels, and definition, strong typography, or repeated domain evidence. Ignores the current bucket and signal filters.`
+          : `Bulk-creates concept rows from every visible candidate (bucket "${BUCKET_LABEL[bucket]}", signal "${signalFilter}", min score ${minConf.toFixed(2)}). No LLM calls - pure DB upserts. Tasks generate lazily on first review.`;
         return (
           <div style={{
             position: 'absolute', inset: 0, zIndex: 50,
@@ -460,7 +460,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                       setConfirming(true);
                     }}
                     disabled={bulkBusy}
-                    title={`Promote every candidate that passes the safe-default gate: confidence â‰¥ 0.9, mention_count â‰¥ 2, topic_relevance â‰¥ 0.55, not suspicious / boilerplate / broad. Ignores the current bucket filter.`}
+                    title={`Promote every candidate that passes the safe-default gate: final_score >= 0.80, no suspicious labels, with definition, strong typography, or repeated domain evidence. Ignores the current bucket filter.`}
                     style={{
                       background: '#0e3a25', border: '1px solid #22c55e', borderRadius: 3,
                       padding: '3px 10px', fontSize: 10, cursor: bulkBusy ? 'wait' : 'pointer',
@@ -503,7 +503,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           })()}
           {subTab === 'concepts' && (
             <>
-              <span style={{ fontSize: 10, color: '#6b7280' }}>min confidence</span>
+              <span style={{ fontSize: 10, color: '#6b7280' }}>min score</span>
               <input
                 type="range" min={0} max={1} step={0.05} value={minConf}
                 onChange={e => setMinConf(parseFloat(e.target.value))}

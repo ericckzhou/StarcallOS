@@ -4,9 +4,56 @@ html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
-  background: #0a0a0f;
   color: #e2e8f0;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+html {
+  background: #010210;
+}
+
+body {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 30% 90% at 50% 0%, rgba(189, 163, 255, 0.18) 0%, rgba(255, 158, 198, 0.1) 30%, rgba(168, 200, 255, 0.06) 55%, transparent 75%),
+    radial-gradient(ellipse 80% 30% at 50% 100%, rgba(189, 163, 255, 0.12) 0%, transparent 60%),
+    #010210;
+}
+
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
+body::before {
+  opacity: 0.65;
+  background-image:
+    radial-gradient(circle at 8% 12%, rgba(240, 238, 245, 0.55) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 18% 78%, rgba(240, 238, 245, 0.35) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 34% 22%, rgba(240, 238, 245, 0.42) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 52% 64%, rgba(240, 238, 245, 0.3) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 71% 18%, rgba(240, 238, 245, 0.48) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 88% 42%, rgba(240, 238, 245, 0.32) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 94% 84%, rgba(240, 238, 245, 0.5) 0 1px, transparent 1.5px);
+}
+
+body::after {
+  opacity: 0.25;
+  background-image:
+    radial-gradient(circle at 12% 38%, rgba(240, 238, 245, 0.8) 0 1.5px, transparent 2px),
+    radial-gradient(circle at 27% 58%, rgba(240, 238, 245, 0.7) 0 1.5px, transparent 2px),
+    radial-gradient(circle at 63% 34%, rgba(240, 238, 245, 0.75) 0 1.5px, transparent 2px),
+    radial-gradient(circle at 79% 73%, rgba(240, 238, 245, 0.65) 0 1.5px, transparent 2px);
+  filter: drop-shadow(0 0 5px rgba(189, 163, 255, 0.25));
+}
+
+#root {
+  background: transparent;
 }
 
 /* Themed scrollbars (Chromium / WebKit) — applies to every scrollable area. */

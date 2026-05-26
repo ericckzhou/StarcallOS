@@ -127,6 +127,67 @@ describe('extractCandidates', () => {
     expect(result.diagnostics.definitions_found).toBeGreaterThan(0);
   });
 
+  it('adds typography labels and final score for true headings', () => {
+    const blocks = [
+      block({
+        text: 'PROCESS SCHEDULING',
+        page: 12,
+        readingOrder: 0,
+        hint: 'heading',
+        hintConfidence: 2,
+        signals: {
+          fontSizeRatio: 1.5,
+          yGapAbove: 20,
+          yGapBelow: 18,
+          xColumnIndex: 0,
+          isIsolatedLine: true,
+          isAllCaps: true,
+          isBold: true,
+          lineCount: 1,
+        },
+      }),
+      block({ text: 'Process scheduling decides which runnable process gets CPU time.', page: 12, readingOrder: 1 }),
+    ];
+
+    const result = extractCandidates(blocks, new Map([[0, []], [1, ['PROCESS SCHEDULING']]]), ['process', 'cpu', 'scheduling']);
+    const candidate = result.candidates.find(c => c.term === 'PROCESS SCHEDULING');
+
+    expect(candidate).toBeDefined();
+    expect(candidate!.final_score).toBeGreaterThanOrEqual(0.55);
+    expect(candidate!.labels).toContain('section_heading');
+    expect(candidate!.labels).toContain('large_font');
+    expect(candidate!.context_snippet).toContain('CPU time');
+    expect(result.diagnostics.typography_backed_candidates).toBeGreaterThan(0);
+  });
+
+  it('penalizes sentence fragments and caption-like headings', () => {
+    const result = extractCandidates([
+      block({ text: 'In this example, if CPU 0 references instructions or data', page: 4, readingOrder: 0, hint: 'heading', hintConfidence: 2 }),
+      block({ text: 'Figure 2.1: State transitions', page: 5, readingOrder: 1, hint: 'heading', hintConfidence: 2 }),
+    ], new Map());
+
+    const fragment = result.candidates.find(c => c.term.startsWith('In this example'));
+    const caption = result.candidates.find(c => c.term.startsWith('Figure'));
+
+    expect(fragment?.labels).toContain('sentence_fragment');
+    expect(fragment?.final_score).toBeLessThan(0.55);
+    expect(caption?.labels).toContain('caption_or_figure');
+    expect(caption?.final_score).toBeLessThan(0.55);
+  });
+
+  it('keeps definition-pattern evidence ahead of heading-only duplicates', () => {
+    const result = extractCandidates([
+      block({ text: 'Gradient Descent', page: 1, readingOrder: 0, hint: 'heading', hintConfidence: 2 }),
+      block({ text: 'Gradient Descent is defined as an iterative method for optimization.', page: 2, readingOrder: 1 }),
+    ], new Map());
+
+    const gd = result.candidates.find(c => c.normalized === 'gradient descent');
+
+    expect(gd?.term).toBe('Gradient Descent');
+    expect(gd?.labels).toContain('defined_term');
+    expect(gd?.evidence[0].source === 'definition_pattern' || gd?.evidence.some(e => e.source === 'definition_pattern')).toBe(true);
+  });
+
   it('captures relations independently of candidates', () => {
     const blocks = [
       block({ text: 'Backpropagation requires differentiable activation functions.', page: 1, readingOrder: 0 }),

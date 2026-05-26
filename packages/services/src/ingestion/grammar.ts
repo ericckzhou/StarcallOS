@@ -20,12 +20,12 @@ interface DefRule {
 }
 
 const DEFINITION_RULES: DefRule[] = [
-  { name: 'is_defined_as',  re: /([A-Z][\w-]*(?:\s+[a-z][\w-]*){0,4})\s+(?:is|are|was|were)\s+defined\s+as\s+[^.!?]+[.!?]/g },
-  { name: 'refers_to',      re: /([A-Z][\w-]*(?:\s+[a-z][\w-]*){0,4})\s+refers\s+to\s+[^.!?]+[.!?]/g },
-  { name: 'is_a',           re: /([A-Z][\w-]*(?:\s+[a-z][\w-]*){0,4})\s+(?:is|are)\s+(?:a|an|the)\s+(?:type|kind|form|class|instance|special\s+case)\s+of\s+[^.!?]+[.!?]/g },
-  { name: 'consists_of',    re: /([A-Z][\w-]*(?:\s+[a-z][\w-]*){0,4})\s+(?:consists?\s+of|is\s+composed\s+of|is\s+made\s+up\s+of)\s+[^.!?]+[.!?]/g },
-  { name: 'known_as',       re: /(?:known|referred\s+to)\s+as\s+([A-Z][\w-]*(?:\s+[a-z][\w-]*){0,4})[^.!?]*[.!?]/g },
-  { name: 'we_call',        re: /(?:we|one|you)\s+(?:call|term|name)\s+(?:this|it|them|these)\s+([A-Z][\w-]*(?:\s+[a-z][\w-]*){0,4})[^.!?]*[.!?]/g },
+  { name: 'is_defined_as',  re: /([A-Z][\w-]*(?:\s+[A-Z]?[\w-]*){0,4})\s+(?:is|are|was|were)\s+defined\s+as\s+[^.!?]+[.!?]/g },
+  { name: 'refers_to',      re: /([A-Z][\w-]*(?:\s+[A-Z]?[\w-]*){0,4})\s+refers\s+to\s+[^.!?]+[.!?]/g },
+  { name: 'is_a',           re: /([A-Z][\w-]*(?:\s+[A-Z]?[\w-]*){0,4})\s+(?:is|are)\s+(?:a|an|the)\s+(?:type|kind|form|class|instance|special\s+case)\s+of\s+[^.!?]+[.!?]/g },
+  { name: 'consists_of',    re: /([A-Z][\w-]*(?:\s+[A-Z]?[\w-]*){0,4})\s+(?:consists?\s+of|is\s+composed\s+of|is\s+made\s+up\s+of)\s+[^.!?]+[.!?]/g },
+  { name: 'known_as',       re: /(?:known|referred\s+to)\s+as\s+([A-Z][\w-]*(?:\s+[A-Z]?[\w-]*){0,4})[^.!?]*[.!?]/g },
+  { name: 'we_call',        re: /(?:we|one|you)\s+(?:call|term|name)\s+(?:this|it|them|these)\s+([A-Z][\w-]*(?:\s+[A-Z]?[\w-]*){0,4})[^.!?]*[.!?]/g },
   { name: 'colon_def',      re: /^([A-Z][\w-]*(?:\s+[A-Z]?[\w-]*){0,4})\s*:\s+[A-Z][^.!?]{20,}[.!?]/gm },
 ];
 

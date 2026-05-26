@@ -75,6 +75,15 @@ function seedCandidates(db: ReturnType<typeof openDb>) {
     is_boilerplate: false,
     is_broad: false,
     concept_score: 0,
+    typography_score: 0.8,
+    signal_score: 1,
+    quality_score: 0.7,
+    context_score: 0.75,
+    final_score: 0.82,
+    labels: ['defined_term', 'large_font'],
+    typography_signals: { fontSizeRatio: 1.4, isBold: true },
+    context_snippet: 'Gradient Descent is defined as an iterative optimization method.',
+    parser_diagnostics: { reading_orders: [0, 1] },
     reject_reasons: [],
   });
   createConceptCandidate(db, source.id, {
@@ -96,6 +105,21 @@ function seedCandidates(db: ReturnType<typeof openDb>) {
 }
 
 describe('candidate promotion and cleanup', () => {
+  it('persists deterministic candidate metadata', () => {
+    const db = openDb(':memory:');
+    const { candidates } = seedCandidates(db);
+    const candidate = candidates.find(c => c.normalized === 'gradient descent');
+
+    expect(candidate?.final_score).toBe(0.82);
+    expect(candidate?.typography_score).toBe(0.8);
+    expect(candidate?.labels).toContain('defined_term');
+    expect(candidate?.typography_signals?.fontSizeRatio).toBe(1.4);
+    expect(candidate?.context_snippet).toContain('iterative optimization method');
+    expect(candidate?.parser_diagnostics?.reading_orders).toEqual([0, 1]);
+
+    db.close();
+  });
+
   it('promotes a candidate with real evidence, mastery, and durable source spans', () => {
     const db = openDb(':memory:');
     const { source, candidates } = seedCandidates(db);

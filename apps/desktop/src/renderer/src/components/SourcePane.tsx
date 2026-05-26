@@ -40,7 +40,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
   if (collapsed) {
     return (
       <aside style={{
-        width: 36, borderRight: '1px solid #1f2937', background: '#0d0d16',
+        width: 36, borderRight: '1px solid rgba(31,41,55,0.75)', background: 'rgba(13,13,22,0.42)', backdropFilter: 'blur(10px)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 8,
       }}>
         <button
@@ -105,8 +105,8 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
   }
 
   return (
-    <aside style={{ width: 220, borderRight: '1px solid #1f2937', display: 'flex', flexDirection: 'column', background: '#0d0d16' }}>
-      <div style={{ padding: '10px 10px 10px 14px', borderBottom: '1px solid #1f2937', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+    <aside style={{ width: 220, borderRight: '1px solid rgba(31,41,55,0.75)', display: 'flex', flexDirection: 'column', background: 'rgba(13,13,22,0.42)', backdropFilter: 'blur(10px)' }}>
+      <div style={{ padding: '10px 10px 10px 14px', borderBottom: '1px solid rgba(31,41,55,0.75)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, background: 'rgba(4,6,26,0.22)' }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Sources</span>
         <div style={{ display: 'flex', gap: 4 }}>
           <button onClick={handleAdd} style={{ background: '#312e81', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#a5b4fc', fontSize: 11, cursor: 'pointer' }}>+ PDF</button>
@@ -130,7 +130,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
             <div
               key={src.id}
               onClick={() => onSelect(src.id)}
-              style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #111827', background: selectedId === src.id ? '#1e1e2e' : 'transparent', position: 'relative' }}
+              style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(17,24,39,0.75)', background: selectedId === src.id ? 'rgba(30,30,46,0.72)' : 'rgba(4,6,26,0.10)', position: 'relative' }}
             >
               <button
                 onClick={e => handleDelete(e, src.id)}

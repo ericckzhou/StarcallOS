@@ -4,11 +4,12 @@ import ConceptPane, { type Concept } from './components/ConceptPane';
 import DetailPane from './components/DetailPane';
 import CandidateReview from './components/CandidateReview';
 import ReviewQueue from './components/ReviewQueue';
-import SettingsPane from './components/SettingsPane';
+import ProfilePane, { Avatar } from './components/ProfilePane';
 import ParseRunsPanel from './components/ParseRunsPanel';
+import { loadProfile, xpToNext, type Profile, type StudyProgress } from './components/profile';
 
 type Tab = 'concepts' | 'candidates' | 'runs';
-type TopLevel = 'sources' | 'review' | 'settings';
+type TopLevel = 'sources' | 'review' | 'profile';
 
 export default function App() {
   const [topLevel, setTopLevel] = useState<TopLevel>('sources');
@@ -17,9 +18,20 @@ export default function App() {
   const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null);
   const [tab, setTab] = useState<Tab>('concepts');
   const [conceptsRefreshKey, setConceptsRefreshKey] = useState(0);
+  const [profile, setProfile] = useState<Profile>(() => loadProfile());
+  const [progress, setProgress] = useState<StudyProgress | null>(null);
 
   useEffect(() => {
     window.api.sources.list().then(r => setSources(r as Source[]));
+  }, []);
+
+  useEffect(() => {
+    const refreshProgress = () => {
+      window.api.evidence.progress().then(p => setProgress(p as StudyProgress));
+    };
+    refreshProgress();
+    window.addEventListener('starcall:progressChanged', refreshProgress);
+    return () => window.removeEventListener('starcall:progressChanged', refreshProgress);
   }, []);
 
   // If the selected source disappears from the list (e.g. user deleted it),
@@ -74,24 +86,77 @@ export default function App() {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0a0a0f', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }}>
-      <header style={{ height: 48, padding: '0 20px', borderBottom: '1px solid #1f2937', display: 'flex', alignItems: 'center', background: '#0d0d16', flexShrink: 0, gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'transparent', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif', position: 'relative', overflow: 'hidden' }}>
+      {profile.backgroundDataUrl && (
+        <>
+          <img
+            src={profile.backgroundDataUrl}
+            alt=""
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              opacity: Math.max(0, Math.min(1, profile.backgroundOpacity)),
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          />
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(1, 2, 16, 0.72)',
+            pointerEvents: 'none',
+            zIndex: 0,
+          }} />
+        </>
+      )}
+      <header style={{ height: 48, padding: '0 20px', borderBottom: '1px solid rgba(35,42,85,0.65)', display: 'flex', alignItems: 'center', background: 'rgba(4,6,26,0.72)', backdropFilter: 'blur(18px)', flexShrink: 0, gap: 12, position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'flex', height: '100%' }}>
           {topBtn('sources',  'Sources')}
           {topBtn('review',   'Review')}
-          {topBtn('settings', 'Settings')}
         </div>
+        <button
+          onClick={() => { setTopLevel('profile'); setSelectedConcept(null); }}
+          title="Open profile"
+          style={{
+            marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10,
+            background: topLevel === 'profile' ? '#1a1a2e' : 'transparent',
+            border: `1px solid ${topLevel === 'profile' ? '#4338ca' : '#1f2937'}`,
+            borderRadius: 8, padding: '5px 8px', cursor: 'pointer',
+            color: '#e2e8f0',
+          }}
+        >
+          <Avatar profile={profile} size={28} />
+          {progress && (
+            <div style={{ width: 185, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, lineHeight: 1.1 }}>
+                <span style={{ fontSize: 11, color: '#e2e8f0', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {profile.name}
+                </span>
+                <span style={{ fontSize: 10, color: '#94a3b8', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                  Lv {progress.level} · {progress.total_xp} XP
+                </span>
+              </div>
+              <div style={{ marginTop: 4, height: 4, borderRadius: 2, background: '#1f2937', overflow: 'hidden' }} title={`${xpToNext(progress)} XP to next milestone`}>
+                <div style={{ height: '100%', width: `${Math.max(0, Math.min(1, progress.progress_ratio)) * 100}%`, background: '#818cf8' }} />
+              </div>
+            </div>
+          )}
+        </button>
       </header>
 
-      {topLevel === 'settings' ? (
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <SettingsPane />
+      {topLevel === 'profile' ? (
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
+          <ProfilePane profile={profile} progress={progress} onProfileChange={setProfile} />
         </div>
       ) : topLevel === 'review' ? (
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
           <ReviewQueue onSelect={handleReviewSelect} selectedConcept={selectedConcept} />
           <DetailPane
             concept={selectedConcept}
+            profile={profile}
             onDeleted={() => {
               setSelectedConcept(null);
               setConceptsRefreshKey(k => k + 1);
@@ -99,7 +164,7 @@ export default function App() {
           />
         </div>
       ) : (
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
           <SourcePane
             sources={sources}
             selectedId={selectedSourceId}
@@ -134,6 +199,7 @@ export default function App() {
                   />
                   <DetailPane
             concept={selectedConcept}
+            profile={profile}
             onDeleted={() => {
               setSelectedConcept(null);
               setConceptsRefreshKey(k => k + 1);

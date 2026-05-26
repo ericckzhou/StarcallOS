@@ -186,4 +186,6 @@ export interface EvidenceRecord {
   // Denormalized at grade time so History survives task regeneration.
   task_prompt_snapshot: string | null;
   task_kind_snapshot:   string | null;
+  task_difficulty_snapshot: 1 | 2 | 3 | 4 | 5 | null;
+  xp_awarded: number;
 }

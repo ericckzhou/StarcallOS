@@ -40,6 +40,15 @@ interface ConceptCandidateRow {
   is_broad?: number;
   concept_score?: number;
   reject_reasons_json?: string;
+  typography_score?: number;
+  signal_score?: number;
+  quality_score?: number;
+  context_score?: number;
+  final_score?: number;
+  labels_json?: string;
+  typography_signals_json?: string;
+  context_snippet?: string;
+  parser_diagnostics_json?: string;
 }
 
 function rowToConceptCandidate(row: ConceptCandidateRow): StoredConceptCandidate {
@@ -62,6 +71,19 @@ function rowToConceptCandidate(row: ConceptCandidateRow): StoredConceptCandidate
     is_boilerplate: !!row.is_boilerplate,
     is_broad: !!row.is_broad,
     concept_score: row.concept_score ?? 0,
+    typography_score: row.typography_score ?? 0,
+    signal_score: row.signal_score ?? row.confidence,
+    quality_score: row.quality_score ?? 0,
+    context_score: row.context_score ?? (row.topic_relevance_score ?? 1.0),
+    final_score: row.final_score ?? row.concept_score ?? row.confidence,
+    labels: row.labels_json ? (JSON.parse(row.labels_json) as string[]) : [],
+    typography_signals: row.typography_signals_json
+      ? (JSON.parse(row.typography_signals_json) as Record<string, unknown>)
+      : {},
+    context_snippet: row.context_snippet ?? '',
+    parser_diagnostics: row.parser_diagnostics_json
+      ? (JSON.parse(row.parser_diagnostics_json) as Record<string, unknown>)
+      : {},
     reject_reasons: row.reject_reasons_json
       ? (JSON.parse(row.reject_reasons_json) as string[])
       : [],
@@ -79,8 +101,10 @@ export function createConceptCandidate(
        (source_id, term, normalized, confidence, mention_count, first_page,
         section_path, evidence, signals, parser_version,
         topic_relevance_score, topic_relevance_reasons_json, is_boilerplate, is_broad,
-        concept_score, reject_reasons_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        concept_score, reject_reasons_json,
+        typography_score, signal_score, quality_score, context_score, final_score,
+        labels_json, typography_signals_json, context_snippet, parser_diagnostics_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     sourceId,
     c.term,
@@ -98,6 +122,15 @@ export function createConceptCandidate(
     c.is_broad ? 1 : 0,
     c.concept_score ?? 0,
     JSON.stringify(c.reject_reasons ?? []),
+    c.typography_score ?? 0,
+    c.signal_score ?? c.confidence,
+    c.quality_score ?? 0,
+    c.context_score ?? c.topic_relevance_score ?? 1.0,
+    c.final_score ?? c.concept_score ?? c.confidence,
+    JSON.stringify(c.labels ?? []),
+    JSON.stringify(c.typography_signals ?? {}),
+    c.context_snippet ?? '',
+    JSON.stringify(c.parser_diagnostics ?? {}),
   );
 }
 
@@ -110,7 +143,7 @@ export function listConceptCandidatesBySource(
       .prepare(
         `SELECT * FROM concept_candidates
          WHERE source_id = ?
-         ORDER BY concept_score DESC, confidence DESC, mention_count DESC`,
+         ORDER BY final_score DESC, concept_score DESC, confidence DESC, mention_count DESC`,
       )
       .all(sourceId) as unknown as ConceptCandidateRow[]
   ).map(rowToConceptCandidate);
