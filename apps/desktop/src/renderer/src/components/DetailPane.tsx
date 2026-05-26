@@ -3,6 +3,7 @@ import type { Concept } from './ConceptPane';
 import LatexMath from './LatexMath';
 import PdfViewer from './PdfViewer';
 import UserNotesSection from './UserNotesSection';
+import WhereItReappearsEditor from './WhereItReappearsEditor';
 import type { Profile } from './profile';
 
 type Task = { id: number; kind: string; prompt: string; difficulty: number };
@@ -599,24 +600,26 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
           </div>
         </Section>
       )}
-      {concept.where_reappears && (
-        Array.isArray(concept.where_reappears) && concept.where_reappears.length > 0 ? (
-          <Section title="Where It Reappears">
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {concept.where_reappears.map((w, i) => (
-                <span key={i} style={{
-                  fontSize: 12, padding: '3px 10px', borderRadius: 12,
-                  background: '#1e1b4b', border: '1px solid #312e81', color: '#c7d2fe',
-                }}>
-                  {w}
-                </span>
-              ))}
-            </div>
-          </Section>
-        ) : typeof concept.where_reappears === 'string' && concept.where_reappears.trim() !== '' ? (
-          <Section title="Where It Reappears"><p style={body}>{concept.where_reappears}</p></Section>
-        ) : null
-      )}
+      <Section title="Where It Reappears">
+        <WhereItReappearsEditor
+          conceptId={concept.id}
+          value={(Array.isArray(concept.where_reappears)
+            ? concept.where_reappears
+            : typeof concept.where_reappears === 'string' && concept.where_reappears.trim() !== ''
+              ? [concept.where_reappears]
+              : []
+          )}
+          onChange={next => {
+            // Mutate the parent's concept reference so other surfaces (and
+            // the next render of this tab) see the new list immediately.
+            concept.where_reappears = next;
+            void window.api.concepts.updateFields({
+              conceptId: concept.id,
+              where_reappears: next,
+            });
+          }}
+        />
+      </Section>
       {misconceptions.length > 0 && (
         <Section title={`Common Misconceptions (${misconceptions.length})`}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -896,16 +899,24 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        {tasks.map(t => (
-          <button key={t.id} onClick={() => onSelectTask(t)} style={{
-            background: selectedTask?.id === t.id ? '#312e81' : '#111827',
-            border: `1px solid ${selectedTask?.id === t.id ? '#6366f1' : '#1f2937'}`,
-            borderRadius: 4, padding: '4px 10px', fontSize: 11, cursor: 'pointer',
-            color: selectedTask?.id === t.id ? '#a5b4fc' : '#6b7280',
-          }}>
-            {t.kind.replace(/_/g, ' ')}
-          </button>
-        ))}
+        {(() => {
+          const KIND_ORDER = ['definition', 'connection', 'application', 'compression', 'misconception_resistance'];
+          const ordered = [...tasks].sort((a, b) => {
+            const ai = KIND_ORDER.indexOf(a.kind);
+            const bi = KIND_ORDER.indexOf(b.kind);
+            return (ai === -1 ? KIND_ORDER.length : ai) - (bi === -1 ? KIND_ORDER.length : bi);
+          });
+          return ordered.map(t => (
+            <button key={t.id} onClick={() => onSelectTask(t)} style={{
+              background: selectedTask?.id === t.id ? '#312e81' : '#111827',
+              border: `1px solid ${selectedTask?.id === t.id ? '#6366f1' : '#1f2937'}`,
+              borderRadius: 4, padding: '4px 10px', fontSize: 11, cursor: 'pointer',
+              color: selectedTask?.id === t.id ? '#a5b4fc' : '#6b7280',
+            }}>
+              {t.kind.replace(/_/g, ' ')}
+            </button>
+          ));
+        })()}
         <button
           onClick={onRegenerateTasks}
           disabled={generatingTasks}
@@ -1066,5 +1077,3 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-const body:      React.CSSProperties = { margin: 0, fontSize: 14, color: '#c4cfe4', lineHeight: 1.75 };
-const bodyMuted: React.CSSProperties = { margin: 0, fontSize: 13, color: '#6b7280', lineHeight: 1.65, fontStyle: 'italic' };
