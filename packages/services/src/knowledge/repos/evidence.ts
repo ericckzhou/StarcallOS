@@ -275,6 +275,8 @@ interface RecordRow {
   created_at: string;
   task_prompt_snapshot: string | null;
   task_kind_snapshot: string | null;
+  task_difficulty_snapshot: number | null;
+  xp_awarded: number;
 }
 
 function rowToRecord(row: RecordRow): EvidenceRecord {
@@ -291,20 +293,60 @@ function rowToRecord(row: RecordRow): EvidenceRecord {
     created_at: row.created_at,
     task_prompt_snapshot: row.task_prompt_snapshot ?? null,
     task_kind_snapshot: row.task_kind_snapshot ?? null,
+    task_difficulty_snapshot: row.task_difficulty_snapshot as 1 | 2 | 3 | 4 | 5 | null,
+    xp_awarded: row.xp_awarded,
   };
+}
+
+export function calculateXpAward(difficulty: number, score: EvidenceScore): number {
+  const clampedDifficulty = Math.max(1, Math.min(5, Math.round(difficulty || 3)));
+  const multiplier = score === 'understood'
+    ? 1
+    : score === 'recognizes'
+      ? 0.6
+      : score === 'gap'
+        ? 0.25
+        : 0.1;
+  return Math.max(5, Math.round(clampedDifficulty * 20 * multiplier));
+}
+
+export function calculateEligibleXpAward(
+  db: DatabaseSync,
+  conceptId: number,
+  taskKind: EvidenceKind,
+  difficulty: number,
+  score: EvidenceScore,
+): number {
+  const row = db
+    .prepare(
+      `SELECT MAX(COALESCE(r.task_difficulty_snapshot, t.difficulty, 0)) AS max_difficulty
+         FROM evidence_records r
+         LEFT JOIN evidence_tasks t ON t.id = r.task_id
+        WHERE r.concept_id = ?
+          AND COALESCE(r.task_kind_snapshot, t.kind) = ?
+          AND COALESCE(r.xp_awarded, 0) > 0`,
+    )
+    .get(conceptId, taskKind) as unknown as { max_difficulty: number | bigint | null } | undefined;
+  const priorMax = Number(row?.max_difficulty ?? 0);
+  const currentDifficulty = Math.max(1, Math.min(5, Math.round(difficulty || 3)));
+  return currentDifficulty > priorMax ? calculateXpAward(currentDifficulty, score) : 0;
 }
 
 export function createEvidenceRecord(
   db: DatabaseSync,
-  input: Omit<EvidenceRecord, 'id' | 'created_at'>,
+  input: Omit<EvidenceRecord, 'id' | 'created_at' | 'task_difficulty_snapshot' | 'xp_awarded'> &
+    Partial<Pick<EvidenceRecord, 'task_difficulty_snapshot' | 'xp_awarded'>>,
 ): EvidenceRecord {
+  const difficulty = input.task_difficulty_snapshot ?? 3;
+  const xpAwarded = input.xp_awarded ?? calculateXpAward(difficulty, input.score);
   const result = db
     .prepare(
       `INSERT INTO evidence_records
          (task_id, concept_id, user_response, score, compression_stage,
           gaps_detected, misconceptions_detected, grader_reasoning,
-          task_prompt_snapshot, task_kind_snapshot)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          task_prompt_snapshot, task_kind_snapshot, task_difficulty_snapshot,
+          xp_awarded)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.task_id,
@@ -317,6 +359,8 @@ export function createEvidenceRecord(
       input.grader_reasoning,
       input.task_prompt_snapshot ?? null,
       input.task_kind_snapshot ?? null,
+      difficulty,
+      xpAwarded,
     );
   const row = db
     .prepare('SELECT * FROM evidence_records WHERE id = ?')
@@ -338,7 +382,9 @@ export function listRecordsByConcept(db: DatabaseSync, conceptId: number): Evide
       .prepare(
         `SELECT r.*,
                 COALESCE(r.task_prompt_snapshot, t.prompt) AS task_prompt_snapshot,
-                COALESCE(r.task_kind_snapshot,   t.kind)   AS task_kind_snapshot
+                COALESCE(r.task_kind_snapshot,   t.kind)   AS task_kind_snapshot,
+                COALESCE(r.task_difficulty_snapshot, t.difficulty, 3) AS task_difficulty_snapshot,
+                COALESCE(r.xp_awarded, 0) AS xp_awarded
            FROM evidence_records r
            LEFT JOIN evidence_tasks t ON t.id = r.task_id
           WHERE r.concept_id = ?
@@ -346,4 +392,62 @@ export function listRecordsByConcept(db: DatabaseSync, conceptId: number): Evide
       )
       .all(conceptId) as unknown as RecordRow[]
   ).map(rowToRecord);
+}
+
+export interface StudyProgress {
+  total_xp: number;
+  level: number;
+  current_level_xp: number;
+  next_level_xp: number;
+  progress_ratio: number;
+  challenges_completed: number;
+  difficulty_counts: Record<1 | 2 | 3 | 4 | 5, number>;
+}
+
+export function progressFromXp(
+  totalXp: number,
+  challengesCompleted = 0,
+  difficultyCounts: Record<1 | 2 | 3 | 4 | 5, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+): StudyProgress {
+  const level = Math.floor(Math.sqrt(Math.max(0, totalXp) / 100)) + 1;
+  const currentLevelXp = (level - 1) * (level - 1) * 100;
+  const nextLevelXp = level * level * 100;
+  return {
+    total_xp: totalXp,
+    level,
+    current_level_xp: currentLevelXp,
+    next_level_xp: nextLevelXp,
+    progress_ratio: nextLevelXp > currentLevelXp
+      ? (totalXp - currentLevelXp) / (nextLevelXp - currentLevelXp)
+      : 1,
+    challenges_completed: challengesCompleted,
+    difficulty_counts: difficultyCounts,
+  };
+}
+
+export function getStudyProgress(db: DatabaseSync): StudyProgress {
+  const xpRow = db
+    .prepare(
+      `SELECT COALESCE(SUM(COALESCE(xp_awarded, 0)), 0) AS total_xp
+         FROM evidence_records`,
+    )
+    .get() as unknown as { total_xp: number | bigint } | undefined;
+  const challengeRow = db
+    .prepare('SELECT COUNT(*) AS total FROM evidence_records')
+    .get() as unknown as { total: number | bigint } | undefined;
+  const difficultyRows = db
+    .prepare(
+      `SELECT COALESCE(r.task_difficulty_snapshot, t.difficulty, 3) AS difficulty,
+              COUNT(*) AS total
+         FROM evidence_records r
+         LEFT JOIN evidence_tasks t ON t.id = r.task_id
+        GROUP BY COALESCE(r.task_difficulty_snapshot, t.difficulty, 3)`,
+    )
+    .all() as unknown as Array<{ difficulty: number | bigint; total: number | bigint }>;
+  const difficultyCounts: Record<1 | 2 | 3 | 4 | 5, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  for (const row of difficultyRows) {
+    const difficulty = Math.max(1, Math.min(5, Number(row.difficulty))) as 1 | 2 | 3 | 4 | 5;
+    difficultyCounts[difficulty] = Number(row.total);
+  }
+  return progressFromXp(Number(xpRow?.total_xp ?? 0), Number(challengeRow?.total ?? 0), difficultyCounts);
 }

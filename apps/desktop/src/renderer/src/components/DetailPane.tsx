@@ -15,6 +15,7 @@ type Grade = {
   gaps_detected: string[];
   misconceptions_detected: string[];
   grader_reasoning: string;
+  xp_awarded?: number;
 };
 type HistoryRecord = {
   id: number;
@@ -27,6 +28,17 @@ type HistoryRecord = {
   user_response?: string | null;
   task_prompt_snapshot?: string | null;
   task_kind_snapshot?: string | null;
+  task_difficulty_snapshot?: number | null;
+  xp_awarded?: number;
+};
+type StudyProgress = {
+  total_xp: number;
+  level: number;
+  current_level_xp: number;
+  next_level_xp: number;
+  progress_ratio: number;
+  challenges_completed?: number;
+  difficulty_counts?: Record<1 | 2 | 3 | 4 | 5, number>;
 };
 
 const SCORE_COLOR: Record<EvidenceScore, string> = {
@@ -66,6 +78,7 @@ export default function DetailPane({ concept, onDeleted }: Props) {
   const [grade, setGrade] = useState<Grade | null>(null);
   const [generatingTasks, setGeneratingTasks] = useState(false);
   const [taskGenError, setTaskGenError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<StudyProgress | null>(null);
   const [sourcePreviewOpen, setSourcePreviewOpen] = useState(() => localStorage.getItem(SOURCE_PREVIEW_KEY) === 'true');
   const [sourcePreviewNotesWidth, setSourcePreviewNotesWidth] = useState(() => Number(localStorage.getItem(SOURCE_PREVIEW_NOTES_WIDTH_KEY)) || 760);
   const sourcePreviewSplitRef = useRef<HTMLDivElement>(null);
@@ -81,13 +94,15 @@ export default function DetailPane({ concept, onDeleted }: Props) {
       window.api.concepts.misconceptions(concept.id),
       window.api.evidence.history(concept.id),
       window.api.concepts.equations(concept.id),
-    ]).then(([t, m, mis, h, eq]) => {
+      window.api.evidence.progress(),
+    ]).then(([t, m, mis, h, eq, prog]) => {
       const tl = t as Task[];
       setTasks(tl);
       setMastery(m as Mastery | null);
       setMisconceptions(mis as Misconception[]);
       setHistory((h as HistoryRecord[]).slice().reverse());
       setEquations(eq as Equation[]);
+      setProgress(prog as StudyProgress);
       if (tl.length > 0) setSelectedTask(tl[0]);
     });
   }, [concept?.id]);
@@ -165,6 +180,8 @@ export default function DetailPane({ concept, onDeleted }: Props) {
     try {
       await window.api.evidence.delete(recordId);
       setHistory(prev => prev.filter(h => h.id !== recordId));
+      setProgress(await window.api.evidence.progress() as StudyProgress);
+      window.dispatchEvent(new Event('starcall:progressChanged'));
     } catch (e) {
       window.alert(`Failed to delete: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -182,6 +199,8 @@ export default function DetailPane({ concept, onDeleted }: Props) {
       setGrade(g);
       setMastery({ compression_stage: g.compression_stage });
       setHistory(prev => [result as HistoryRecord, ...prev]);
+      setProgress(await window.api.evidence.progress() as StudyProgress);
+      window.dispatchEvent(new Event('starcall:progressChanged'));
       window.dispatchEvent(new Event('starcall:review-queue-stale'));
     } finally {
       setGrading(false);
@@ -199,7 +218,7 @@ export default function DetailPane({ concept, onDeleted }: Props) {
   const stage = mastery?.compression_stage ?? 0;
   const TAB_LABELS = {
     overview: 'Overview',
-    challenge: 'Challenge Me',
+    challenge: 'Challenges',
     history: `History${history.length ? ` (${history.length})` : ''}`,
   };
   const activeTabContent = (
@@ -219,6 +238,63 @@ export default function DetailPane({ concept, onDeleted }: Props) {
       {tab === 'history' && <HistoryTab records={history} onDelete={handleDeleteRecord} />}
     </>
   );
+  const tabBar = (
+    <div style={{ display: 'flex', gap: 2 }}>
+      {(['overview', 'challenge', 'history'] as const).map(t => (
+        <button key={t} onClick={() => setTab(t)} style={{
+          background: 'none', border: 'none', padding: '6px 16px', fontSize: 12, cursor: 'pointer',
+          color: tab === t ? '#818cf8' : '#4b5563',
+          borderBottom: `2px solid ${tab === t ? '#818cf8' : 'transparent'}`,
+          fontWeight: tab === t ? 600 : 400, marginBottom: -1,
+        }}>
+          {TAB_LABELS[t]}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (sourcePreviewOpen) {
+    return (
+      <main ref={sourcePreviewSplitRef} style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+        <section style={{
+          flex: `0 0 ${sourcePreviewNotesWidth}px`, minWidth: 360, maxWidth: '70%',
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          borderRight: '1px solid #1f2937',
+        }}>
+          <header style={{ padding: '12px 24px 0', borderBottom: '1px solid #1f2937', background: '#0d0d16', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, minWidth: 0 }}>
+              <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{concept.name}</h1>
+              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: `${IMP_COLOR[concept.importance] ?? '#374151'}22`, color: IMP_COLOR[concept.importance] ?? '#6b7280', flexShrink: 0 }}>
+                {concept.importance}
+              </span>
+              <span style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 10px', borderRadius: 12, background: `${STAGE_COLORS[stage]}22`, color: STAGE_COLORS[stage], fontWeight: 600, flexShrink: 0 }}>
+                {STAGES[stage]}
+              </span>
+              <button
+                onClick={() => setSourcePreviewOpen(false)}
+                title="Close source preview"
+                style={{ background: 'transparent', border: '1px solid #7f1d1d', borderRadius: 4, padding: '2px 8px', color: '#fca5a5', fontSize: 14, cursor: 'pointer', lineHeight: 1, flexShrink: 0 }}
+              >
+                ×
+              </button>
+            </div>
+            {tabBar}
+          </header>
+          <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+            {activeTabContent}
+          </div>
+        </section>
+        <div
+          onMouseDown={beginSourcePreviewResize}
+          title="Drag to resize content and source"
+          style={{ width: 8, flexShrink: 0, cursor: 'col-resize', background: '#0d0d16', borderRight: '1px solid #111827' }}
+        />
+        <section style={{ flex: 1, minWidth: 520, display: 'flex', overflow: 'hidden' }}>
+          <PdfViewer key={`preview:${concept.id}`} conceptId={concept.id} conceptName={concept.name} />
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -263,45 +339,14 @@ export default function DetailPane({ concept, onDeleted }: Props) {
             ×
           </button>
         </div>
-        <div style={{ display: 'flex', gap: 2 }}>
-          {(['overview', 'challenge', 'history'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{
-              background: 'none', border: 'none', padding: '6px 16px', fontSize: 12, cursor: 'pointer',
-              color: tab === t ? '#818cf8' : '#4b5563',
-              borderBottom: `2px solid ${tab === t ? '#818cf8' : 'transparent'}`,
-              fontWeight: tab === t ? 600 : 400, marginBottom: -1,
-            }}>
-              {TAB_LABELS[t]}
-            </button>
-          ))}
-        </div>
+        {tabBar}
       </header>
 
       <div style={{
         flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column',
-        ...(sourcePreviewOpen ? {} : { overflowY: 'auto', padding: 24 }),
+        overflowY: 'auto', padding: 24,
       }}>
-        {sourcePreviewOpen ? (
-          <div ref={sourcePreviewSplitRef} style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
-            <div style={{ flex: `0 0 ${sourcePreviewNotesWidth}px`, minWidth: 360, maxWidth: '70%', overflowY: 'auto', padding: 24 }}>
-              {activeTabContent}
-            </div>
-            <div
-              onMouseDown={beginSourcePreviewResize}
-              title="Drag to resize content and source"
-              style={{
-                width: 8, flexShrink: 0, cursor: 'col-resize',
-                borderLeft: '1px solid #1f2937', borderRight: '1px solid #111827',
-                background: '#0d0d16',
-              }}
-            />
-            <div style={{ flex: 1, minWidth: 520, display: 'flex', overflow: 'hidden' }}>
-              <PdfViewer key={`preview:${concept.id}`} conceptId={concept.id} conceptName={concept.name} />
-            </div>
-          </div>
-        ) : (
-          activeTabContent
-        )}
+        {activeTabContent}
       </div>
     </main>
   );
@@ -583,7 +628,7 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
             {pasteOpen ? 'Close paste' : '2. Paste Answer'}
           </button>
           <button onClick={enrich} disabled={enriching} title="One LLM call via your configured provider/model. Fills the three fields above." style={btnSecondary(enriching)}>
-            {enriching ? 'Enriching…' : 'Or Enrich w/ LLM'}
+            {enriching ? 'Enriching…' : 'Fill w/ LLM'}
           </button>
         </div>
         {pasteApplied && (
@@ -709,6 +754,9 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
       {records.map(r => {
         const scoreColor = SCORE_COLOR[r.score] ?? '#6b7280';
         const date = new Date(r.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const difficulty = r.task_difficulty_snapshot ?? 3;
+        const xp = r.xp_awarded ?? 0;
+        const questionType = (r.task_kind_snapshot ?? 'challenge').replace(/_/g, ' ');
         return (
           <div key={r.id} style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
@@ -722,6 +770,19 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
               </span>
               <span style={{ fontSize: 11, color: '#6b7280' }}>·</span>
               <span style={{ fontSize: 11, color: '#6b7280' }}>{date}</span>
+              <span style={{
+                fontSize: 10, color: '#a5b4fc', background: '#1e1b4b',
+                border: '1px solid #312e81', borderRadius: 10, padding: '2px 7px',
+              }}>
+                {questionType} · diff {difficulty}/5
+              </span>
+              <span style={{
+                fontSize: 10, color: xp > 0 ? '#facc15' : '#64748b', background: xp > 0 ? '#2d1f00' : '#0b1220',
+                border: `1px solid ${xp > 0 ? '#713f12' : '#1f2937'}`, borderRadius: 10, padding: '2px 7px',
+                fontWeight: 700,
+              }}>
+                +{xp} XP
+              </span>
               <button
                 onClick={() => onDelete(r.id)}
                 title="Delete this history entry"
@@ -738,7 +799,7 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
               <div style={{ marginBottom: 8 }}>
                 {r.task_kind_snapshot && (
                   <div style={{ fontSize: 9, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
-                    {r.task_kind_snapshot.replace(/_/g, ' ')}
+                    {questionType} · difficulty {difficulty}/5
                   </div>
                 )}
                 <p style={{ margin: 0, fontSize: 12, color: '#cbd5e1', lineHeight: 1.55 }}>{r.task_prompt_snapshot}</p>
@@ -909,9 +970,22 @@ function StageHeader({ stage, score }: { stage: number; score: EvidenceScore }) 
 
 function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task: Task | null; userResponse: string; onReset: () => void }) {
   const stage = grade.compression_stage;
+  const xp = grade.xp_awarded ?? 0;
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 16 }}>
       <StageHeader stage={stage} score={grade.score} />
+      <div style={{
+        alignSelf: 'flex-start',
+        background: '#2d1f00',
+        border: '1px solid #713f12',
+        borderRadius: 8,
+        padding: '8px 12px',
+        color: '#facc15',
+        fontSize: 13,
+        fontWeight: 800,
+      }}>
+        +{xp} XP
+      </div>
       {task && (
         <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
           <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>

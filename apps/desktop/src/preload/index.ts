@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('api', {
     submit: (args: unknown) => ipcRenderer.invoke('evidence:submit', args),
     history: (conceptId: number) => ipcRenderer.invoke('evidence:history', conceptId),
     delete: (recordId: number) => ipcRenderer.invoke('evidence:delete', recordId),
+    progress: () => ipcRenderer.invoke('evidence:progress'),
   },
   candidates: {
     bySource: (sourceId: number) => ipcRenderer.invoke('candidates:bySource', sourceId),

@@ -44,6 +44,7 @@ export const IPC = {
   EVIDENCE_SUBMIT:         'evidence:submit',
   EVIDENCE_HISTORY:        'evidence:history',
   EVIDENCE_DELETE:         'evidence:delete',
+  EVIDENCE_PROGRESS:       'evidence:progress',
   SOURCES_DELETE:          'sources:delete',
   SOURCES_CREATE_TEXT:     'sources:createText',
   CANDIDATES_BY_SOURCE:    'candidates:bySource',
@@ -207,6 +208,16 @@ export interface LlmFilterSetArgs {
   keepTerms: string[] | null;
 }
 
+export interface StudyProgress {
+  total_xp: number;
+  level: number;
+  current_level_xp: number;
+  next_level_xp: number;
+  progress_ratio: number;
+  challenges_completed: number;
+  difficulty_counts: Record<1 | 2 | 3 | 4 | 5, number>;
+}
+
 // ─── The renderer-facing API contract ────────────────────────────────────────
 
 export interface IpcApi {
@@ -245,6 +256,7 @@ export interface IpcApi {
     submit: (args: SubmitEvidenceArgs) => Promise<EvidenceRecord>;
     history: (conceptId: number) => Promise<EvidenceRecord[]>;
     delete: (recordId: number) => Promise<{ ok: true }>;
+    progress: () => Promise<StudyProgress>;
   };
   settings: {
     get: () => Promise<SettingsSnapshot>;

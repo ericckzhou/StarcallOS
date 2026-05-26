@@ -11,6 +11,7 @@ import {
   listNotesByConcept, createNote, updateNote, deleteNote, reorderNotes,
   createChunk, createConcept, updateCentralityScore, createEdge, createMisconception, createTask,
   upsertMastery, createEvidenceRecord, listRecordsByConcept, deleteEvidenceRecord,
+  calculateEligibleXpAward, getStudyProgress,
   emitEvent,
   segmentPdf, segmentText,
   extractCandidates, buildSectionPath, persistCandidateExtraction,
@@ -574,12 +575,15 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       grader_reasoning: grade.reasoning,
       task_prompt_snapshot: task.prompt,
       task_kind_snapshot: task.kind,
+      task_difficulty_snapshot: task.difficulty,
+      xp_awarded: calculateEligibleXpAward(db, conceptId, task.kind, task.difficulty, grade.score),
     });
 
     upsertMastery(db, conceptId, grade.compression_stage);
     emitEvent(db, 'evidence_record.graded', { recordId: record.id, score: grade.score }, { entityType: 'concept', entityId: conceptId });
     return record;
   });
+  ipcMain.handle(IPC.EVIDENCE_PROGRESS, () => getStudyProgress(db));
 }
 
 // ─── App lifecycle ─────────────────────────────────────────────────────────────
