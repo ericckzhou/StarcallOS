@@ -40,10 +40,18 @@ export type BlockHint =
 export interface BlockSignals {
   fontSizeRatio: number;    // block font size / page body median — not "is heading"
   yGapAbove: number;        // raw points gap above — not "is paragraph"
+  yGapBelow?: number;
   xColumnIndex: 0 | 1;     // column assignment — not "column 2 content"
   isIsolatedLine: boolean;
   isAllCaps: boolean;
   isBold: boolean;
+  isItalic?: boolean;
+  lineCount?: number;
+  blockWidth?: number;
+  indentation?: number;
+  dominantFont?: string;
+  headingDepth?: number;
+  pageTopRatio?: number;
 }
 
 export interface SegmentedBlock {
@@ -82,6 +90,7 @@ interface Block {
   x: number;
   y: number;
   yGapAbove: number;
+  yGapBelow: number;
   fontSize: number;
   fontName: string;
   page: number;
@@ -140,15 +149,37 @@ function groupIntoLines(items: RawItem[]): Line[] {
 function makeLine(items: RawItem[]): Line {
   const byX = [...items].sort((a, b) => a.x - b.x);
   const fontSizes = byX.map(i => i.fontSize).filter(s => s > 0);
+  const pieces: string[] = [];
+  for (let i = 0; i < byX.length; i++) {
+    const item = byX[i];
+    const prev = byX[i - 1];
+    if (prev) {
+      const prevEnd = prev.x + prev.width;
+      const gap = item.x - prevEnd;
+      const spaceWidth = Math.max(2, median(fontSizes) * 0.22);
+      const left = prev.str.trimEnd();
+      const right = item.str.trimStart();
+      const alreadySpaced = /\s$/.test(prev.str) || /^\s/.test(item.str);
+      const shouldJoinHyphen = left.endsWith('-') && /^[A-Za-z]/.test(right);
+      if (!alreadySpaced && !shouldJoinHyphen && gap > spaceWidth) pieces.push(' ');
+    }
+    pieces.push(item.str);
+  }
   return {
     items: byX,
-    text: byX.map(i => i.str).join('').replace(/\s+/g, ' ').trim(),
+    text: pieces.join('').replace(/\s+/g, ' ').trim(),
     x: byX[0].x,
     y: byX[0].y,
     fontSize: median(fontSizes) || 10,
     page: byX[0].page,
   };
 }
+
+export const __layoutTest = {
+  makeLine,
+  classify,
+  groupIntoBlocks,
+};
 
 // ─── Pass 3: noise filter ─────────────────────────────────────────────────────
 
@@ -272,6 +303,7 @@ function makeBlock(lines: Line[], yGapAbove: number): Block {
     x: Math.min(...lines.map(l => l.x)),
     y: lines[0].y,
     yGapAbove,
+    yGapBelow: 0,
     fontSize: median(fontSizes) || 10,
     fontName: dominantFont,
     page: lines[0].page,
@@ -286,20 +318,47 @@ function classify(
   twoCol: boolean,
   splitX: number,
   readingOrder: number,
+  pageHeight: number,
 ): SegmentedBlock {
   const ratio = bodyFontSize > 0 ? block.fontSize / bodyFontSize : 1;
   const text = block.text;
+  const trimmed = text.trim();
+  const tokenCount = trimmed.split(/\s+/).filter(Boolean).length;
   const isAllCaps = /[A-Z]/.test(text) && text === text.toUpperCase() && text.length > 2;
   const isBold = /bold|black|heavy/i.test(block.fontName);
+  const isItalic = /italic|oblique/i.test(block.fontName);
   const isIsolatedLine = block.lines.length === 1 && text.length < 120;
   const xColumnIndex: 0 | 1 = twoCol && block.x > splitX ? 1 : 0;
+  const lineWidths = block.lines.map(l => {
+    const xs = l.items.map(i => i.x);
+    const ends = l.items.map(i => i.x + i.width);
+    return Math.max(...ends) - Math.min(...xs);
+  });
+  const blockWidth = Math.max(0, ...lineWidths);
+  const pageTopRatio = pageHeight > 0 ? block.y / pageHeight : 0;
+  const hasSectionNumber = /^\d+(?:\.\d+){0,5}\s+\S/.test(trimmed);
+  const headingDepth = hasSectionNumber ? (trimmed.match(/^\d+(?:\.\d+)*/)?.[0].split('.').length ?? 1) : undefined;
+  const sentenceLike = tokenCount > 9 || /[.!?]\s*$/.test(trimmed) || /^(this|these|those|when|where|because|although|if|in this|for example)\b/i.test(trimmed);
+  const captionLike = /^(fig(?:ure)?|table|algorithm|example|ex\.|eq(?:uation)?)[\s.:_-]*\d*/i.test(trimmed);
+  const tocLike = isTocLine(trimmed);
+  const formulaLike = /[∑∫∂∇≤≥αβγδεζθλμπσφψω]|\\[a-zA-Z]+[{_^]|[a-zA-Z]\s*=\s*[^=]/.test(trimmed);
+  const typographyHeading =
+    (ratio >= 1.32 && isIsolatedLine) ||
+    (ratio >= 1.12 && isBold && isIsolatedLine && (block.yGapAbove > bodyFontSize * 1.1 || block.yGapBelow > bodyFontSize * 1.1)) ||
+    (hasSectionNumber && isIsolatedLine && (isBold || ratio >= 1.08));
 
   let hint: BlockHint = 'unknown';
   let hintConfidence: 0 | 1 | 2 = 0;
 
-  if (ratio >= 1.35 || (ratio >= 1.15 && (isAllCaps || isBold) && isIsolatedLine)) {
-    hint = ratio >= 1.5 ? 'heading' : 'subheading';
-    hintConfidence = ratio >= 1.35 ? 2 : 1;
+  if (captionLike || tocLike) {
+    hint = 'caption';
+    hintConfidence = tocLike ? 2 : 1;
+  } else if (formulaLike) {
+    hint = 'formula';
+    hintConfidence = 1;
+  } else if (typographyHeading && !sentenceLike) {
+    hint = ratio >= 1.45 || headingDepth === 1 ? 'heading' : 'subheading';
+    hintConfidence = ratio >= 1.32 || hasSectionNumber ? 2 : 1;
   } else if (ratio < 0.82 && isIsolatedLine) {
     hint = 'caption';
     hintConfidence = 1;
@@ -309,9 +368,6 @@ function classify(
   } else if (/^[•\-*]\s|^\d+[.)]\s/.test(text.trimStart())) {
     hint = 'list_item';
     hintConfidence = 2;
-  } else if (/[∑∫∂∇≤≥αβγδεζθλμπσφψω]|\\[a-zA-Z]+[{_^]/.test(text)) {
-    hint = 'formula';
-    hintConfidence = 1;
   } else if (ratio >= 0.82) {
     hint = 'body';
     hintConfidence = text.length > 60 ? 2 : 1;
@@ -321,7 +377,22 @@ function classify(
     text,
     page: block.page,
     readingOrder,
-    signals: { fontSizeRatio: +ratio.toFixed(2), yGapAbove: Math.round(block.yGapAbove), xColumnIndex, isIsolatedLine, isAllCaps, isBold },
+    signals: {
+      fontSizeRatio: +ratio.toFixed(2),
+      yGapAbove: Math.round(block.yGapAbove),
+      yGapBelow: Math.round(block.yGapBelow),
+      xColumnIndex,
+      isIsolatedLine,
+      isAllCaps,
+      isBold,
+      isItalic,
+      lineCount: block.lines.length,
+      blockWidth: Math.round(blockWidth),
+      indentation: Math.round(block.x),
+      dominantFont: block.fontName,
+      headingDepth,
+      pageTopRatio: +pageTopRatio.toFixed(3),
+    },
     hint,
     hintConfidence,
   };
@@ -414,11 +485,15 @@ export async function segmentPdf(filePath: string): Promise<{
     const fontSizes = rawItems.map(i => i.fontSize).filter(s => s > 0);
     const bodyFontSize = median(fontSizes);
     const blocks = groupIntoBlocks(sorted, bodyFontSize || 10);
+    for (let i = 0; i < blocks.length; i++) {
+      const next = blocks[i + 1];
+      blocks[i].yGapBelow = next ? Math.abs(blocks[i].y - next.y) : 0;
+    }
 
     let pushed = 0;
     for (const block of blocks) {
       if (!block.text) continue;
-      const seg = classify(block, bodyFontSize, twoCol, splitX, globalOrder);
+      const seg = classify(block, bodyFontSize, twoCol, splitX, globalOrder, pageHeight);
       if ((seg.hint === 'footnote' || seg.hint === 'caption') && seg.text.length < 25) continue;
       allBlocks.push(seg);
       globalOrder++;

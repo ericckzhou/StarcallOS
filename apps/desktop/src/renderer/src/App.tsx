@@ -86,8 +86,33 @@ export default function App() {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'transparent', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }}>
-      <header style={{ height: 48, padding: '0 20px', borderBottom: '1px solid rgba(35,42,85,0.65)', display: 'flex', alignItems: 'center', background: 'rgba(4,6,26,0.72)', backdropFilter: 'blur(18px)', flexShrink: 0, gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'transparent', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif', position: 'relative', overflow: 'hidden' }}>
+      {profile.backgroundDataUrl && (
+        <>
+          <img
+            src={profile.backgroundDataUrl}
+            alt=""
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              opacity: Math.max(0, Math.min(1, profile.backgroundOpacity)),
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          />
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(1, 2, 16, 0.72)',
+            pointerEvents: 'none',
+            zIndex: 0,
+          }} />
+        </>
+      )}
+      <header style={{ height: 48, padding: '0 20px', borderBottom: '1px solid rgba(35,42,85,0.65)', display: 'flex', alignItems: 'center', background: 'rgba(4,6,26,0.72)', backdropFilter: 'blur(18px)', flexShrink: 0, gap: 12, position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'flex', height: '100%' }}>
           {topBtn('sources',  'Sources')}
           {topBtn('review',   'Review')}
@@ -123,14 +148,15 @@ export default function App() {
       </header>
 
       {topLevel === 'profile' ? (
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
           <ProfilePane profile={profile} progress={progress} onProfileChange={setProfile} />
         </div>
       ) : topLevel === 'review' ? (
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
           <ReviewQueue onSelect={handleReviewSelect} selectedConcept={selectedConcept} />
           <DetailPane
             concept={selectedConcept}
+            profile={profile}
             onDeleted={() => {
               setSelectedConcept(null);
               setConceptsRefreshKey(k => k + 1);
@@ -138,7 +164,7 @@ export default function App() {
           />
         </div>
       ) : (
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
           <SourcePane
             sources={sources}
             selectedId={selectedSourceId}
@@ -173,6 +199,7 @@ export default function App() {
                   />
                   <DetailPane
             concept={selectedConcept}
+            profile={profile}
             onDeleted={() => {
               setSelectedConcept(null);
               setConceptsRefreshKey(k => k + 1);

@@ -11,8 +11,11 @@ interface Props {
 export default function ProfilePane({ profile, progress, onProfileChange }: Props) {
   const [name, setName] = useState(profile.name);
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(profile.avatarDataUrl);
+  const [backgroundDataUrl, setBackgroundDataUrl] = useState<string | null>(profile.backgroundDataUrl);
+  const [backgroundOpacity, setBackgroundOpacity] = useState(profile.backgroundOpacity);
   const [section, setSection] = useState<'profile' | 'settings'>('profile');
   const fileRef = useRef<HTMLInputElement>(null);
+  const backgroundFileRef = useRef<HTMLInputElement>(null);
 
   function commit(next: Profile): void {
     saveProfile(next);
@@ -20,7 +23,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
   }
 
   function saveName(): void {
-    const next = { name: name.trim() || 'Student', avatarDataUrl };
+    const next = { ...profile, name: name.trim() || 'Student', avatarDataUrl, backgroundDataUrl, backgroundOpacity };
     setName(next.name);
     commit(next);
   }
@@ -29,11 +32,28 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      const next = { name: name.trim() || 'Student', avatarDataUrl: String(reader.result) };
+      const next = { ...profile, name: name.trim() || 'Student', avatarDataUrl: String(reader.result), backgroundDataUrl, backgroundOpacity };
       setAvatarDataUrl(next.avatarDataUrl);
       commit(next);
     };
     reader.readAsDataURL(file);
+  }
+
+  function uploadBackground(file: File | null): void {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const next = { ...profile, name: name.trim() || 'Student', avatarDataUrl, backgroundDataUrl: String(reader.result), backgroundOpacity };
+      setBackgroundDataUrl(next.backgroundDataUrl);
+      commit(next);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function updateBackgroundOpacity(value: number): void {
+    const nextOpacity = Math.max(0, Math.min(1, value));
+    setBackgroundOpacity(nextOpacity);
+    commit({ ...profile, name: name.trim() || 'Student', avatarDataUrl, backgroundDataUrl, backgroundOpacity: nextOpacity });
   }
 
   return (
@@ -94,7 +114,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                       <button
                         onClick={() => {
                           setAvatarDataUrl(null);
-                          commit({ name: name.trim() || 'Student', avatarDataUrl: null });
+                          commit({ ...profile, name: name.trim() || 'Student', avatarDataUrl: null, backgroundDataUrl, backgroundOpacity });
                         }}
                         style={ghostButtonStyle}
                       >
@@ -119,6 +139,73 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
               </div>
             </section>
 
+            <section style={panel}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 18, alignItems: 'center' }}>
+                <div>
+                  <div style={eyebrow}>Concept Select Background</div>
+                  <div style={{ marginTop: 8, color: '#94a3b8', fontSize: 12, lineHeight: 1.5 }}>
+                    Used only on the empty concept detail screen.
+                  </div>
+                  <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button onClick={() => backgroundFileRef.current?.click()} style={buttonStyle}>Upload Background</button>
+                    {backgroundDataUrl && (
+                      <button
+                        onClick={() => {
+                          setBackgroundDataUrl(null);
+                          commit({ ...profile, name: name.trim() || 'Student', avatarDataUrl, backgroundDataUrl: null, backgroundOpacity });
+                        }}
+                        style={ghostButtonStyle}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    ref={backgroundFileRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={e => uploadBackground(e.target.files?.[0] ?? null)}
+                    style={{ display: 'none' }}
+                  />
+                  <div style={{ marginTop: 16, maxWidth: 420 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
+                      <span style={{ fontSize: 11, color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Opacity</span>
+                      <span style={{ fontSize: 11, color: '#c7d2fe', fontVariantNumeric: 'tabular-nums' }}>{Math.round(backgroundOpacity * 100)}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={backgroundOpacity}
+                      onChange={e => updateBackgroundOpacity(Number(e.target.value))}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                </div>
+                <div style={{
+                  height: 150,
+                  border: '1px solid #1f2937',
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                  background: '#050816',
+                  position: 'relative',
+                }}>
+                  {backgroundDataUrl && (
+                    <img
+                      src={backgroundDataUrl}
+                      alt=""
+                      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: backgroundOpacity }}
+                    />
+                  )}
+                  <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(4,6,26,0.25), rgba(4,6,26,0.75))' }} />
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: 12 }}>
+                    Select a concept to explore.
+                  </div>
+                </div>
+              </div>
+            </section>
+
             {progress && (
               <>
                 <section style={panel}>
@@ -136,6 +223,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
               <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, fontSize: 12 }}>
                 <InfoTile label="Name" value={profile.name} />
                 <InfoTile label="Avatar" value={profile.avatarDataUrl ? 'Custom image' : 'Initials icon'} />
+                <InfoTile label="Background" value={profile.backgroundDataUrl ? `${Math.round(profile.backgroundOpacity * 100)}% opacity` : 'Default'} />
                 <InfoTile label="Storage" value="Local app profile" muted />
               </div>
               <div style={{ display: 'none' }}>
@@ -151,7 +239,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
   );
 }
 
-export function Avatar({ profile, size }: { profile: Profile; size: number }) {
+export function Avatar({ profile, size }: { profile: Pick<Profile, 'name' | 'avatarDataUrl'>; size: number }) {
   const initials = profile.name.trim().slice(0, 2).toUpperCase() || 'ST';
   return profile.avatarDataUrl ? (
     <img

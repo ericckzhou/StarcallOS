@@ -3,6 +3,7 @@ import type { Concept } from './ConceptPane';
 import LatexMath from './LatexMath';
 import PdfViewer from './PdfViewer';
 import UserNotesSection from './UserNotesSection';
+import type { Profile } from './profile';
 
 type Task = { id: number; kind: string; prompt: string; difficulty: number };
 type Mastery = { compression_stage: number };
@@ -63,9 +64,9 @@ const IMP_COLOR: Record<string, string> = {
 const SOURCE_PREVIEW_KEY = 'starcall.layout.sourcePreviewOpen';
 const SOURCE_PREVIEW_NOTES_WIDTH_KEY = 'starcall.layout.sourcePreviewNotesWidth';
 
-interface Props { concept: Concept | null; onDeleted?: (conceptId: number) => void; }
+interface Props { concept: Concept | null; onDeleted?: (conceptId: number) => void; profile?: Profile; }
 
-export default function DetailPane({ concept, onDeleted }: Props) {
+export default function DetailPane({ concept, onDeleted, profile }: Props) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [mastery, setMastery] = useState<Mastery | null>(null);
   const [misconceptions, setMisconceptions] = useState<Misconception[]>([]);
@@ -209,8 +210,18 @@ export default function DetailPane({ concept, onDeleted }: Props) {
 
   if (!concept) {
     return (
-      <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 14 }}>
-        Select a concept to explore.
+      <main style={{
+        flex: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#374151',
+        fontSize: 14,
+        position: 'relative',
+        overflow: 'hidden',
+        background: 'transparent',
+      }}>
+        <span style={{ position: 'relative', zIndex: 1 }}>Select a concept to explore.</span>
       </main>
     );
   }
@@ -272,7 +283,23 @@ export default function DetailPane({ concept, onDeleted }: Props) {
               </span>
               <button
                 onClick={() => setSourcePreviewOpen(false)}
-                title="Close source preview"
+                title="Hide source"
+                style={{ background: '#1e1b4b', border: '1px solid #4338ca', borderRadius: 4, padding: '3px 10px', color: '#c7d2fe', fontSize: 0, cursor: 'pointer', flexShrink: 0 }}
+              >
+                ×
+                <span style={{ fontSize: 11 }}>Source</span>
+              </button>
+              <button
+                onClick={async () => {
+                  if (!concept) return;
+                  const ok = window.confirm(
+                    `Delete concept "${concept.name}"?\n\nThis also deletes its tasks, mastery, evidence records, and edges. Cannot be undone.`,
+                  );
+                  if (!ok) return;
+                  await window.api.concepts.delete(concept.id);
+                  onDeleted?.(concept.id);
+                }}
+                title="Delete this concept and all of its dependent rows (mastery, tasks, records, edges, misconceptions)"
                 style={{ background: 'transparent', border: '1px solid #7f1d1d', borderRadius: 4, padding: '2px 8px', color: '#fca5a5', fontSize: 14, cursor: 'pointer', lineHeight: 1, flexShrink: 0 }}
               >
                 ×
@@ -309,16 +336,16 @@ export default function DetailPane({ concept, onDeleted }: Props) {
           </span>
           <button
             onClick={() => setSourcePreviewOpen(v => !v)}
-            title="Show or hide source beside the overview"
+            title="Show source on the right"
             style={{
-              background: sourcePreviewOpen ? '#1e1b4b' : 'transparent',
-              border: `1px solid ${sourcePreviewOpen ? '#4338ca' : '#1f2937'}`,
+              background: 'transparent',
+              border: '1px solid #4338ca',
               borderRadius: 4, padding: '3px 10px',
-              color: sourcePreviewOpen ? '#c7d2fe' : '#6b7280',
+              color: '#c7d2fe',
               fontSize: 11, cursor: 'pointer',
             }}
           >
-            Source Preview
+            Source
           </button>
           <button
             onClick={async () => {

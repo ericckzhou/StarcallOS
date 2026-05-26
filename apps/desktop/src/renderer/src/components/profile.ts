@@ -1,6 +1,8 @@
 export interface Profile {
   name: string;
   avatarDataUrl: string | null;
+  backgroundDataUrl: string | null;
+  backgroundOpacity: number;
 }
 
 export interface StudyProgress {
@@ -18,7 +20,15 @@ const PROFILE_KEY = 'starcall.profile';
 export const DEFAULT_PROFILE: Profile = {
   name: 'Student',
   avatarDataUrl: null,
+  backgroundDataUrl: null,
+  backgroundOpacity: 0.22,
 };
+
+function clampOpacity(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_PROFILE.backgroundOpacity;
+  return Math.max(0, Math.min(1, n));
+}
 
 export function loadProfile(): Profile {
   try {
@@ -28,6 +38,8 @@ export function loadProfile(): Profile {
     return {
       name: typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim() : DEFAULT_PROFILE.name,
       avatarDataUrl: typeof parsed.avatarDataUrl === 'string' && parsed.avatarDataUrl ? parsed.avatarDataUrl : null,
+      backgroundDataUrl: typeof parsed.backgroundDataUrl === 'string' && parsed.backgroundDataUrl ? parsed.backgroundDataUrl : null,
+      backgroundOpacity: clampOpacity(parsed.backgroundOpacity),
     };
   } catch {
     return DEFAULT_PROFILE;

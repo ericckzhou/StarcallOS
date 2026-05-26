@@ -57,6 +57,15 @@ export interface ConceptCandidate {
   // local context, recurrence, phrase quality. Used as the gate threshold
   // before the LLM filter runs.
   concept_score: number;
+  typography_score?: number;
+  signal_score?: number;
+  quality_score?: number;
+  context_score?: number;
+  final_score?: number;
+  labels?: string[];
+  typography_signals?: Record<string, unknown>;
+  context_snippet?: string;
+  parser_diagnostics?: Record<string, unknown>;
   // Comma-joined reasons for low scores or rejection: 'fragment', 'generic',
   // 'connective_prefix', 'prose_tail', 'name', 'boilerplate', 'broad'.
   // Empty when the candidate passes all deterministic gates cleanly.
@@ -83,6 +92,14 @@ export interface CandidateExtractionResult {
     capitalized_phrases_unique: number;
     repetition_promoted: number;
     equations_found: number;
+    rejected_headings: number;
+    typography_backed_candidates: number;
+    fragments: number;
+    toc_index_blocks: number;
+    contextless_candidates: number;
+    final_score_high: number;
+    final_score_medium: number;
+    final_score_low: number;
   };
 }
 
@@ -140,6 +157,11 @@ interface CandidateBuilder {
   section_path: string[];
   signal_weights: Map<CandidateSource, number>;
   mention_count: number;
+  labels: Set<string>;
+  typographySignals: Record<string, unknown>;
+  readingOrders: Set<number>;
+  pagesForContext: Set<number>;
+  diagnostics: Record<string, unknown>;
 }
 
 function ensure(map: Map<string, CandidateBuilder>, term: string, sectionPath: string[], page: number): CandidateBuilder {
@@ -154,10 +176,16 @@ function ensure(map: Map<string, CandidateBuilder>, term: string, sectionPath: s
       section_path: sectionPath,
       signal_weights: new Map(),
       mention_count: 0,
+      labels: new Set(),
+      typographySignals: {},
+      readingOrders: new Set(),
+      pagesForContext: new Set([page]),
+      diagnostics: {},
     };
     map.set(key, b);
   }
   b.pages.add(page);
+  b.pagesForContext.add(page);
   // Prefer the shortest section_path seen first (likely the defining section)
   if (sectionPath.length < b.section_path.length || b.section_path.length === 0) {
     b.section_path = sectionPath;
@@ -175,6 +203,32 @@ function addSignal(b: CandidateBuilder, source: CandidateSource, quote: string, 
     b.evidence.push({ source, quote, page, pattern });
   }
   b.mention_count += 1;
+}
+
+function addBlockSignal(b: CandidateBuilder, block: SegmentedBlock, label?: string): void {
+  b.readingOrders.add(block.readingOrder);
+  b.pagesForContext.add(block.page);
+  if (label) b.labels.add(label);
+  const s = block.signals;
+  const currentRatio = Number(b.typographySignals.fontSizeRatio ?? 0);
+  if (s.fontSizeRatio > currentRatio) {
+    b.typographySignals = {
+      fontSizeRatio: s.fontSizeRatio,
+      yGapAbove: s.yGapAbove,
+      yGapBelow: s.yGapBelow ?? 0,
+      isBold: s.isBold,
+      isItalic: !!s.isItalic,
+      isAllCaps: s.isAllCaps,
+      isIsolatedLine: s.isIsolatedLine,
+      lineCount: s.lineCount ?? 1,
+      blockWidth: s.blockWidth ?? null,
+      indentation: s.indentation ?? null,
+      dominantFont: s.dominantFont ?? '',
+      headingDepth: s.headingDepth ?? null,
+      hint: block.hint,
+      hintConfidence: block.hintConfidence,
+    };
+  }
 }
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
@@ -201,12 +255,25 @@ function isFragment(term: string): boolean {
   const t = term.trim();
   if (!t) return true;
   if (t.endsWith('-')) return true;
+  if (/^(in this|for example|this example|these examples)\b/i.test(t)) return true;
   const toks = tokensLower(t);
   if (toks.length === 0) return true;
   if (PROSE_TAIL_WORDS.has(toks[toks.length - 1])) return true;
   if (CONNECTIVE_PREFIXES.has(toks[0])) return true;
   if (toks.length === 1 && (CONNECTIVE_PREFIXES.has(toks[0]) || PROSE_TAIL_WORDS.has(toks[0]))) return true;
   if (PROSE_HEAD_WORDS.has(toks[0]) && toks.length === 1) return true;
+  return false;
+}
+
+function looksLikeCaptionOrFigure(term: string): boolean {
+  return /^(fig(?:ure)?|table|algorithm|example|ex\.|eq(?:uation)?)[\s.:_-]*\d*/i.test(term.trim());
+}
+
+function looksLikeTocOrIndex(term: string): boolean {
+  const t = term.trim();
+  if (/[.·…]{3,}\s*\d{1,4}$/.test(t)) return true;
+  if (/^\S.{4,}?\s{6,}\d{1,4}$/.test(t)) return true;
+  if (/\b(contents|index)\b/i.test(t) && t.length < 40) return true;
   return false;
 }
 
@@ -222,12 +289,12 @@ function looksLikeName(normalizedTerm: string): boolean {
 
 // ─── Concept scoring ────────────────────────────────────────────────────────
 
-interface ScoreParts {
-  heading: number;
-  domain: number;
-  localContext: number;
-  recurrence: number;
-  phraseQuality: number;
+export interface CandidateScoreParts {
+  typography_score: number;
+  signal_score: number;
+  quality_score: number;
+  context_score: number;
+  final_score: number;
 }
 
 function scoreCandidate(
@@ -237,39 +304,66 @@ function scoreCandidate(
   termTokens: string[],
   topicRelevance: number,
   isFlaggedReject: boolean,
-): { score: number; parts: ScoreParts } {
-  // 1. Heading signal — 0 / 0.5 / 1
-  const heading = signalKeys.has('heading') ? 1.0
-    : signalKeys.has('bold_block') ? 0.5
-    : 0;
+  typographySignals: Record<string, unknown>,
+  labels: Set<string>,
+): CandidateScoreParts {
+  const fontSizeRatio = Number(typographySignals.fontSizeRatio ?? 1);
+  const yGapAbove = Number(typographySignals.yGapAbove ?? 0);
+  const yGapBelow = Number(typographySignals.yGapBelow ?? 0);
+  const isBold = typographySignals.isBold === true;
+  const isIsolatedLine = typographySignals.isIsolatedLine === true;
+  const typography_score = Math.min(1,
+    (fontSizeRatio >= 1.35 ? 0.35 : fontSizeRatio >= 1.15 ? 0.18 : 0) +
+    (isBold ? 0.22 : 0) +
+    (isIsolatedLine ? 0.18 : 0) +
+    (labels.has('section_heading') ? 0.15 : 0) +
+    (Math.max(yGapAbove, yGapBelow) >= 14 ? 0.10 : 0),
+  );
 
-  // 2. Domain term presence in term itself OR evidence quotes
+  const signal_score = Math.min(1, [...signalKeys].reduce((sum, s) => sum + SIGNAL_WEIGHT[s], 0));
+
   const evidenceText = evidence.map(e => e.quote).join(' ').toLowerCase();
   const evidenceTokens = evidenceText.replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter(Boolean);
   const termDomainHits = termTokens.filter(t => DOMAIN_TERMS.has(t)).length;
   const evidenceDomainHits = evidenceTokens.filter(t => DOMAIN_TERMS.has(t)).length;
   const domain = Math.min(1, (termDomainHits * 0.6) + Math.min(0.4, evidenceDomainHits * 0.05));
-
-  // 3. Local context — leverage existing topic relevance score (already 0–1)
-  const localContext = topicRelevance;
-
-  // 4. Recurrence — saturating curve based on mention_count
   const recurrence = Math.min(1, Math.log10(1 + mentionCount) / Math.log10(50));
-
-  // 5. Phrase quality — token count 2–4 ideal, single-word penalized,
-  //    5+ tokens penalized (sentence fragment risk)
   let phraseQuality: number;
   if (termTokens.length === 0) phraseQuality = 0;
   else if (termTokens.length === 1) phraseQuality = 0.4;
   else if (termTokens.length <= 4) phraseQuality = 1.0;
   else if (termTokens.length <= 6) phraseQuality = 0.5;
   else phraseQuality = 0.2;
+  if (isFlaggedReject) phraseQuality *= 0.25;
+  const quality_score = Math.min(1, phraseQuality * 0.7 + recurrence * 0.3);
+  const context_score = Math.min(1, topicRelevance * 0.55 + domain * 0.30 + (signalKeys.has('definition_pattern') ? 0.15 : 0));
+  let final_score = typography_score * 0.25 + signal_score * 0.30 + quality_score * 0.20 + context_score * 0.25;
+  if (labels.has('sentence_fragment') || labels.has('caption_or_figure') || labels.has('toc_or_index')) final_score *= 0.35;
+  else if (labels.has('low_context')) final_score *= 0.75;
 
-  const parts: ScoreParts = { heading, domain, localContext, recurrence, phraseQuality };
-  const raw = heading * 0.35 + domain * 0.25 + localContext * 0.20 + recurrence * 0.10 + phraseQuality * 0.10;
-  // Hard penalty if the candidate was flagged for rejection (fragment/generic/etc).
-  const score = isFlaggedReject ? raw * 0.3 : raw;
-  return { score: +score.toFixed(3), parts };
+  return {
+    typography_score: +typography_score.toFixed(3),
+    signal_score: +signal_score.toFixed(3),
+    quality_score: +quality_score.toFixed(3),
+    context_score: +context_score.toFixed(3),
+    final_score: +final_score.toFixed(3),
+  };
+}
+
+function contextSnippetFor(builder: CandidateBuilder, blocksByOrder: Map<number, SegmentedBlock>, blocksByPage: Map<number, SegmentedBlock[]>): string {
+  const firstOrder = [...builder.readingOrders].sort((a, b) => a - b)[0];
+  if (firstOrder != null) {
+    const pieces: string[] = [];
+    for (const offset of [-2, -1, 0, 1, 2]) {
+      const b = blocksByOrder.get(firstOrder + offset);
+      if (b && b.hint !== 'formula') pieces.push(b.text);
+    }
+    const joined = pieces.join(' ').replace(/\s+/g, ' ').trim();
+    if (joined) return joined.slice(0, 700);
+  }
+  const page = [...builder.pagesForContext][0];
+  const pageBlocks = blocksByPage.get(page) ?? blocksByPage.get(page - 1) ?? blocksByPage.get(page + 1) ?? [];
+  return pageBlocks.slice(0, 4).map(b => b.text).join(' ').replace(/\s+/g, ' ').trim().slice(0, 700);
 }
 
 export function extractCandidates(
@@ -284,6 +378,13 @@ export function extractCandidates(
   let headingsSeen = 0;
   let definitionsFound = 0;
   const allCapsPhrases = new Map<string, { count: number; firstQuote: string; firstPage: number; firstPath: string[] }>();
+  const blocksByOrder = new Map(blocks.map(b => [b.readingOrder, b]));
+  const blocksByPage = new Map<number, SegmentedBlock[]>();
+  for (const b of blocks) {
+    const arr = blocksByPage.get(b.page) ?? [];
+    arr.push(b);
+    blocksByPage.set(b.page, arr);
+  }
 
   for (const b of blocks) {
     const path = sectionPaths.get(b.readingOrder) ?? [];
@@ -302,6 +403,8 @@ export function extractCandidates(
       if (term.length >= 2 && term.length <= 80 && !looksLikeEquation(term) && !term.startsWith('`')) {
         const builder = ensure(builders, term, path, b.page);
         addSignal(builder, 'heading', b.text, b.page);
+        addBlockSignal(builder, b, b.hint === 'heading' ? 'section_heading' : 'weak_heading');
+        if (b.signals.fontSizeRatio >= 1.15) builder.labels.add('large_font');
       }
       continue;
     }
@@ -310,6 +413,7 @@ export function extractCandidates(
     if (b.signals.isBold && b.signals.isIsolatedLine && b.text.length <= 80) {
       const builder = ensure(builders, b.text, path, b.page);
       addSignal(builder, 'bold_block', b.text, b.page);
+      addBlockSignal(builder, b, 'bold_emphasis');
     }
 
     // 3. Definition-pattern candidates
@@ -317,7 +421,9 @@ export function extractCandidates(
     definitionsFound += defs.length;
     for (const hit of defs) {
       const builder = ensure(builders, hit.term, path, b.page);
+      builder.term = hit.term.trim();
       addSignal(builder, 'definition_pattern', hit.quote, b.page, hit.pattern);
+      addBlockSignal(builder, b, 'defined_term');
     }
 
     // 4. Relation candidates (no candidate-builder side effect; just collected)
@@ -356,6 +462,7 @@ export function extractCandidates(
     if (existing) {
       if (info.count >= REPETITION_THRESHOLD) {
         addSignal(existing, 'repetition', `appears ${info.count}×`, info.firstPage);
+        existing.labels.add('repeated_term');
       }
       // Always record a low-confidence cap-phrase signal so we can see why
       addSignal(existing, 'capitalized_phrase', info.firstQuote, info.firstPage);
@@ -366,6 +473,7 @@ export function extractCandidates(
       const builder = ensure(builders, info.firstQuote, info.firstPath, info.firstPage);
       addSignal(builder, 'capitalized_phrase', info.firstQuote, info.firstPage);
       addSignal(builder, 'repetition', `appears ${info.count}×`, info.firstPage);
+      builder.labels.add('repeated_term');
       builder.mention_count = info.count;
       repetitionPromoted += 1;
     }
@@ -395,11 +503,23 @@ export function extractCandidates(
     if (fragment)       reject_reasons.push('fragment');
     if (generic)        reject_reasons.push('generic');
     if (nameLike)       reject_reasons.push('name');
-
+    if (fragment) b.labels.add('sentence_fragment');
+    if (looksLikeCaptionOrFigure(b.term)) {
+      reject_reasons.push('caption');
+      b.labels.add('caption_or_figure');
+    }
+    if (looksLikeTocOrIndex(b.term)) {
+      reject_reasons.push('toc_or_index');
+      b.labels.add('toc_or_index');
+    }
     const termTokensForScore = tokensLower(b.term);
-    const { score } = scoreCandidate(
+    if (rel.score < 0.25 && !signalKeys.has('definition_pattern')) b.labels.add('low_context');
+    if (termTokensForScore.some(t => DOMAIN_TERMS.has(t))) b.labels.add('domain_phrase');
+    const context_snippet = contextSnippetFor(b, blocksByOrder, blocksByPage);
+    if (!context_snippet) b.labels.add('low_context');
+    const scoreParts = scoreCandidate(
       signalKeys, b.evidence, b.mention_count,
-      termTokensForScore, rel.score, reject_reasons.length > 0,
+      termTokensForScore, rel.score, reject_reasons.length > 0, b.typographySignals, b.labels,
     );
 
     return {
@@ -414,7 +534,16 @@ export function extractCandidates(
       topic_relevance_reasons: rel.reasons,
       is_boilerplate,
       is_broad,
-      concept_score: score,
+      concept_score: scoreParts.final_score,
+      ...scoreParts,
+      labels: [...b.labels].sort(),
+      typography_signals: b.typographySignals,
+      context_snippet,
+      parser_diagnostics: {
+        source_count: b.evidence.length,
+        reading_orders: [...b.readingOrders].sort((a, b2) => a - b2).slice(0, 8),
+        pages: [...b.pages].sort((a, b2) => a - b2).slice(0, 8),
+      },
       reject_reasons,
     };
   });
@@ -423,6 +552,7 @@ export function extractCandidates(
   // Sort by deterministic concept_score first (best signal/noise ratio),
   // then confidence as tiebreaker, then mention count.
   candidates.sort((a, b) =>
+    (b.final_score ?? 0) - (a.final_score ?? 0) ||
     b.concept_score - a.concept_score ||
     b.confidence - a.confidence ||
     b.mention_count - a.mention_count,
@@ -449,6 +579,14 @@ export function extractCandidates(
       capitalized_phrases_unique: allCapsPhrases.size,
       repetition_promoted: repetitionPromoted,
       equations_found: equations.length,
+      rejected_headings: candidates.filter(c => c.evidence.some(e => e.source === 'heading') && c.reject_reasons.length > 0).length,
+      typography_backed_candidates: candidates.filter(c => (c.typography_score ?? 0) >= 0.5).length,
+      fragments: candidates.filter(c => (c.labels ?? []).includes('sentence_fragment')).length,
+      toc_index_blocks: candidates.filter(c => (c.labels ?? []).includes('toc_or_index')).length,
+      contextless_candidates: candidates.filter(c => (c.labels ?? []).includes('low_context')).length,
+      final_score_high: candidates.filter(c => (c.final_score ?? 0) >= 0.8).length,
+      final_score_medium: candidates.filter(c => (c.final_score ?? 0) >= 0.55 && (c.final_score ?? 0) < 0.8).length,
+      final_score_low: candidates.filter(c => (c.final_score ?? 0) < 0.55).length,
     },
   };
 }

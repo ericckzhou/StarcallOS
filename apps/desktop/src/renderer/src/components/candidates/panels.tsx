@@ -55,9 +55,9 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
               </button>
               <div title={`concept_score ${(c.concept_score ?? 0).toFixed(2)} (heading*0.35 + domain*0.25 + localCtx*0.20 + recurrence*0.10 + phrase*0.10)`} style={{
                 minWidth: 36, textAlign: 'right', fontFamily: 'monospace',
-                fontSize: 12, color: confColor(c.confidence), fontWeight: 600,
+                fontSize: 12, color: confColor(c.final_score ?? c.concept_score ?? c.confidence), fontWeight: 600,
               }}>
-                {c.confidence.toFixed(2)}
+                {(c.final_score ?? c.concept_score ?? c.confidence).toFixed(2)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 500, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -78,6 +78,15 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                       borderRadius: 2, padding: '1px 5px',
                     }}>
                       {s.replace(/_/g, ' ')}
+                    </span>
+                  ))}
+                  {(c.labels ?? []).slice(0, 5).map(label => (
+                    <span key={label} style={{
+                      fontSize: 9, color: label.includes('fragment') || label.includes('caption') || label.includes('toc') || label.includes('low_context') ? '#fca5a5' : '#93c5fd',
+                      border: `1px solid ${label.includes('fragment') || label.includes('caption') || label.includes('toc') || label.includes('low_context') ? '#7f1d1d' : '#1d4ed8'}`,
+                      borderRadius: 2, padding: '1px 5px',
+                    }}>
+                      {label.replace(/_/g, ' ')}
                     </span>
                   ))}
                   {attachedEqs.length > 0 && (
@@ -150,12 +159,38 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
 
             {!isOpen && topQuote && (
               <div style={{ marginLeft: 64, marginTop: 4, fontSize: 11, color: '#6b7280', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                "{topQuote}"
+                "{c.context_snippet || topQuote}"
               </div>
             )}
 
             {isOpen && (
               <div style={{ marginLeft: 64, marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 2 }}>
+                  {[
+                    ['type', c.typography_score],
+                    ['signal', c.signal_score],
+                    ['quality', c.quality_score],
+                    ['context', c.context_score],
+                  ].map(([label, value]) => (
+                    <span key={label as string} style={{
+                      fontSize: 10, color: '#9ca3af',
+                      border: '1px solid #1f2937', borderRadius: 3, padding: '2px 6px',
+                      background: '#080812',
+                    }}>
+                      {label}: {typeof value === 'number' ? value.toFixed(2) : '0.00'}
+                    </span>
+                  ))}
+                </div>
+                {c.context_snippet && (
+                  <div style={{
+                    fontSize: 11, color: '#cbd5e1', lineHeight: 1.5,
+                    border: '1px solid #1f2937', borderRadius: 4,
+                    background: '#0b1020', padding: '8px 10px',
+                  }}>
+                    <span style={{ color: '#64748b', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 6 }}>context</span>
+                    {c.context_snippet}
+                  </div>
+                )}
                 {(() => {
                   // Hide evidence quotes that are tautological with the term itself
                   // (heading evidence usually IS the term repeated — no signal).

@@ -3,9 +3,9 @@
 // input. Every candidate row + parse_runs row records these so historical
 // extractions can be traced to the exact code that produced them.
 
-export const PARSER_VERSION  = '0.4.0';  // candidates.ts: weighted concept_score, conservative stemmer, acronym-alias normalize, fragment/generic/name guards via core/lexicon.ts
-export const GRAMMAR_VERSION = '0.2.1';  // equations.ts: currency-aware inline math filter
-export const LAYOUT_VERSION  = '0.3.1';  // layout.ts: + mergeBrokenHeadings (concatenate split heading lines: trailing dash joins with no space, otherwise space) + stripIndexRegion (drops everything from last 25% of doc starting at an "Index" heading)
+export const PARSER_VERSION  = '0.5.0';  // candidates.ts: final_score parts, labels, context snippets, typography-backed scoring
+export const GRAMMAR_VERSION = '0.2.2';  // grammar.ts: definition terms may include multi-word Title Case phrases
+export const LAYOUT_VERSION  = '0.4.0';  // layout.ts: x-gap spacing reconstruction + richer typography/block signals for candidate scoring
 
 export interface ParserVersions {
   parser_version: string;

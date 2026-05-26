@@ -40,8 +40,8 @@ export const BUCKET_COLOR: Record<Bucket, string> = {
 
 export const BUCKET_LABEL: Record<Bucket, string> = {
   all:         'All',
-  high:        'High (>=0.85)',
-  medium:      'Medium (0.55-0.84)',
+  high:        'High (>=0.80)',
+  medium:      'Medium (0.55-0.79)',
   low:         'Low (<0.55)',
   suspicious:  'Suspicious',
   off_topic:   'Off-topic',
@@ -68,13 +68,15 @@ export const RELATION_COLOR: Record<string, string> = {
 // Pure-function helpers.
 
 export function confColor(c: number): string {
-  if (c >= 0.9) return '#22c55e';
+  if (c >= 0.8) return '#22c55e';
   if (c >= 0.55) return '#818cf8';
   if (c >= 0.3) return '#f59e0b';
   return '#6b7280';
 }
 
 export function isSuspicious(c: ConceptCandidate): boolean {
+  const labels = new Set(c.labels ?? []);
+  if (labels.has('sentence_fragment') || labels.has('caption_or_figure') || labels.has('toc_or_index') || labels.has('low_context')) return true;
   const hasAnyQuote = c.evidence.some(e => e.quote && e.quote.trim().length > 0);
   if (c.confidence >= 0.7 && !hasAnyQuote) return true;
   if (c.term.length > 80) return true;
@@ -86,12 +88,13 @@ export function isSuspicious(c: ConceptCandidate): boolean {
 }
 
 export function classifyBucket(c: ConceptCandidate): Bucket {
+  const score = c.final_score ?? c.concept_score ?? c.confidence;
   if (c.is_boilerplate)                                return 'boilerplate';
   if (c.is_broad)                                      return 'broad';
   if (isSuspicious(c))                                 return 'suspicious';
-  if (c.confidence >= 0.85)                            return 'high';
+  if (score >= 0.8)                                    return 'high';
   if ((c.topic_relevance_score ?? 1.0) < 0.15)         return 'off_topic';
-  if (c.confidence >= 0.55)                            return 'medium';
+  if (score >= 0.55)                                   return 'medium';
   return 'low';
 }
 
@@ -100,8 +103,13 @@ export function passesBulkPromoteGate(c: ConceptCandidate & { bucket: Bucket }):
   if (c.is_broad) return false;
   if (c.bucket === 'suspicious') return false;
   if ((c.topic_relevance_score ?? 1.0) < 0.55) return false;
-  if (c.confidence < 0.9) return false;
-  if (c.mention_count < 2) return false;
+  if ((c.final_score ?? c.concept_score ?? c.confidence) < 0.8) return false;
+  const signals = new Set(c.signals ?? []);
+  const labels = new Set(c.labels ?? []);
+  const hasSupport = signals.has('definition_pattern') ||
+    ((c.typography_score ?? 0) >= 0.65 && (labels.has('section_heading') || labels.has('large_font'))) ||
+    (signals.has('repetition') && labels.has('domain_phrase') && c.mention_count >= 4);
+  if (!hasSupport) return false;
   return true;
 }
 
