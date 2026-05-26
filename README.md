@@ -96,8 +96,6 @@ Add an LLM key in **Settings** (or skip — extraction works with zero keys), dr
 
 > *Concepts are stars. Prerequisite edges are constellation lines. Understanding is the act of mapping the sky.*
 
-Starcall is what the system does when it tells you which concept to study next — it summons the star you should look at now, given what you've already mapped and what's drifting back into the dark.
-
 The constellation metaphor is locked, not decorative: the Concept Map renders concepts as stars (brightness from evidence strength, color from mastery stage), the Study Next screen centers the called star, and the timelines read as star-evolution charts.
 
 ---
@@ -146,23 +144,6 @@ Each layer has a single responsibility and a single direction of dependency. See
 - **node:sqlite** local storage (no native deps)
 - **Groq** and **Anthropic** LLM providers (configurable per pass)
 
----
-
-## Anti-goals
-
-What this is **not** trying to become:
-
-- An Obsidian / Roam clone
-- A second brain or knowledge base
-- An infinite-zoom force-directed graph explorer
-- An LLM-as-tutor chat surface
-- A flashcards / SM-2 spaced-repetition app
-- A summarization tool
-- A passive note-taker
-
-If you're looking for any of those, this isn't it. This is a **learning verifier**.
-
----
 
 ## Contributing
 

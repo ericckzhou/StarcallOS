@@ -35,11 +35,25 @@ Score meanings:
 
 Be strict. Restating the definition word-for-word is stage 1, not stage 2.
 
+GAPS — ALWAYS REQUIRED, EVEN ON A FULL UNDERSTOOD SCORE
+\`gaps_detected\` must NEVER be empty. It is the "what would push this further" list,
+not just the "what's wrong" list. Even when the response is excellent ("understood",
+stage 3+), populate 2–4 specific gaps that would lift it toward the NEXT stage:
+- From stage 3 → 4: name the first-principles compression the learner did not make.
+- From stage 4 → 5: name a failure mode, edge case, or limit the learner did not surface.
+- From stage 5: name a sibling concept the learner could connect this to, or a
+  surprising consequence they did not articulate.
+
+Each gap should be one concrete, actionable sentence. Not "could be more detailed" —
+something specific like "did not mention that consistent hashing degrades under
+hot-key skew." If the response truly leaves nothing more to add, return a
+single-item gaps list noting the next concept the learner should attempt instead.
+
 Respond ONLY with JSON:
 {
   "score": "understood"|"recognizes"|"gap"|"misconception",
   "compression_stage": 0-5,
-  "gaps_detected": ["..."],
+  "gaps_detected": ["...", "..."],
   "misconceptions_detected": ["..."],
   "reasoning": "brief explanation"
 }`;

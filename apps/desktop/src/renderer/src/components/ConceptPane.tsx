@@ -8,6 +8,7 @@ export type Concept = {
   why_exists: string;
   what_breaks: string;
   where_reappears: string | string[];
+  section_path?: string[];
 };
 
 interface Props {

@@ -28,6 +28,7 @@ export const IPC = {
   CONCEPTS_ENRICH:         'concepts:enrich',
   CONCEPTS_UPDATE_FIELDS:  'concepts:updateFields',
   CONCEPTS_SEARCH_BY_PREFIX: 'concepts:searchByPrefix',
+  CONCEPTS_RENAME:           'concepts:rename',
   CONCEPTS_DELETE:         'concepts:delete',
   CONCEPTS_DELETE_EVIDENCE_SPAN: 'concepts:deleteEvidenceSpan',
   CONCEPT_NOTES_LIST:     'conceptNotes:list',
@@ -246,6 +247,7 @@ export interface IpcApi {
     delete: (conceptId: number) => Promise<{ ok: true }>;
     deleteEvidenceSpan: (args: { conceptId: number; page: number; kind: string; quote: string }) => Promise<ConceptSourceEvidence | null>;
     searchByPrefix: (args: { conceptId: number; prefix: string; limit?: number }) => Promise<Array<{ id: number; name: string; importance: string }>>;
+    rename: (args: { conceptId: number; name: string }) => Promise<Concept | null>;
     notes: {
       list:    (conceptId: number) => Promise<ConceptNote[]>;
       create:  (args: { conceptId: number; heading: string; body?: string }) => Promise<ConceptNote>;
