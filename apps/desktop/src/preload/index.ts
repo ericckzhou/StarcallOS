@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('api', {
     enrich: (conceptId: number) => ipcRenderer.invoke('concepts:enrich', conceptId),
     updateFields: (args: { conceptId: number; definition_text?: string; why_exists?: string; what_breaks?: string; where_reappears?: string[] }) =>
       ipcRenderer.invoke('concepts:updateFields', args),
+    searchByPrefix: (args: { conceptId: number; prefix: string; limit?: number }) =>
+      ipcRenderer.invoke('concepts:searchByPrefix', args),
     notes: {
       list:    (conceptId: number) => ipcRenderer.invoke('conceptNotes:list', conceptId),
       create:  (args: { conceptId: number; heading: string; body?: string }) => ipcRenderer.invoke('conceptNotes:create', args),

@@ -4,7 +4,7 @@ import fs from 'fs';
 import {
   openDb,
   listSources, createSource, updateSourceStatus, getSourceById, deleteSource,
-  listConceptsBySource, getConceptById, listReviewQueue,
+  listConceptsBySource, getConceptById, listReviewQueue, searchConceptsByPrefixForConcept,
   listConceptSourceEvidence, updateConceptFields, deleteConcept, deleteConceptEvidenceSpan,
   enrichConceptDefinition,
   listTasksByConcept, getMastery, listMisconceptionsByConcept,
@@ -413,6 +413,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CONCEPTS_DELETE, (_e, conceptId: number) => {
     deleteConcept(db, conceptId);
     return { ok: true as const };
+  });
+  ipcMain.handle(IPC.CONCEPTS_SEARCH_BY_PREFIX, (_e, args: { conceptId: number; prefix: string; limit?: number }) => {
+    return searchConceptsByPrefixForConcept(db, args.conceptId, args.prefix, args.limit ?? 8);
   });
   ipcMain.handle(IPC.CONCEPTS_DELETE_EVIDENCE_SPAN, (_e, args: {
     conceptId: number; page: number; kind: string; quote: string;

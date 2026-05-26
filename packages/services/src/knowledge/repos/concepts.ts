@@ -173,6 +173,58 @@ export function listConceptsBySource(db: DatabaseSync, sourceId: number): Concep
   ).map(rowToConcept);
 }
 
+// Case-insensitive prefix search over promoted concepts on the same source.
+// Powers the typeahead in WhereItReappearsEditor.
+export interface ConceptSearchHit {
+  id: number;
+  name: string;
+  importance: string;
+}
+
+export function searchConceptsByPrefix(
+  db: DatabaseSync,
+  sourceId: number,
+  prefix: string,
+  limit = 8,
+  excludeConceptId?: number,
+): ConceptSearchHit[] {
+  const trimmed = prefix.trim();
+  if (trimmed.length === 0) return [];
+  // SQLite LIKE on the lowercased name; escape % and _ so user input can't
+  // expand the match.
+  const escaped = trimmed.toLowerCase().replace(/[\\%_]/g, c => '\\' + c);
+  const pattern = `${escaped}%`;
+  const exclude = excludeConceptId ?? -1;
+  const rows = db
+    .prepare(
+      `SELECT id, name, importance, centrality_score
+         FROM concepts
+        WHERE source_id = ?
+          AND id != ?
+          AND lower(name) LIKE ? ESCAPE '\\'
+        ORDER BY centrality_score DESC, name ASC
+        LIMIT ?`,
+    )
+    .all(sourceId, exclude, pattern, limit) as Array<{ id: number | bigint; name: string; importance: string }>;
+  return rows.map(r => ({ id: Number(r.id), name: r.name, importance: r.importance }));
+}
+
+// Convenience wrapper for the renderer: resolve the source from a concept id,
+// exclude self, run the prefix search. One call site, no need to plumb
+// source_id through the renderer's Concept type.
+export function searchConceptsByPrefixForConcept(
+  db: DatabaseSync,
+  conceptId: number,
+  prefix: string,
+  limit = 8,
+): ConceptSearchHit[] {
+  const row = db
+    .prepare('SELECT source_id FROM concepts WHERE id = ?')
+    .get(conceptId) as { source_id: number | bigint } | undefined;
+  if (!row) return [];
+  return searchConceptsByPrefix(db, Number(row.source_id), prefix, limit, conceptId);
+}
+
 export function listConceptsByImportance(
   db: DatabaseSync,
   sourceId: number,
