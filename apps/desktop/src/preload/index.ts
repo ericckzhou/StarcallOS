@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('concepts:updateFields', args),
     searchByPrefix: (args: { conceptId: number; prefix: string; limit?: number }) =>
       ipcRenderer.invoke('concepts:searchByPrefix', args),
+    rename: (args: { conceptId: number; name: string }) =>
+      ipcRenderer.invoke('concepts:rename', args),
     notes: {
       list:    (conceptId: number) => ipcRenderer.invoke('conceptNotes:list', conceptId),
       create:  (args: { conceptId: number; heading: string; body?: string }) => ipcRenderer.invoke('conceptNotes:create', args),

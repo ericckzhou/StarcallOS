@@ -187,6 +187,17 @@ export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <button
+            onClick={cycleSort}
+            title="Cycle sort: default → importance → stage"
+            style={{
+              background: 'transparent', border: '1px solid #263244', borderRadius: 4,
+              padding: '3px 10px', fontSize: 10, cursor: 'pointer', color: '#94a3b8',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            sort: {SORT_LABEL[sortMode]}
+          </button>
+          <button
             onClick={() => setCollapsed(true)}
             title="Minimize review queue"
             aria-label="Minimize review queue"
@@ -197,17 +208,6 @@ export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
             }}
           >
             ‹
-          </button>
-          <button
-            onClick={cycleSort}
-            title="Cycle sort: default → importance → stage"
-            style={{
-              background: 'transparent', border: '1px solid #263244', borderRadius: 4,
-              padding: '3px 10px', fontSize: 10, cursor: 'pointer', color: '#94a3b8',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            sort: {SORT_LABEL[sortMode]}
           </button>
         </div>
       </div>

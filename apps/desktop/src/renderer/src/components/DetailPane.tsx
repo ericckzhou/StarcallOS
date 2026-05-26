@@ -62,6 +62,14 @@ const IMP_COLOR: Record<string, string> = {
   foundational: '#f59e0b', core: '#818cf8', supporting: '#22d3ee',
   peripheral: '#6b7280', reference_only: '#374151',
 };
+const EVIDENCE_KIND_COLOR: Record<string, string> = {
+  heading:    '#f59e0b',
+  definition: '#22c55e',
+  equation:   '#fbbf24',
+  relation:   '#a855f7',
+  chunk:      '#818cf8',
+  first_page: '#6b7280',
+};
 const SOURCE_PREVIEW_KEY = 'starcall.layout.sourcePreviewOpen';
 const SOURCE_PREVIEW_NOTES_WIDTH_KEY = 'starcall.layout.sourcePreviewNotesWidth';
 
@@ -81,6 +89,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   const [generatingTasks, setGeneratingTasks] = useState(false);
   const [taskGenError, setTaskGenError] = useState<string | null>(null);
   const [progress, setProgress] = useState<StudyProgress | null>(null);
+  const [evidenceKinds, setEvidenceKinds] = useState<string[]>([]);
   const [sourcePreviewOpen, setSourcePreviewOpen] = useState(() => localStorage.getItem(SOURCE_PREVIEW_KEY) === 'true');
   const [sourcePreviewNotesWidth, setSourcePreviewNotesWidth] = useState(() => Number(localStorage.getItem(SOURCE_PREVIEW_NOTES_WIDTH_KEY)) || 760);
   const sourcePreviewSplitRef = useRef<HTMLDivElement>(null);
@@ -90,6 +99,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
     setTasks([]); setMastery(null); setMisconceptions([]); setEquations([]);
     setHistory([]); setGrade(null); setSelectedTask(null); setResponse('');
     setTaskGenError(null); setGeneratingTasks(false);
+    setEvidenceKinds([]);
     Promise.all([
       window.api.concepts.tasks(concept.id),
       window.api.concepts.mastery(concept.id),
@@ -97,7 +107,8 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
       window.api.evidence.history(concept.id),
       window.api.concepts.equations(concept.id),
       window.api.evidence.progress(),
-    ]).then(([t, m, mis, h, eq, prog]) => {
+      window.api.concepts.sourceEvidence(concept.id),
+    ]).then(([t, m, mis, h, eq, prog, se]) => {
       const tl = t as Task[];
       setTasks(tl);
       setMastery(m as Mastery | null);
@@ -106,6 +117,8 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
       setEquations(eq as Equation[]);
       setProgress(prog as StudyProgress);
       if (tl.length > 0) setSelectedTask(tl[0]);
+      const evidence = (se as { evidence?: Array<{ kind: string }> } | null)?.evidence ?? [];
+      setEvidenceKinds([...new Set(evidence.map(e => e.kind))]);
     });
   }, [concept?.id]);
 
@@ -177,13 +190,23 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   }
 
   async function handleDeleteRecord(recordId: number) {
-    const ok = window.confirm('Delete this history entry? This cannot be undone. Mastery stage is not recomputed.');
+    if (!concept) return;
+    const ok = window.confirm('Delete this history entry? This cannot be undone. Mastery stage will be recomputed from the remaining attempts.');
     if (!ok) return;
     try {
       await window.api.evidence.delete(recordId);
       setHistory(prev => prev.filter(h => h.id !== recordId));
-      setProgress(await window.api.evidence.progress() as StudyProgress);
+      // Re-fetch mastery + progress so the concept header and profile reflect
+      // the recomputed state (deleting the row that held the highest stage
+      // drops the concept back to MAX(remaining) or Unseen if none left).
+      const [m, prog] = await Promise.all([
+        window.api.concepts.mastery(concept.id),
+        window.api.evidence.progress(),
+      ]);
+      setMastery(m as Mastery | null);
+      setProgress(prog as StudyProgress);
       window.dispatchEvent(new Event('starcall:progressChanged'));
+      window.dispatchEvent(new Event('starcall:review-queue-stale'));
     } catch (e) {
       window.alert(`Failed to delete: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -275,10 +298,19 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
         }}>
           <header style={{ padding: '12px 24px 0', borderBottom: '1px solid #1f2937', background: '#0d0d16', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, minWidth: 0 }}>
-              <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{concept.name}</h1>
+              <EditableTitle concept={concept} compact />
               <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: `${IMP_COLOR[concept.importance] ?? '#374151'}22`, color: IMP_COLOR[concept.importance] ?? '#6b7280', flexShrink: 0 }}>
                 {concept.importance}
               </span>
+              {evidenceKinds.map(k => (
+                <span key={k} style={{
+                  fontSize: 10, padding: '2px 7px', borderRadius: 3,
+                  border: `1px solid ${EVIDENCE_KIND_COLOR[k] ?? '#374151'}`,
+                  color: EVIDENCE_KIND_COLOR[k] ?? '#6b7280',
+                  textTransform: 'uppercase', letterSpacing: '0.05em',
+                  flexShrink: 0,
+                }}>{k.replace(/_/g, ' ')}</span>
+              ))}
               <span style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 10px', borderRadius: 12, background: `${STAGE_COLORS[stage]}22`, color: STAGE_COLORS[stage], fontWeight: 600, flexShrink: 0 }}>
                 {STAGES[stage]}
               </span>
@@ -328,10 +360,18 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
     <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <header style={{ padding: '14px 24px 0', borderBottom: '1px solid #1f2937', background: '#0d0d16' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{concept.name}</h1>
+          <EditableTitle concept={concept} />
           <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: `${IMP_COLOR[concept.importance] ?? '#374151'}22`, color: IMP_COLOR[concept.importance] ?? '#6b7280' }}>
             {concept.importance}
           </span>
+          {evidenceKinds.map(k => (
+            <span key={k} style={{
+              fontSize: 10, padding: '2px 7px', borderRadius: 3,
+              border: `1px solid ${EVIDENCE_KIND_COLOR[k] ?? '#374151'}`,
+              color: EVIDENCE_KIND_COLOR[k] ?? '#6b7280',
+              textTransform: 'uppercase', letterSpacing: '0.05em',
+            }}>{k.replace(/_/g, ' ')}</span>
+          ))}
           <span style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 10px', borderRadius: 12, background: `${STAGE_COLORS[stage]}22`, color: STAGE_COLORS[stage], fontWeight: 600 }}>
             {STAGES[stage]}
           </span>
@@ -340,9 +380,9 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
             title="Show source on the right"
             style={{
               background: 'transparent',
-              border: '1px solid #4338ca',
+              border: '1px solid #1f2937',
               borderRadius: 4, padding: '3px 10px',
-              color: '#c7d2fe',
+              color: '#6b7280',
               fontSize: 11, cursor: 'pointer',
             }}
           >
@@ -386,6 +426,9 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
     why_exists:      concept.why_exists      || '',
     what_breaks:     concept.what_breaks     || '',
   });
+  const normalizeReappears = (v: Concept['where_reappears']): string[] =>
+    Array.isArray(v) ? v : (typeof v === 'string' && v.trim() !== '' ? [v] : []);
+  const [constellations, setConstellations] = useState<string[]>(() => normalizeReappears(concept.where_reappears));
   const [enriching, setEnriching] = useState(false);
   const [savingField, setSavingField] = useState<string | null>(null);
   const [enrichErr, setEnrichErr] = useState<string | null>(null);
@@ -402,6 +445,7 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
       why_exists:      concept.why_exists      || '',
       what_breaks:     concept.what_breaks     || '',
     });
+    setConstellations(normalizeReappears(concept.where_reappears));
     setEnrichErr(null);
     setCopiedPrompt(false);
   }, [concept.id]);
@@ -420,7 +464,7 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
       concept.definition_text = updated.definition_text;
       concept.why_exists      = updated.why_exists;
       concept.what_breaks     = updated.what_breaks;
-      concept.where_reappears = updated.where_reappears;
+      // Constellations are user-curated only — never overwrite from enrich.
     } catch (e) {
       setEnrichErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -463,16 +507,14 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
     lines.push('{');
     lines.push('  "definition_text": "Backpropagation is the algorithm for computing the gradient of a scalar loss with respect to each weight in a neural network by applying the chain rule backward through the computation graph, reusing intermediate activations stored during the forward pass.",');
     lines.push('  "why_exists": "It lets gradient-based optimizers train deep networks in time proportional to the forward pass, rather than the exponential cost of naive per-weight derivatives.",');
-    lines.push('  "what_breaks": "Without it, training reduces to expensive numerical differentiation; with stale or missing forward activations, gradients become wrong and learning silently diverges.",');
-    lines.push('  "where_reappears": ["Gradient Descent", "Chain Rule", "Computation Graph", "Vanishing Gradient", "Automatic Differentiation"]');
+    lines.push('  "what_breaks": "Without it, training reduces to expensive numerical differentiation; with stale or missing forward activations, gradients become wrong and learning silently diverges."');
     lines.push('}');
     lines.push('');
     lines.push('Now produce the JSON for the concept above, in this exact shape:');
     lines.push('{');
     lines.push('  "definition_text": "1–3 sentences. Precise meaning AS USED IN THIS SOURCE.",');
     lines.push('  "why_exists": "1–2 sentences. The problem this concept solves in its domain.",');
-    lines.push('  "what_breaks": "1–2 sentences. What goes wrong when missing or misapplied.",');
-    lines.push('  "where_reappears": ["other concepts from the SAME domain", "...", "max 5"]');
+    lines.push('  "what_breaks": "1–2 sentences. What goes wrong when missing or misapplied."');
     lines.push('}');
     lines.push('');
     lines.push('Be concrete and precise. No marketing language. No hedging.');
@@ -525,12 +567,13 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
       setPasteErr('Could not find valid JSON in the pasted text. Expected something like {"definition_text":"...", "why_exists":"...", "what_breaks":"...", "where_reappears":[...]}.');
       return;
     }
+    // Constellations are user-curated only — paste flow ignores any
+    // `where_reappears` field the LLM/ChatGPT may have included.
     const patch = {
       conceptId: concept.id,
       ...(parsed.definition_text !== undefined ? { definition_text: parsed.definition_text } : {}),
       ...(parsed.why_exists      !== undefined ? { why_exists:      parsed.why_exists      } : {}),
       ...(parsed.what_breaks     !== undefined ? { what_breaks:     parsed.what_breaks     } : {}),
-      ...(parsed.where_reappears !== undefined ? { where_reappears: parsed.where_reappears } : {}),
     };
     await window.api.concepts.updateFields(patch);
     // Update local + parent state so UI reflects new values immediately
@@ -542,7 +585,6 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
     if (parsed.definition_text !== undefined) concept.definition_text = parsed.definition_text;
     if (parsed.why_exists      !== undefined) concept.why_exists      = parsed.why_exists;
     if (parsed.what_breaks     !== undefined) concept.what_breaks     = parsed.what_breaks;
-    if (parsed.where_reappears !== undefined) concept.where_reappears = parsed.where_reappears;
     setPasteText('');
     setPasteOpen(false);
     setPasteApplied(true);
@@ -600,18 +642,14 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
           </div>
         </Section>
       )}
-      <Section title="Where It Reappears">
+      <Section title="Constellations">
         <WhereItReappearsEditor
           conceptId={concept.id}
-          value={(Array.isArray(concept.where_reappears)
-            ? concept.where_reappears
-            : typeof concept.where_reappears === 'string' && concept.where_reappears.trim() !== ''
-              ? [concept.where_reappears]
-              : []
-          )}
+          value={constellations}
           onChange={next => {
-            // Mutate the parent's concept reference so other surfaces (and
-            // the next render of this tab) see the new list immediately.
+            setConstellations(next);
+            // Keep the parent's concept reference in sync so other surfaces
+            // see the new list immediately on the next render.
             concept.where_reappears = next;
             void window.api.concepts.updateFields({
               conceptId: concept.id,
@@ -1065,6 +1103,93 @@ function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task:
         Try Another Challenge
       </button>
     </div>
+  );
+}
+
+// Click-to-edit concept title. Click the heading to swap to an input,
+// Enter or blur to save, Esc to cancel. Mutates the parent's concept ref
+// so other surfaces (sidebar entries, source preview) see the new name
+// without a full refetch — the next list refresh will re-sync everything.
+function EditableTitle({ concept, compact = false }: { concept: Concept; compact?: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(concept.name);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setDraft(concept.name);
+    setEditing(false);
+  }, [concept.id, concept.name]);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  async function commit(): Promise<void> {
+    const trimmed = draft.trim();
+    if (!trimmed || trimmed === concept.name) {
+      setDraft(concept.name);
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await window.api.concepts.rename({ conceptId: concept.id, name: trimmed });
+      if (updated) {
+        concept.name = updated.name;
+        setDraft(updated.name);
+        window.dispatchEvent(new Event('starcall:review-queue-stale'));
+      }
+    } finally {
+      setSaving(false);
+      setEditing(false);
+    }
+  }
+
+  function cancel(): void {
+    setDraft(concept.name);
+    setEditing(false);
+  }
+
+  const heading: React.CSSProperties = {
+    margin: 0, fontSize: 18, fontWeight: 700,
+    ...(compact ? { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } : {}),
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={draft}
+        disabled={saving}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={e => {
+          if (e.key === 'Enter') { e.preventDefault(); void commit(); }
+          else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+        }}
+        style={{
+          ...heading,
+          minWidth: 0, flex: '1 1 auto',
+          background: '#111827', border: '1px solid #312e81', borderRadius: 4,
+          color: '#e2e8f0', padding: '2px 8px', outline: 'none',
+          fontFamily: 'inherit',
+        }}
+      />
+    );
+  }
+
+  return (
+    <h1
+      onClick={() => setEditing(true)}
+      title="Click to rename"
+      style={{ ...heading, cursor: 'text' }}
+    >
+      {concept.name}
+    </h1>
   );
 }
 

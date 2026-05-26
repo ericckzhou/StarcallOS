@@ -9,6 +9,13 @@ import ParseRunsPanel from './components/ParseRunsPanel';
 import { loadProfile, xpToNext, type Profile, type StudyProgress } from './components/profile';
 
 type Tab = 'concepts' | 'candidates' | 'runs';
+
+const SOURCE_TAB_KEY = 'starcall.layout.sourceTab';
+const VALID_TABS: Tab[] = ['concepts', 'candidates', 'runs'];
+function loadInitialTab(): Tab {
+  const stored = localStorage.getItem(SOURCE_TAB_KEY);
+  return (stored && (VALID_TABS as string[]).includes(stored)) ? (stored as Tab) : 'candidates';
+}
 type TopLevel = 'sources' | 'review' | 'profile';
 
 export default function App() {
@@ -16,7 +23,7 @@ export default function App() {
   const [sources, setSources] = useState<Source[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState<number | null>(null);
   const [selectedConcept, setSelectedConcept] = useState<Concept | null>(null);
-  const [tab, setTab] = useState<Tab>('concepts');
+  const [tab, setTab] = useState<Tab>(loadInitialTab);
   const [conceptsRefreshKey, setConceptsRefreshKey] = useState(0);
   const [profile, setProfile] = useState<Profile>(() => loadProfile());
   const [progress, setProgress] = useState<StudyProgress | null>(null);
@@ -89,20 +96,37 @@ export default function App() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'transparent', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif', position: 'relative', overflow: 'hidden' }}>
       {profile.backgroundDataUrl && (
         <>
-          <img
-            src={profile.backgroundDataUrl}
-            alt=""
-            style={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              opacity: Math.max(0, Math.min(1, profile.backgroundOpacity)),
-              pointerEvents: 'none',
-              zIndex: 0,
-            }}
-          />
+          {profile.backgroundDataUrl.startsWith('data:video') ? (
+            <video
+              src={profile.backgroundDataUrl}
+              autoPlay loop muted playsInline
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                opacity: Math.max(0, Math.min(1, profile.backgroundOpacity)),
+                pointerEvents: 'none',
+                zIndex: 0,
+              }}
+            />
+          ) : (
+            <img
+              src={profile.backgroundDataUrl}
+              alt=""
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                opacity: Math.max(0, Math.min(1, profile.backgroundOpacity)),
+                pointerEvents: 'none',
+                zIndex: 0,
+              }}
+            />
+          )}
           <div style={{
             position: 'absolute',
             inset: 0,

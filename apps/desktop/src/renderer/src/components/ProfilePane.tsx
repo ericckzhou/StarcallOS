@@ -163,7 +163,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                   <input
                     ref={backgroundFileRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/*,video/mp4,video/webm"
                     onChange={e => uploadBackground(e.target.files?.[0] ?? null)}
                     style={{ display: 'none' }}
                   />
@@ -192,11 +192,19 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                   position: 'relative',
                 }}>
                   {backgroundDataUrl && (
-                    <img
-                      src={backgroundDataUrl}
-                      alt=""
-                      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: backgroundOpacity }}
-                    />
+                    backgroundDataUrl.startsWith('data:video') ? (
+                      <video
+                        src={backgroundDataUrl}
+                        autoPlay loop muted playsInline
+                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: backgroundOpacity }}
+                      />
+                    ) : (
+                      <img
+                        src={backgroundDataUrl}
+                        alt=""
+                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: backgroundOpacity }}
+                      />
+                    )
                   )}
                   <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(4,6,26,0.25), rgba(4,6,26,0.75))' }} />
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: 12 }}>

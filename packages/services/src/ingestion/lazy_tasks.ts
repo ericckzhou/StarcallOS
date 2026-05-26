@@ -6,7 +6,7 @@ import { chatJSON, type ProviderConfig } from '../core/llm';
 import type { DatabaseSync } from '../core/infra/sqlite';
 import { getConceptById } from '../knowledge/repos/concepts';
 import { getSourceById } from '../knowledge/repos/sources';
-import { listTasksByConcept, createTask, deleteTasksForConcept } from '../knowledge/repos/evidence';
+import { listTasksByConcept, createTask, deleteTasksForConcept, listRecordsByConcept } from '../knowledge/repos/evidence';
 import type { EvidenceTask, EvidenceKind } from '../core/domain/types';
 
 const TASK_SYSTEM = `You are an expert tutor in evidence-based learning across all
@@ -74,10 +74,20 @@ interface RawTask {
   difficulty: number;
 }
 
+function normalizePrompt(p: string): string {
+  return p.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+interface TaskGenOpts {
+  excludePrompts?: string[];
+  addTwist?: boolean;
+}
+
 export async function ensureTasksForConcept(
   config: ProviderConfig,
   db: DatabaseSync,
   conceptId: number,
+  opts: TaskGenOpts = {},
 ): Promise<EvidenceTask[]> {
   const existing = listTasksByConcept(db, conceptId);
   if (existing.length > 0) return existing;
@@ -125,6 +135,24 @@ export async function ensureTasksForConcept(
     // fall through — context still useful without evidence
   }
 
+  const excludeNormalized = new Set(
+    (opts.excludePrompts ?? []).map(normalizePrompt).filter(s => s.length > 0),
+  );
+  if (excludeNormalized.size > 0) {
+    lines.push('');
+    lines.push('AVOID re-issuing any of these previously-asked prompts (verbatim OR a trivial rewording is forbidden — the learner has already seen them):');
+    for (const p of opts.excludePrompts ?? []) {
+      const trimmed = p.trim();
+      if (!trimmed) continue;
+      const truncated = trimmed.length > 240 ? trimmed.slice(0, 240) + '…' : trimmed;
+      lines.push(`  • ${truncated}`);
+    }
+  }
+  if (opts.addTwist) {
+    lines.push('');
+    lines.push('TWIST: this is a REGENERATION. Each new question must explore a DIFFERENT angle than the avoid-list above — pick a new scenario, a different misconception, a different sibling concept to connect to, or a different difficulty band within the allowed range. Do not paraphrase the avoided prompts. Surprise the learner with the slant while keeping the kind contract.');
+  }
+
   const userContent = lines.join('\n');
 
   const { content } = await chatJSON(
@@ -135,7 +163,7 @@ export async function ensureTasksForConcept(
         { role: 'user', content: userContent },
       ],
       responseFormat: 'json',
-      temperature: 0.3,
+      temperature: opts.addTwist ? 0.6 : 0.3,
     },
     'lazy_tasks',
   );
@@ -155,6 +183,9 @@ export async function ensureTasksForConcept(
   for (const t of tasks) {
     if (!t.kind || !t.prompt) continue;
     if (!validKinds.includes(t.kind)) continue;
+    // Belt-and-suspenders: even with the AVOID list in the prompt, the LLM
+    // sometimes returns a near-identical reword. Drop exact normalized matches.
+    if (excludeNormalized.has(normalizePrompt(t.prompt))) continue;
     saved.push(
       createTask(db, {
         concept_id: conceptId,
@@ -172,6 +203,23 @@ export async function regenerateTasksForConcept(
   db: DatabaseSync,
   conceptId: number,
 ): Promise<EvidenceTask[]> {
+  // Collect every prompt the learner has ever seen for this concept BEFORE
+  // we delete the live task rows — both currently-loaded prompts and any
+  // historically-graded prompts (snapshotted into evidence_records at grade
+  // time). These become the AVOID list so regenerate never re-issues the
+  // same question.
+  const exclude = new Set<string>();
+  for (const t of listTasksByConcept(db, conceptId)) {
+    const p = (t.prompt ?? '').trim();
+    if (p) exclude.add(p);
+  }
+  for (const r of listRecordsByConcept(db, conceptId)) {
+    const p = (r.task_prompt_snapshot ?? '').trim();
+    if (p) exclude.add(p);
+  }
   deleteTasksForConcept(db, conceptId);
-  return ensureTasksForConcept(config, db, conceptId);
+  return ensureTasksForConcept(config, db, conceptId, {
+    excludePrompts: [...exclude],
+    addTwist: true,
+  });
 }

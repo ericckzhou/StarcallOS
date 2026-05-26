@@ -90,6 +90,16 @@ export function deleteConcept(db: DatabaseSync, id: number): void {
   db.prepare('DELETE FROM concepts WHERE id = ?').run(id);
 }
 
+// Rename a concept's display name. Slug is intentionally NOT updated —
+// promotion idempotency depends on (source_id, slug) staying stable across
+// re-extracts. Display name is purely user-facing.
+export function renameConcept(db: DatabaseSync, id: number, name: string): Concept | null {
+  const trimmed = name.trim();
+  if (!trimmed) return getConceptById(db, id);
+  db.prepare('UPDATE concepts SET name = ? WHERE id = ?').run(trimmed, id);
+  return getConceptById(db, id);
+}
+
 // Remove a single evidence span from a concept's evidence_json snapshot.
 // Match is (page + kind + quote). Returns updated concept.
 export function deleteConceptEvidenceSpan(

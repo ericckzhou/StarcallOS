@@ -369,7 +369,90 @@ export function createEvidenceRecord(
 }
 
 export function deleteEvidenceRecord(db: DatabaseSync, id: number): void {
+  // Capture (concept_id, task_kind) BEFORE delete so we can recompute both
+  // the XP winner for that bucket AND the concept's mastery stage. Without
+  // this, deletion leaves stale state behind: XP stranded on a zero-row
+  // and mastery frozen at the value from the deleted attempt.
+  const target = db
+    .prepare(
+      `SELECT r.concept_id,
+              COALESCE(r.task_kind_snapshot, t.kind) AS task_kind
+         FROM evidence_records r
+         LEFT JOIN evidence_tasks t ON t.id = r.task_id
+        WHERE r.id = ?`,
+    )
+    .get(id) as { concept_id: number | bigint; task_kind: string | null } | undefined;
   db.prepare('DELETE FROM evidence_records WHERE id = ?').run(id);
+  if (target) {
+    const conceptId = Number(target.concept_id);
+    if (target.task_kind != null) {
+      recomputeXpForConceptKind(db, conceptId, target.task_kind);
+    }
+    recomputeMasteryForConcept(db, conceptId);
+  }
+}
+
+// Re-derive a concept's mastery stage from its remaining evidence_records.
+// Uses MAX(compression_stage) — "best ever shown" — so deletion is a
+// cleanup tool, not a penalty. If no records remain, the mastery row is
+// deleted entirely so the concept reads as Unseen (stage 0).
+export function recomputeMasteryForConcept(db: DatabaseSync, conceptId: number): void {
+  const row = db
+    .prepare(
+      `SELECT MAX(compression_stage) AS max_stage,
+              COUNT(*)              AS n
+         FROM evidence_records
+        WHERE concept_id = ?`,
+    )
+    .get(conceptId) as { max_stage: number | bigint | null; n: number | bigint };
+  const n = Number(row.n);
+  if (n === 0) {
+    db.prepare('DELETE FROM mastery WHERE concept_id = ?').run(conceptId);
+    return;
+  }
+  const stage = Number(row.max_stage ?? 0) as CompressionStage;
+  upsertMastery(db, conceptId, stage);
+}
+
+// Re-applies migration 0016's winner-take-all rule restricted to a single
+// (concept_id, task_kind) bucket. Idempotent. Safe to call any time the
+// set of records in that bucket changes (delete, future edit).
+export function recomputeXpForConceptKind(
+  db: DatabaseSync,
+  conceptId: number,
+  taskKind: string,
+): void {
+  // Zero the bucket first.
+  db.prepare(
+    `UPDATE evidence_records
+        SET xp_awarded = 0
+      WHERE concept_id = ?
+        AND COALESCE(task_kind_snapshot,
+                     (SELECT kind FROM evidence_tasks WHERE id = task_id)) = ?`,
+  ).run(conceptId, taskKind);
+
+  // Find the new winner: highest difficulty, then earliest, then lowest id.
+  const winner = db
+    .prepare(
+      `SELECT r.id,
+              COALESCE(r.task_difficulty_snapshot, t.difficulty, 3) AS difficulty,
+              r.score
+         FROM evidence_records r
+         LEFT JOIN evidence_tasks t ON t.id = r.task_id
+        WHERE r.concept_id = ?
+          AND COALESCE(r.task_kind_snapshot, t.kind) = ?
+        ORDER BY COALESCE(r.task_difficulty_snapshot, t.difficulty, 3) DESC,
+                 r.created_at ASC,
+                 r.id ASC
+        LIMIT 1`,
+    )
+    .get(conceptId, taskKind) as
+      | { id: number | bigint; difficulty: number; score: EvidenceScore }
+      | undefined;
+  if (!winner) return;
+
+  const xp = calculateXpAward(winner.difficulty, winner.score);
+  db.prepare('UPDATE evidence_records SET xp_awarded = ? WHERE id = ?').run(xp, Number(winner.id));
 }
 
 export function listRecordsByConcept(db: DatabaseSync, conceptId: number): EvidenceRecord[] {
