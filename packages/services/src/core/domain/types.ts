@@ -102,6 +102,40 @@ export interface ConceptEdge {
   edge_type: EdgeType;
 }
 
+// ─── PDF Annotations ─────────────────────────────────────────────────────────
+
+export type PdfAnnotationType = 'highlight' | 'note';
+export type PdfAnnotationScope = 'source' | 'concept';
+export type PdfAnnotationProvenance = 'manual_selection' | 'manual_note' | 'evidence_quote';
+
+export interface PdfAnnotationRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface PdfAnnotation {
+  id: number;
+  source_id: number;
+  concept_id: number | null;
+  scope: PdfAnnotationScope;
+  type: PdfAnnotationType;
+  created_from: PdfAnnotationProvenance;
+  page: number;
+  color: string;
+  selected_text: string;
+  label: string;
+  note_body: string;
+  rects: PdfAnnotationRect[];
+  page_width: number | null;
+  page_height: number | null;
+  rotation: number | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
 // ─── Misconceptions ───────────────────────────────────────────────────────────
 
 export type MisconceptionStatus = 'unresolved' | 'resolved';

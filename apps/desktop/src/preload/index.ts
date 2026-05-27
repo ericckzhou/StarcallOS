@@ -10,6 +10,13 @@ contextBridge.exposeInMainWorld('api', {
     bytes: (sourceId: number) => ipcRenderer.invoke('sources:bytes', sourceId),
     llmFilterGet: (sourceId: number) => ipcRenderer.invoke('sources:llmFilterGet', sourceId),
     llmFilterSet: (args: { sourceId: number; keepTerms: string[] | null }) => ipcRenderer.invoke('sources:llmFilterSet', args),
+    annotations: {
+      list: (sourceId: number) => ipcRenderer.invoke('pdfAnnotations:list', sourceId),
+      create: (args: unknown) => ipcRenderer.invoke('pdfAnnotations:create', args),
+      update: (args: unknown) => ipcRenderer.invoke('pdfAnnotations:update', args),
+      delete: (id: number) => ipcRenderer.invoke('pdfAnnotations:delete', id),
+      restore: (id: number) => ipcRenderer.invoke('pdfAnnotations:restore', id),
+    },
   },
   concepts: {
     bySource: (sourceId: number) => ipcRenderer.invoke('concepts:bySource', sourceId),

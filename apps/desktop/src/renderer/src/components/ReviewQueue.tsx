@@ -382,8 +382,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                     cursor: 'pointer',
                   }}
                 >
-                  <div style={{ display: 'grid', gridTemplateColumns: '8px minmax(0, 1fr) 22px', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: STAGE_COLORS[stage], flexShrink: 0 }} />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 22px', alignItems: 'center', gap: 10 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {c.name}
                     </div>
@@ -412,7 +411,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                       x
                     </button>
                   </div>
-                  <div style={{ paddingLeft: 18, paddingRight: 32, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#6b7280' }}>
+                  <div style={{ paddingRight: 32, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#6b7280' }}>
                     <span style={{
                       color: IMP_COLOR[c.importance] ?? '#94a3b8',
                       background: 'rgba(129, 140, 248, 0.10)',

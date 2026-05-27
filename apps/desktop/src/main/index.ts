@@ -9,6 +9,7 @@ import {
   enrichConceptDefinition,
   listTasksByConcept, getMastery, listMisconceptionsByConcept,
   listNotesByConcept, createNote, updateNote, deleteNote, reorderNotes,
+  listPdfAnnotationsBySource, createPdfAnnotation, updatePdfAnnotation, softDeletePdfAnnotation, restorePdfAnnotation,
   createChunk, createConcept, updateCentralityScore, createEdge, createMisconception, createTask,
   upsertMastery, createEvidenceRecord, listRecordsByConcept, deleteEvidenceRecord,
   calculateEligibleXpAward, getStudyProgress,
@@ -43,10 +44,12 @@ import { IPC } from '@starcall/shared';
 import type {
   CandidateLlmFilterArgs,
   CandidateLlmFilterDecision,
+  CreatePdfAnnotationArgs,
   CreateSourceArgs,
   CreateTextSourceArgs,
   ProcessSourceArgs,
   SubmitEvidenceArgs,
+  UpdatePdfAnnotationArgs,
 } from '@starcall/shared';
 
 const CONCEPT_IMPORTANCE_VALUES = new Set(['foundational', 'core', 'supporting', 'peripheral', 'reference_only']);
@@ -65,7 +68,7 @@ function createWindow(): void {
     width: 1400,
     height: 900,
     backgroundColor: '#0a0a0f',
-    title: '',                       // no "StarcallOS" in OS taskbar/title bar
+    title: 'StarcallOS',
     autoHideMenuBar: true,           // no File/Edit/View/Window/Help strip
     show: false,                     // wait until we maximize before showing
     webPreferences: {
@@ -74,8 +77,9 @@ function createWindow(): void {
       nodeIntegration: false,
     },
   });
-  // Belt-and-suspender: prevent the renderer's <title> from leaking back.
-  win.on('page-title-updated', e => e.preventDefault());
+  win.on('page-title-updated', (_e, title) => {
+    if (title !== 'StarcallOS') win.setTitle('StarcallOS');
+  });
   win.setMenuBarVisibility(false);
   win.removeMenu();
   win.maximize();
@@ -547,6 +551,55 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.SOURCES_LLM_FILTER_SET, (_e, args: { sourceId: number; keepTerms: string[] | null }) => {
     setLlmFilter(db, args.sourceId, args.keepTerms);
     return { ok: true as const };
+  });
+
+  ipcMain.handle(IPC.PDF_ANNOTATIONS_LIST, (_e, sourceId: number) =>
+    listPdfAnnotationsBySource(db, sourceId));
+  ipcMain.handle(IPC.PDF_ANNOTATIONS_CREATE, (_e, args: CreatePdfAnnotationArgs) => {
+    const created = createPdfAnnotation(db, args);
+    emitEvent(db, 'pdf_annotation.created', {
+      sourceId: created.source_id,
+      conceptId: created.concept_id,
+      type: created.type,
+      page: created.page,
+    }, { entityType: 'pdf_annotation', entityId: created.id });
+    return created;
+  });
+  ipcMain.handle(IPC.PDF_ANNOTATIONS_UPDATE, (_e, args: UpdatePdfAnnotationArgs) => {
+    const updated = updatePdfAnnotation(db, args.id, args);
+    if (updated) {
+      emitEvent(db, 'pdf_annotation.updated', {
+        sourceId: updated.source_id,
+        conceptId: updated.concept_id,
+        type: updated.type,
+        page: updated.page,
+      }, { entityType: 'pdf_annotation', entityId: updated.id });
+    }
+    return updated;
+  });
+  ipcMain.handle(IPC.PDF_ANNOTATIONS_DELETE, (_e, id: number) => {
+    const deleted = softDeletePdfAnnotation(db, id);
+    if (deleted) {
+      emitEvent(db, 'pdf_annotation.deleted', {
+        sourceId: deleted.source_id,
+        conceptId: deleted.concept_id,
+        type: deleted.type,
+        page: deleted.page,
+      }, { entityType: 'pdf_annotation', entityId: deleted.id });
+    }
+    return deleted;
+  });
+  ipcMain.handle(IPC.PDF_ANNOTATIONS_RESTORE, (_e, id: number) => {
+    const restored = restorePdfAnnotation(db, id);
+    if (restored) {
+      emitEvent(db, 'pdf_annotation.restored', {
+        sourceId: restored.source_id,
+        conceptId: restored.concept_id,
+        type: restored.type,
+        page: restored.page,
+      }, { entityType: 'pdf_annotation', entityId: restored.id });
+    }
+    return restored;
   });
 
   ipcMain.handle(IPC.SOURCES_BYTES, (_e, sourceId: number) => {

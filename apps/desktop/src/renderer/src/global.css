@@ -93,6 +93,16 @@ body::after {
   color: #e2e8f0;
 }
 
+.pdf-text-layer ::selection {
+  background: rgba(250, 204, 21, 0.34);
+  color: transparent;
+}
+
+.pdf-text-layer ::-moz-selection {
+  background: rgba(250, 204, 21, 0.34);
+  color: transparent;
+}
+
 /* Default focus ring tamed for the dark theme. */
 :focus-visible {
   outline: 1px solid #818cf8;

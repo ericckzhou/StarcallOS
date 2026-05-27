@@ -130,7 +130,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
     localStorage.setItem(SOURCE_PREVIEW_NOTES_WIDTH_KEY, String(sourcePreviewNotesWidth));
   }, [sourcePreviewNotesWidth]);
 
-  function beginSourcePreviewResize(e: React.MouseEvent<HTMLDivElement>): void {
+  function beginSourcePreviewResize(e: React.MouseEvent<HTMLElement>): void {
     e.preventDefault();
     const container = sourcePreviewSplitRef.current;
     if (!container) return;
@@ -296,7 +296,13 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
           borderRight: '1px solid #1f2937',
         }}>
-          <header style={{ padding: '12px 24px 0', borderBottom: '1px solid #1f2937', background: '#0d0d16', flexShrink: 0 }}>
+          <header style={{
+            padding: '12px 24px 0',
+            borderBottom: '1px solid rgba(31,41,55,0.72)',
+            background: 'rgba(4,6,26,0.34)',
+            backdropFilter: 'blur(14px)',
+            flexShrink: 0,
+          }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, minWidth: 0 }}>
               <EditableTitle concept={concept} compact />
               <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: `${IMP_COLOR[concept.importance] ?? '#374151'}22`, color: IMP_COLOR[concept.importance] ?? '#6b7280', flexShrink: 0 }}>
@@ -329,13 +335,14 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
             {activeTabContent}
           </div>
         </section>
-        <div
-          onMouseDown={beginSourcePreviewResize}
-          title="Drag to resize content and source"
-          style={{ width: 8, flexShrink: 0, cursor: 'col-resize', background: '#0d0d16', borderRight: '1px solid #111827' }}
-        />
         <section style={{ flex: 1, minWidth: 520, display: 'flex', overflow: 'hidden' }}>
-          <PdfViewer key={`preview:${concept.id}`} conceptId={concept.id} conceptName={concept.name} stabilityKey={tab} />
+          <PdfViewer
+            key={`preview:${concept.id}`}
+            conceptId={concept.id}
+            conceptName={concept.name}
+            stabilityKey={tab}
+            onResizeMouseDown={beginSourcePreviewResize}
+          />
         </section>
       </main>
     );
@@ -343,7 +350,12 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
 
   return (
     <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <header style={{ padding: '14px 24px 0', borderBottom: '1px solid #1f2937', background: '#0d0d16' }}>
+      <header style={{
+        padding: '14px 24px 0',
+        borderBottom: '1px solid rgba(31,41,55,0.72)',
+        background: 'rgba(4,6,26,0.34)',
+        backdropFilter: 'blur(14px)',
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <EditableTitle concept={concept} />
           <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: `${IMP_COLOR[concept.importance] ?? '#374151'}22`, color: IMP_COLOR[concept.importance] ?? '#6b7280' }}>
@@ -869,7 +881,10 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
       {/* ChatGPT prompt generator — paste to external LLM if you don't want to spend on enrich */}
       <div style={{
         marginTop: 12, padding: '14px 16px',
-        background: '#0d0d16', border: '1px dashed #1f2937', borderRadius: 6,
+        background: 'rgba(4, 6, 26, 0.26)',
+        border: '1px dashed rgba(99, 102, 241, 0.36)',
+        borderRadius: 6,
+        backdropFilter: 'blur(10px)',
         display: 'flex', flexDirection: 'column', gap: 10,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

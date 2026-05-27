@@ -2,6 +2,11 @@ import type {
   Source,
   Concept,
   ConceptNote,
+  PdfAnnotation,
+  PdfAnnotationProvenance,
+  PdfAnnotationRect,
+  PdfAnnotationScope,
+  PdfAnnotationType,
   EvidenceTask,
   EvidenceRecord,
   Mastery,
@@ -12,7 +17,14 @@ import type {
   StoredEquationCandidate,
 } from '@starcall/services';
 
-export type { ConceptNote };
+export type {
+  ConceptNote,
+  PdfAnnotation,
+  PdfAnnotationProvenance,
+  PdfAnnotationRect,
+  PdfAnnotationScope,
+  PdfAnnotationType,
+};
 
 export const IPC = {
   SOURCES_LIST:            'sources:list',
@@ -45,6 +57,11 @@ export const IPC = {
   SOURCES_BYTES:           'sources:bytes',
   SOURCES_LLM_FILTER_GET:  'sources:llmFilterGet',
   SOURCES_LLM_FILTER_SET:  'sources:llmFilterSet',
+  PDF_ANNOTATIONS_LIST:    'pdfAnnotations:list',
+  PDF_ANNOTATIONS_CREATE:  'pdfAnnotations:create',
+  PDF_ANNOTATIONS_UPDATE:  'pdfAnnotations:update',
+  PDF_ANNOTATIONS_DELETE:  'pdfAnnotations:delete',
+  PDF_ANNOTATIONS_RESTORE: 'pdfAnnotations:restore',
   CONCEPTS_SOURCE_EVIDENCE: 'concepts:sourceEvidence',
   EVIDENCE_SUBMIT:         'evidence:submit',
   EVIDENCE_HISTORY:        'evidence:history',
@@ -135,6 +152,34 @@ export interface ConceptSourceEvidence {
   pageCount: number | null;
   isPdf: boolean;
   evidence: Array<{ page: number; kind: string; label: string; quote?: string }>;
+}
+
+export interface CreatePdfAnnotationArgs {
+  sourceId: number;
+  conceptId?: number | null;
+  scope?: PdfAnnotationScope;
+  type: PdfAnnotationType;
+  createdFrom: PdfAnnotationProvenance;
+  page: number;
+  color?: string;
+  selectedText?: string;
+  label?: string;
+  noteBody?: string;
+  rects: PdfAnnotationRect[];
+  pageWidth?: number | null;
+  pageHeight?: number | null;
+  rotation?: number | null;
+}
+
+export interface UpdatePdfAnnotationArgs {
+  id: number;
+  label?: string;
+  noteBody?: string;
+  color?: string;
+  rects?: PdfAnnotationRect[];
+  pageWidth?: number | null;
+  pageHeight?: number | null;
+  rotation?: number | null;
 }
 
 export interface UpdateConceptFieldsArgs {
@@ -279,6 +324,13 @@ export interface IpcApi {
     bytes: (sourceId: number) => Promise<ArrayBuffer>;
     llmFilterGet: (sourceId: number) => Promise<string[] | null>;
     llmFilterSet: (args: LlmFilterSetArgs) => Promise<{ ok: true }>;
+    annotations: {
+      list: (sourceId: number) => Promise<PdfAnnotation[]>;
+      create: (args: CreatePdfAnnotationArgs) => Promise<PdfAnnotation>;
+      update: (args: UpdatePdfAnnotationArgs) => Promise<PdfAnnotation | null>;
+      delete: (id: number) => Promise<PdfAnnotation | null>;
+      restore: (id: number) => Promise<PdfAnnotation | null>;
+    };
   };
   concepts: {
     bySource: (sourceId: number) => Promise<Concept[]>;

@@ -15,7 +15,11 @@ export type EventType =
   | 'misconception.resolved'
   | 'evidence_record.submitted'
   | 'evidence_record.graded'
-  | 'mastery.updated';
+  | 'mastery.updated'
+  | 'pdf_annotation.created'
+  | 'pdf_annotation.updated'
+  | 'pdf_annotation.deleted'
+  | 'pdf_annotation.restored';
 
 export interface AppEvent {
   id: number;

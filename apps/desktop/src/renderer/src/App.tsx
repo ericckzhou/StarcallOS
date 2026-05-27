@@ -64,7 +64,7 @@ export default function App() {
       key={key}
       onClick={() => setTab(key)}
       style={{
-        background: tab === key ? '#1a1a2e' : 'transparent',
+        background: tab === key ? 'rgba(129, 140, 248, 0.10)' : 'transparent',
         border: 'none',
         borderBottom: `2px solid ${tab === key ? '#818cf8' : 'transparent'}`,
         color: tab === key ? '#e2e8f0' : '#6b7280',
@@ -204,7 +204,13 @@ export default function App() {
           />
           {selectedSourceId ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <div style={{ display: 'flex', borderBottom: '1px solid #1f2937', background: '#0d0d16', flexShrink: 0 }}>
+              <div style={{
+                display: 'flex',
+                borderBottom: '1px solid rgba(31,41,55,0.72)',
+                background: 'rgba(4,6,26,0.34)',
+                backdropFilter: 'blur(14px)',
+                flexShrink: 0,
+              }}>
                 {tabBtn('candidates', 'Candidates')}
                 {tabBtn('concepts',   'Concepts')}
                 {tabBtn('runs',       'Runs')}
