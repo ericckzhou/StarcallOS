@@ -2,8 +2,8 @@
 import {
   BUCKET_COLOR,
   BUCKET_LABEL,
+  CANDIDATE_FILTER_CHIPS,
   RELATION_COLOR,
-  SIGNAL_CHIPS,
   SIGNAL_COLOR,
   buildTopicFitPrompt,
   classifyBucket,
@@ -52,6 +52,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
   const [llmFilterMsg, setLlmFilterMsg]     = useState<string | null>(null);
   const [llmCopied, setLlmCopied]           = useState(false);
   const [llmPaste, setLlmPaste]             = useState('');
+  const [llmApiBusy, setLlmApiBusy]         = useState(false);
 
   // Persisted LLM filter is stored as normalized terms (stable across
   // re-extracts where row IDs churn). We map terms â†’ current candidate IDs
@@ -165,6 +166,44 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
     void window.api.sources.llmFilterSet({ sourceId, keepTerms: null });
   }
 
+  async function runConfiguredLlmFilter(): Promise<void> {
+    if (filtered.length === 0) {
+      setBulkMsg('No visible candidates to send to the configured LLM filter.');
+      return;
+    }
+    setLlmApiBusy(true);
+    setBulkMsg(null);
+    setLlmFilterMsg(`Sending ${Math.min(filtered.length, 400)} visible candidate${filtered.length === 1 ? '' : 's'} to your configured LLM...`);
+    try {
+      const result = await window.api.candidates.llmFilter({
+        sourceId,
+        sourceTitle,
+        candidates: filtered.slice(0, 400).map(c => ({
+          id: c.id,
+          normalized: c.normalized,
+          term: c.term,
+          mention_count: c.mention_count,
+          first_page: c.first_page,
+          final_score: c.final_score ?? c.concept_score ?? c.confidence,
+          confidence: c.confidence,
+          signals: c.signals,
+          labels: c.labels,
+          context_snippet: c.context_snippet,
+        })),
+      });
+      applyTopicFitFilter(JSON.stringify({ decisions: result.decisions }));
+      setBulkMsg(
+        `LLM filter (${result.provider}/${result.model}) kept ${result.keepTerms.length} of ${result.sent} visible candidates.`,
+      );
+    } catch (e) {
+      const msg = `LLM filter failed: ${e instanceof Error ? e.message : String(e)}`;
+      setLlmFilterMsg(msg);
+      setBulkMsg(msg);
+    } finally {
+      setLlmApiBusy(false);
+    }
+  }
+
   async function promoteAllFiltered(ids: number[]) {
     setBulkBusy(true);
     setBulkMsg(null);
@@ -200,6 +239,51 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
     }
   }
 
+  async function createRelation(input: { from: string; to: string; kind: string; quote?: string; page?: number }) {
+    const created = await window.api.candidates.relationCreate({ sourceId, ...input }) as RelationCandidate;
+    setBundle(b => ({ ...b, relations: [...b.relations, created] }));
+  }
+
+  async function updateRelation(id: number, input: { from: string; to: string; kind: string; quote?: string; page?: number }) {
+    const updated = await window.api.candidates.relationUpdate({ id, ...input }) as RelationCandidate;
+    setBundle(b => ({ ...b, relations: b.relations.map(r => r.id === id ? updated : r) }));
+  }
+
+  async function deleteRelation(id: number) {
+    await window.api.candidates.relationDelete(id);
+    setBundle(b => ({ ...b, relations: b.relations.filter(r => r.id !== id) }));
+  }
+
+  async function createMisconception(input: { quote: string; page?: number; section_path?: string[] }) {
+    const created = await window.api.candidates.misconceptionCreate({ sourceId, ...input }) as MisconceptionCandidate;
+    setBundle(b => ({ ...b, misconceptions: [...b.misconceptions, created] }));
+  }
+
+  async function updateMisconception(id: number, input: { quote: string; page?: number; section_path?: string[] }) {
+    const updated = await window.api.candidates.misconceptionUpdate({ id, ...input }) as MisconceptionCandidate;
+    setBundle(b => ({ ...b, misconceptions: b.misconceptions.map(m => m.id === id ? updated : m) }));
+  }
+
+  async function deleteMisconception(id: number) {
+    await window.api.candidates.misconceptionDelete(id);
+    setBundle(b => ({ ...b, misconceptions: b.misconceptions.filter(m => m.id !== id) }));
+  }
+
+  async function createEquation(input: { latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null }) {
+    const created = await window.api.candidates.equationCreate({ sourceId, ...input }) as EquationCandidate;
+    setBundle(b => ({ ...b, equations: [...b.equations, created] }));
+  }
+
+  async function updateEquation(id: number, input: { latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null }) {
+    const updated = await window.api.candidates.equationUpdate({ id, ...input }) as EquationCandidate;
+    setBundle(b => ({ ...b, equations: b.equations.map(eq => eq.id === id ? updated : eq) }));
+  }
+
+  async function deleteEquation(id: number) {
+    await window.api.candidates.equationDelete(id);
+    setBundle(b => ({ ...b, equations: b.equations.filter(eq => eq.id !== id) }));
+  }
+
   // Bucket pass + slider pass. Suspicious always shows regardless of slider.
   // Bucket counts honor the active LLM filter so the chips reflect what's
   // actually selectable, not the pre-filter total.
@@ -220,18 +304,19 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
   const filtered = withBucket.filter(c =>
     (bucket === 'all' || c.bucket === bucket) &&
     (c.final_score ?? c.concept_score ?? c.confidence) >= minConf &&
-    (signalFilter === 'any' || c.signals.includes(signalFilter)) &&
+    (signalFilter === 'any' || c.signals.includes(signalFilter) || (c.labels ?? []).includes(signalFilter)) &&
     (!llmFilterEnabled || llmKeepIds === null || llmKeepIds.has(c.id)),
   );
-  // Count of candidates per signal for the chip pills (respects bucket + LLM filter)
-  const signalCounts: Record<string, number> = {};
+  // Count of candidates per signal/label for the chip pills (respects bucket + LLM filter).
+  const filterCounts: Record<string, number> = {};
   for (const c of withBucket) {
     if (bucket !== 'all' && c.bucket !== bucket) continue;
     if (llmFilterEnabled && llmKeepIds !== null && !llmKeepIds.has(c.id)) continue;
-    for (const s of c.signals) signalCounts[s] = (signalCounts[s] ?? 0) + 1;
+    const keys = new Set([...(c.signals ?? []), ...(c.labels ?? [])]);
+    for (const s of keys) filterCounts[s] = (filterCounts[s] ?? 0) + 1;
   }
   const knownNormalized = new Set(bundle.concepts.map(c => c.normalized));
-  const topicFitPrompt = buildTopicFitPrompt(sourceTitle, withBucket);
+  const topicFitPrompt = buildTopicFitPrompt(sourceTitle, filtered);
   const equationsByTerm = new Map<string, EquationCandidate[]>();
   for (const eq of bundle.equations) {
     if (!eq.attached_term) continue;
@@ -335,8 +420,42 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, lineHeight: 1.5 }}>
                 Source: <span style={{ color: '#9ca3af' }}>{sourceTitle || '(no title set)'}</span>
                 <br />
-                Sending {Math.min(withBucket.length, 400)} of {withBucket.length} candidates to be classified.
+                Sending {Math.min(filtered.length, 400)} of {filtered.length} visible candidates to be classified.
               </div>
+            </div>
+
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 12px',
+              border: '1px solid #123047',
+              borderRadius: 6,
+              background: 'rgba(14, 22, 40, 0.72)',
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#bae6fd' }}>Use configured LLM provider</div>
+                <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.45, marginTop: 2 }}>
+                  Sends only the currently visible candidates through the API and saves the keep-list.
+                </div>
+              </div>
+              <button
+                onClick={runConfiguredLlmFilter}
+                disabled={llmApiBusy || filtered.length === 0}
+                title="Use the API provider and model selected in Profile settings to filter the currently visible candidates."
+                style={{
+                  marginLeft: 'auto',
+                  background: llmApiBusy || filtered.length === 0 ? '#0f172a' : '#0c4a6e',
+                  border: `1px solid ${llmApiBusy || filtered.length === 0 ? '#1e293b' : '#38bdf8'}`,
+                  borderRadius: 4,
+                  padding: '6px 12px',
+                  color: llmApiBusy || filtered.length === 0 ? '#64748b' : '#e0f2fe',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  cursor: llmApiBusy || filtered.length === 0 ? 'not-allowed' : 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {llmApiBusy ? 'Filtering...' : 'Filter by LLM'}
+              </button>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -410,6 +529,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
       <div style={{
         padding: '8px 16px', borderBottom: '1px solid #1f2937',
         display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap',
+        order: 2,
       }}>
         {subTab === 'concepts' && (['all', 'high', 'medium', 'low', 'off_topic', 'broad', 'boilerplate', 'suspicious'] as const).map(b => {
           const count = bucketCounts[b];
@@ -420,7 +540,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               key={b}
               onClick={() => setBucket(b)}
               style={{
-                background: selected ? '#1a1a2e' : 'transparent',
+                background: selected ? 'rgba(129, 140, 248, 0.10)' : 'transparent',
                 border: `1px solid ${selected ? color : '#1f2937'}`,
                 color: selected ? color : '#6b7280',
                 borderRadius: 3, padding: '3px 8px', fontSize: 10, cursor: 'pointer',
@@ -488,6 +608,18 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                   </button>
                 )}
                 <button
+                  onClick={runConfiguredLlmFilter}
+                  disabled={llmApiBusy || filtered.length === 0}
+                  title="Use the API provider and model selected in Settings to filter only the currently visible candidates."
+                  style={{
+                    background: '#111827', border: '1px solid #38bdf8', borderRadius: 3,
+                    padding: '3px 10px', fontSize: 10, cursor: llmApiBusy || filtered.length === 0 ? 'not-allowed' : 'pointer',
+                    color: '#bae6fd', fontWeight: 700, opacity: llmApiBusy || filtered.length === 0 ? 0.55 : 1,
+                  }}
+                >
+                  {llmApiBusy ? 'Filtering...' : 'Filter by LLM'}
+                </button>
+                <button
                   onClick={() => setLlmFilterOpen(true)}
                   title={`Generate a prompt for ChatGPT (or any LLM). Paste the JSON answer back, soft-filters the list to candidates the LLM agrees fit the book's topic.`}
                   style={{
@@ -503,13 +635,23 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           })()}
           {subTab === 'concepts' && (
             <>
-              <span style={{ fontSize: 10, color: '#6b7280' }}>min score</span>
-              <input
-                type="range" min={0} max={1} step={0.05} value={minConf}
-                onChange={e => setMinConf(parseFloat(e.target.value))}
-                style={{ width: 120 }}
-              />
-              <span style={{ fontSize: 11, color: confColor(minConf), minWidth: 28 }}>{minConf.toFixed(2)}</span>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '3px 8px',
+                border: '1px solid rgba(67, 56, 202, 0.45)',
+                borderRadius: 5,
+                background: 'rgba(4, 6, 26, 0.38)',
+                backdropFilter: 'blur(10px)',
+              }}>
+                <span style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>min score</span>
+                <input
+                  className="score-range"
+                  type="range" min={0} max={1} step={0.05} value={minConf}
+                  onChange={e => setMinConf(parseFloat(e.target.value))}
+                  style={{ '--score-fill': `${Math.max(0, Math.min(1, minConf)) * 100}%` } as React.CSSProperties}
+                />
+                <span style={{ fontSize: 11, color: confColor(minConf), minWidth: 28, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{minConf.toFixed(2)}</span>
+              </div>
             </>
           )}
           <button
@@ -522,7 +664,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
       </div>
 
       {/* Sub-tab bar */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #1f2937', background: '#0d0d16', flexShrink: 0 }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid rgba(31, 41, 55, 0.75)', background: 'transparent', flexShrink: 0, order: 1 }}>
         {subTabBtn('concepts',       'Concepts',       bucketCounts.all)}
         {subTabBtn('relations',      'Relations',      bundle.relations.length)}
         {subTabBtn('misconceptions', 'Misconceptions', bundle.misconceptions.length)}
@@ -532,22 +674,31 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
       {/* Signal-source chips (Concepts sub-tab only) */}
       {subTab === 'concepts' && (
         <div style={{
-          padding: '6px 16px', borderBottom: '1px solid #1f2937',
+          padding: '6px 16px', borderBottom: '1px solid rgba(31, 41, 55, 0.75)',
           display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, flexWrap: 'wrap',
-          background: '#0a0a0f',
+          background: 'transparent',
+          order: 3,
         }}>
-          <span style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 4 }}>signal</span>
-          {SIGNAL_CHIPS.map(({ key, label, color }) => {
+          <span style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 4 }}>tag</span>
+          {(() => {
+            const anyCount = withBucket.filter(c =>
+              (bucket === 'all' || c.bucket === bucket) &&
+              (!llmFilterEnabled || llmKeepIds === null || llmKeepIds.has(c.id)),
+            ).length;
+            const chips = [
+              { key: 'any', label: 'Any tag', color: '#9ca3af', count: anyCount },
+              ...CANDIDATE_FILTER_CHIPS
+                .map(chip => ({ ...chip, count: filterCounts[chip.key] ?? 0 }))
+                .filter(chip => chip.count > 0 || signalFilter === chip.key),
+            ];
+            return chips.map(({ key, label, color, count }) => {
             const selected = signalFilter === key;
-            const count = key === 'any'
-              ? Object.values(signalCounts).reduce((a, b) => a + b, 0)
-              : (signalCounts[key] ?? 0);
             return (
               <button
                 key={key}
                 onClick={() => setSignalFilter(key)}
                 style={{
-                  background: selected ? '#1a1a2e' : 'transparent',
+                  background: selected ? 'rgba(129, 140, 248, 0.10)' : 'transparent',
                   border: `1px solid ${selected ? color : '#1f2937'}`,
                   color: selected ? color : '#6b7280',
                   borderRadius: 3, padding: '2px 7px', fontSize: 10, cursor: 'pointer',
@@ -557,11 +708,12 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                 {label} <span style={{ color: selected ? color : '#4b5563', marginLeft: 3 }}>{count}</span>
               </button>
             );
-          })}
+            });
+          })()}
         </div>
       )}
 
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ flex: 1, overflowY: 'auto', order: 4 }}>
         {loading && (
           <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>Loading candidatesâ€¦</div>
         )}
@@ -581,11 +733,22 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
         )}
 
         {!loading && subTab === 'relations' && (
-          <CandidateRelationsPanel relations={bundle.relations} knownTerms={knownNormalized} />
+          <CandidateRelationsPanel
+            relations={bundle.relations}
+            knownTerms={knownNormalized}
+            onCreate={createRelation}
+            onUpdate={updateRelation}
+            onDelete={deleteRelation}
+          />
         )}
 
         {!loading && subTab === 'misconceptions' && (
-          <CandidateMisconceptionsPanel misconceptions={bundle.misconceptions} />
+          <CandidateMisconceptionsPanel
+            misconceptions={bundle.misconceptions}
+            onCreate={createMisconception}
+            onUpdate={updateMisconception}
+            onDelete={deleteMisconception}
+          />
         )}
 
         {!loading && subTab === 'equations' && (
@@ -593,10 +756,12 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
             equations={bundle.equations}
             unattached={unattachedEquations}
             byTerm={equationsByTerm}
+            onCreate={createEquation}
+            onUpdate={updateEquation}
+            onDelete={deleteEquation}
           />
         )}
       </div>
     </div>
   );
 }
-

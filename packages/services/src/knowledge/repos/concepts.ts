@@ -189,6 +189,7 @@ export interface ConceptSearchHit {
   id: number;
   name: string;
   importance: string;
+  source_filename?: string;
 }
 
 export function searchConceptsByPrefix(
@@ -219,9 +220,38 @@ export function searchConceptsByPrefix(
   return rows.map(r => ({ id: Number(r.id), name: r.name, importance: r.importance }));
 }
 
-// Convenience wrapper for the renderer: resolve the source from a concept id,
-// exclude self, run the prefix search. One call site, no need to plumb
-// source_id through the renderer's Concept type.
+export function searchConceptsByPrefixGlobal(
+  db: DatabaseSync,
+  prefix: string,
+  limit = 8,
+  excludeConceptId?: number,
+): ConceptSearchHit[] {
+  const trimmed = prefix.trim();
+  if (trimmed.length === 0) return [];
+  const escaped = trimmed.toLowerCase().replace(/[\\%_]/g, c => '\\' + c);
+  const pattern = `${escaped}%`;
+  const exclude = excludeConceptId ?? -1;
+  const rows = db
+    .prepare(
+      `SELECT c.id, c.name, c.importance, c.centrality_score, s.filename AS source_filename
+         FROM concepts c
+         LEFT JOIN sources s ON s.id = c.source_id
+        WHERE c.id != ?
+          AND lower(c.name) LIKE ? ESCAPE '\\'
+        ORDER BY c.centrality_score DESC, c.name ASC
+        LIMIT ?`,
+    )
+    .all(exclude, pattern, limit) as Array<{ id: number | bigint; name: string; importance: string; source_filename: string | null }>;
+  return rows.map(r => ({
+    id: Number(r.id),
+    name: r.name,
+    importance: r.importance,
+    source_filename: r.source_filename ?? undefined,
+  }));
+}
+
+// Convenience wrapper for the renderer: exclude self and search promoted
+// concepts across sources so constellations can connect books/domains.
 export function searchConceptsByPrefixForConcept(
   db: DatabaseSync,
   conceptId: number,
@@ -229,10 +259,10 @@ export function searchConceptsByPrefixForConcept(
   limit = 8,
 ): ConceptSearchHit[] {
   const row = db
-    .prepare('SELECT source_id FROM concepts WHERE id = ?')
-    .get(conceptId) as { source_id: number | bigint } | undefined;
+    .prepare('SELECT id FROM concepts WHERE id = ?')
+    .get(conceptId) as { id: number | bigint } | undefined;
   if (!row) return [];
-  return searchConceptsByPrefix(db, Number(row.source_id), prefix, limit, conceptId);
+  return searchConceptsByPrefixGlobal(db, prefix, limit, conceptId);
 }
 
 export function listConceptsByImportance(

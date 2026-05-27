@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 
 export type Concept = {
   id: number;
+  source_id?: number;
   name: string;
   importance: string;
   definition_text: string;
@@ -34,6 +35,12 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   const [filter, setFilter] = useState('all');
   const [masteries, setMasteries] = useState<Map<number, number>>(new Map());
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === 'true');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState('');
+  const [createImportance, setCreateImportance] = useState('supporting');
+  const [createDefinition, setCreateDefinition] = useState('');
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
     setConcepts([]);
@@ -57,6 +64,40 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   const displayed = filter === 'all' ? concepts : concepts.filter(c => c.importance === filter);
   const masteredCount = [...masteries.values()].filter(s => s >= 3).length;
   const selectedConcept = selectedId != null ? concepts.find(c => c.id === selectedId) : null;
+
+  async function createManualConcept(): Promise<void> {
+    const name = createName.trim();
+    if (!name) {
+      setCreateError('Name is required.');
+      return;
+    }
+    setCreateBusy(true);
+    setCreateError(null);
+    try {
+      const created = await window.api.concepts.createManual({
+        sourceId,
+        name,
+        importance: createImportance,
+        definition_text: createDefinition,
+      }) as Concept;
+      setConcepts(prev => {
+        const existing = prev.find(c => c.id === created.id);
+        if (existing) return prev;
+        return [...prev, created].sort((a, b) => a.name.localeCompare(b.name));
+      });
+      setMasteries(prev => new Map(prev).set(created.id, 0));
+      setCreateName('');
+      setCreateDefinition('');
+      setCreateImportance('supporting');
+      setCreateOpen(false);
+      onSelect(created);
+      window.dispatchEvent(new Event('starcall:review-queue-stale'));
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreateBusy(false);
+    }
+  }
 
   if (collapsed) {
     return (
@@ -90,14 +131,99 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             <span style={{ fontSize: 10, color: '#22c55e' }}>{masteredCount} connected+</span>
           )}
           <button
+            onClick={() => setCreateOpen(true)}
+            title="Add your own concept to this source"
+            style={{ background: '#1e1b4b', border: '1px solid #4338ca', borderRadius: 4, padding: '3px 7px', color: '#c7d2fe', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}
+          >
+            +
+          </button>
+          <button
             onClick={() => setCollapsed(true)}
             title="Minimize concepts"
             style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '3px 7px', color: '#6b7280', fontSize: 11, cursor: 'pointer' }}
           >
-            ‹
+            &lt;
           </button>
         </div>
       </div>
+      {createOpen && (
+        <div style={{
+          borderBottom: '1px solid #1f2937',
+          padding: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          background: 'rgba(13, 13, 22, 0.86)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ fontSize: 11, color: '#c7d2fe', fontWeight: 800 }}>Add concept</div>
+            <button
+              onClick={() => { setCreateOpen(false); setCreateError(null); }}
+              disabled={createBusy}
+              title="Cancel"
+              style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, color: '#94a3b8', cursor: createBusy ? 'wait' : 'pointer', fontSize: 12, padding: '1px 7px' }}
+            >
+              x
+            </button>
+          </div>
+          <input
+            autoFocus
+            value={createName}
+            onChange={e => setCreateName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void createManualConcept();
+              }
+            }}
+            placeholder="Concept name"
+            style={{
+              background: '#111827', border: '1px solid #263244', borderRadius: 4,
+              padding: '7px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none',
+            }}
+          />
+          <select
+            value={createImportance}
+            onChange={e => setCreateImportance(e.target.value)}
+            style={{
+              background: '#111827', border: '1px solid #263244', borderRadius: 4,
+              padding: '6px 8px', color: '#cbd5e1', fontSize: 12, outline: 'none',
+            }}
+          >
+            {IMPORTANCE_ORDER.map(imp => (
+              <option key={imp} value={imp}>{imp}</option>
+            ))}
+          </select>
+          <textarea
+            value={createDefinition}
+            onChange={e => setCreateDefinition(e.target.value)}
+            placeholder="Optional starter definition..."
+            rows={3}
+            style={{
+              background: '#111827', border: '1px solid #263244', borderRadius: 4,
+              padding: '7px 8px', color: '#cbd5e1', fontSize: 12, lineHeight: 1.5,
+              resize: 'vertical', outline: 'none', fontFamily: 'inherit',
+            }}
+          />
+          {createError && <div style={{ fontSize: 11, color: '#fca5a5' }}>{createError}</div>}
+          <button
+            onClick={() => void createManualConcept()}
+            disabled={createBusy}
+            style={{
+              background: createBusy ? '#111827' : '#312e81',
+              border: '1px solid #6366f1',
+              borderRadius: 4,
+              padding: '7px 10px',
+              color: createBusy ? '#64748b' : '#e0e7ff',
+              fontSize: 12,
+              fontWeight: 800,
+              cursor: createBusy ? 'wait' : 'pointer',
+            }}
+          >
+            {createBusy ? 'Creating...' : 'Create and open'}
+          </button>
+        </div>
+      )}
       <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         {['all', ...IMPORTANCE_ORDER].map(imp => (
           <button

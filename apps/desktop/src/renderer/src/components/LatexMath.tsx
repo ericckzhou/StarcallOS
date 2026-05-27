@@ -183,7 +183,12 @@ class Parser {
       if (this.text[this.i] === '}') this.i += 1;
       return grouped;
     }
-    return [this.readAtom()];
+    const atom = this.readAtom();
+    if (this.text[this.i] === '}') {
+      this.i += 1;
+      return [atom, <span key={this.nextKey()}>{'}'}</span>];
+    }
+    return [atom];
   }
 
   private readRequiredGroup(): React.ReactNode[] {

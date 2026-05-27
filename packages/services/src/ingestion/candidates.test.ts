@@ -196,4 +196,18 @@ describe('extractCandidates', () => {
     expect(result.relations.length).toBeGreaterThan(0);
     expect(result.relations[0].kind).toBe('requires');
   });
+
+  it('tags equations with their nearest section when no promoted concept exists', () => {
+    const blocks = [
+      block({ text: '4.2 Scale Estimation', page: 10, readingOrder: 0, hint: 'heading', hintConfidence: 2 }),
+      block({ text: '100 million * 30 bytes => 3 GB', page: 10, readingOrder: 1, hint: 'formula', hintConfidence: 1 }),
+    ];
+    const result = extractCandidates(blocks, new Map([
+      [0, ['System Design', 'Scale Estimation']],
+      [1, ['System Design', 'Scale Estimation']],
+    ]));
+
+    expect(result.equations[0]?.attached_term).toBe('scale estimation');
+    expect(result.equations[0]?.section_path).toEqual(['System Design', 'Scale Estimation']);
+  });
 });

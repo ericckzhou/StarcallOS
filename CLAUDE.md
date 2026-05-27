@@ -19,6 +19,17 @@ Remember these as the active state of the repo:
   `ARCHITECTURE.md`.
 - `sources.llm_filter_keep_terms_json` is the current LLM topic-filter column.
   The old `llm_filter_keep_ids_json` column remains as a compatibility mirror.
+- Candidate review filters now operate on `final_score`, parser labels, and
+  currently visible rows. Both manual ChatGPT prompts and configured in-app LLM
+  filtering must send only the visible filtered candidates.
+- Source preview is a shared side pane across concept tabs. Preserve logical
+  page anchoring when tabs, rails, zoom, or layout width changes.
+- Profile/background/XP are local UI state plus DB-backed study progress; XP is
+  awarded only for the highest completed difficulty per concept/task kind.
+- Multi-PDF import returns an array of source rows from `sources.create({})`.
+  Single explicit `filePath` calls remain backward compatible.
+- Star Hubs are planned, not shipped: named/color-coded concept groups that will
+  later feed constellation edges.
 - User-facing provider text should say "configured LLM provider" unless a
   feature is truly Groq-specific.
 - `ARCHITECTURE.md` may be untracked in this workspace; do not remove or overwrite it.
@@ -81,6 +92,11 @@ High-change areas:
 - IPC/main process pipeline: `apps/desktop/src/main/index.ts`
 - Candidate UI: `apps/desktop/src/renderer/src/components/CandidateReview.tsx`
 - Concept detail/challenge/source tabs: `apps/desktop/src/renderer/src/components/DetailPane.tsx`
+- Source preview/PDF page anchoring: `apps/desktop/src/renderer/src/components/PdfViewer.tsx`
+- Sources import/sidebar: `apps/desktop/src/renderer/src/components/SourcePane.tsx`
+- Review queue: `apps/desktop/src/renderer/src/components/ReviewQueue.tsx`
+- Profile/background/XP display: `apps/desktop/src/renderer/src/components/ProfilePane.tsx`,
+  `apps/desktop/src/renderer/src/App.tsx`
 
 ## Parser Versioning
 
@@ -104,8 +120,16 @@ Candidate rows and parse runs stamp these versions for auditability.
 - LLM topic-filter decisions are stored as normalized terms in
   `sources.llm_filter_keep_terms_json`; the old `*_ids_json` column is mirrored
   for compatibility and backfilled on read.
-- Candidate bulk-promote must stay conservative: high confidence, sufficient
-  mentions/topic relevance, and no suspicious/broad/boilerplate flags.
+- Candidate bulk-promote must stay conservative: strong `final_score`, no
+  suspicious labels, and either definition support, strong typography support,
+  or repeated domain-term evidence. Do not use old confidence-only gates for new
+  parser rows.
+- Equation candidates should stay attached to the nearest concept/section path
+  whenever possible; unattached equations are a fallback state.
+- User-authored notes and profile data are user-owned. Do not overwrite them
+  during extraction, enrichment, or UI refresh.
+- Review queue rows must be refreshed/removed immediately after concept delete
+  or evidence-history changes.
 
 ## LLM Provider Notes
 

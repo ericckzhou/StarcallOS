@@ -19,10 +19,13 @@ export const IPC = {
   SOURCES_CREATE:          'sources:create',
   SOURCES_PROCESS:         'sources:process',
   CONCEPTS_BY_SOURCE:      'concepts:bySource',
+  CONCEPTS_CREATE_MANUAL:  'concepts:createManual',
   CONCEPTS_TASKS:          'concepts:tasks',
   CONCEPTS_MASTERY:        'concepts:mastery',
   CONCEPTS_MISCONCEPTIONS: 'concepts:misconceptions',
   CONCEPTS_EQUATIONS:      'concepts:equations',
+  CONCEPTS_EQUATION_CREATE: 'concepts:equationCreate',
+  CONCEPTS_EQUATION_DELETE: 'concepts:equationDelete',
   CONCEPTS_ENSURE_TASKS:   'concepts:ensureTasks',
   CONCEPTS_REGENERATE_TASKS: 'concepts:regenerateTasks',
   CONCEPTS_ENRICH:         'concepts:enrich',
@@ -54,6 +57,16 @@ export const IPC = {
   CANDIDATES_PROMOTE_BULK: 'candidates:promoteBulk',
   CANDIDATES_REJECT:       'candidates:reject',
   CANDIDATES_EXTRACT:      'candidates:extract',
+  CANDIDATES_LLM_FILTER:   'candidates:llmFilter',
+  CANDIDATES_RELATION_CREATE: 'candidates:relationCreate',
+  CANDIDATES_RELATION_UPDATE: 'candidates:relationUpdate',
+  CANDIDATES_RELATION_DELETE: 'candidates:relationDelete',
+  CANDIDATES_MISCONCEPTION_CREATE: 'candidates:misconceptionCreate',
+  CANDIDATES_MISCONCEPTION_UPDATE: 'candidates:misconceptionUpdate',
+  CANDIDATES_MISCONCEPTION_DELETE: 'candidates:misconceptionDelete',
+  CANDIDATES_EQUATION_CREATE: 'candidates:equationCreate',
+  CANDIDATES_EQUATION_UPDATE: 'candidates:equationUpdate',
+  CANDIDATES_EQUATION_DELETE: 'candidates:equationDelete',
   PARSE_RUNS_BY_SOURCE:    'parseRuns:bySource',
 } as const;
 
@@ -66,6 +79,7 @@ export interface CandidatesBundle {
 
 export interface CreateSourceArgs {
   filePath?: string;
+  filePaths?: string[];
   title?: string;
   author?: string;
 }
@@ -153,6 +167,39 @@ export interface ExtractCandidatesResult {
   blocks: number;
 }
 
+export interface CandidateLlmFilterCandidate {
+  id: number;
+  normalized: string;
+  term: string;
+  mention_count: number;
+  first_page: number;
+  final_score?: number | null;
+  confidence?: number;
+  signals?: string[];
+  labels?: string[];
+  context_snippet?: string | null;
+}
+
+export interface CandidateLlmFilterArgs {
+  sourceId: number;
+  sourceTitle?: string;
+  candidates: CandidateLlmFilterCandidate[];
+}
+
+export interface CandidateLlmFilterDecision {
+  term: string;
+  keep: boolean;
+  reason?: string;
+}
+
+export interface CandidateLlmFilterResult {
+  provider: ProviderId;
+  model: string;
+  sent: number;
+  keepTerms: string[];
+  decisions: CandidateLlmFilterDecision[];
+}
+
 export interface ProcessSourceResult {
   ok: boolean;
   error?: string;
@@ -225,7 +272,7 @@ export interface StudyProgress {
 export interface IpcApi {
   sources: {
     list: () => Promise<Source[]>;
-    create: (args: CreateSourceArgs) => Promise<Source | null>;
+    create: (args: CreateSourceArgs) => Promise<Source | Source[] | null>;
     process: (args: ProcessSourceArgs) => Promise<ProcessSourceResult>;
     delete: (sourceId: number) => Promise<void>;
     createText: (args: CreateTextSourceArgs) => Promise<Source | null>;
@@ -235,10 +282,20 @@ export interface IpcApi {
   };
   concepts: {
     bySource: (sourceId: number) => Promise<Concept[]>;
+    createManual: (args: {
+      sourceId: number;
+      name: string;
+      importance?: string;
+      definition_text?: string;
+      why_exists?: string;
+      what_breaks?: string;
+    }) => Promise<Concept>;
     tasks: (conceptId: number) => Promise<EvidenceTask[]>;
     mastery: (conceptId: number) => Promise<Mastery | null>;
     misconceptions: (conceptId: number) => Promise<Misconception[]>;
     equations: (conceptId: number) => Promise<StoredEquationCandidate[]>;
+    equationCreate: (args: { conceptId: number; latex: string; page?: number; variables?: string[] }) => Promise<StoredEquationCandidate>;
+    equationDelete: (equationId: number) => Promise<{ ok: true }>;
     ensureTasks: (conceptId: number) => Promise<EvidenceTask[]>;
     regenerateTasks: (conceptId: number) => Promise<EvidenceTask[]>;
     enrich: (conceptId: number) => Promise<EnrichedConcept>;
@@ -272,6 +329,16 @@ export interface IpcApi {
     promoteBulk: (candidateIds: number[]) => Promise<PromoteBulkResult>;
     reject: (candidateId: number) => Promise<{ ok: true }>;
     extract: (sourceId: number) => Promise<ExtractCandidatesResult>;
+    llmFilter: (args: CandidateLlmFilterArgs) => Promise<CandidateLlmFilterResult>;
+    relationCreate: (args: { sourceId: number; from: string; to: string; kind: string; quote?: string; page?: number }) => Promise<StoredRelationCandidate>;
+    relationUpdate: (args: { id: number; from: string; to: string; kind: string; quote?: string; page?: number }) => Promise<StoredRelationCandidate>;
+    relationDelete: (id: number) => Promise<{ ok: true }>;
+    misconceptionCreate: (args: { sourceId: number; quote: string; page?: number; section_path?: string[] }) => Promise<StoredMisconceptionCandidate>;
+    misconceptionUpdate: (args: { id: number; quote: string; page?: number; section_path?: string[] }) => Promise<StoredMisconceptionCandidate>;
+    misconceptionDelete: (id: number) => Promise<{ ok: true }>;
+    equationCreate: (args: { sourceId: number; latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null }) => Promise<StoredEquationCandidate>;
+    equationUpdate: (args: { id: number; latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null }) => Promise<StoredEquationCandidate>;
+    equationDelete: (id: number) => Promise<{ ok: true }>;
   };
   review: {
     queue: (limit?: number) => Promise<ReviewQueueItemPayload[]>;

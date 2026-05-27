@@ -150,12 +150,7 @@ function NoteRow({
   const bodyDirty    = body !== note.body;
 
   return (
-    <div style={{
-      background: '#0d0d16',
-      border: '1px solid #1f2937',
-      borderRadius: 6,
-      padding: '12px 14px',
-    }}>
+    <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <input
           value={heading}
@@ -166,9 +161,11 @@ function NoteRow({
             flex: 1,
             background: 'transparent',
             border: 'none',
-            color: '#e2e8f0',
-            fontSize: 13,
-            fontWeight: 600,
+            color: '#4b5563',
+            fontSize: 10,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
             outline: 'none',
             padding: 0,
           }}
@@ -199,16 +196,16 @@ function NoteRow({
         onChange={e => setBody(e.target.value)}
         onBlur={() => { if (bodyDirty) onSave({ body }); }}
         placeholder="Write your note here…"
-        rows={3}
+        rows={Math.max(2, Math.min(8, Math.ceil((body.length || 70) / 70)))}
         style={{
           width: '100%',
-          background: '#111827',
-          border: '1px solid #1f2937',
+          background: body ? '#111827' : '#0d0d16',
+          border: `1px solid ${bodyDirty ? '#818cf8' : '#1f2937'}`,
           borderRadius: 4,
-          padding: 10,
-          color: '#cbd5e1',
-          fontSize: 13,
-          lineHeight: 1.55,
+          padding: '8px 10px',
+          color: body ? '#c4cfe4' : '#6b7280',
+          fontSize: body ? 14 : 12,
+          lineHeight: 1.65,
           fontFamily: 'inherit',
           outline: 'none',
           resize: 'vertical',

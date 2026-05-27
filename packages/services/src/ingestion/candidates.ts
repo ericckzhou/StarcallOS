@@ -248,6 +248,11 @@ function tokensLower(term: string): string[] {
   return term.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter(Boolean);
 }
 
+function equationFallbackTag(eq: EquationCandidate): string | null {
+  const nearestSection = [...eq.section_path].reverse().find(s => s.trim().length > 0);
+  return nearestSection ? normalize(nearestSection) : null;
+}
+
 // "From Large Language Models to" → fragment (trailing prep).
 // "However Deep Learning"          → fragment (connective prefix).
 // "Foo-"                            → fragment (trailing dash).
@@ -561,10 +566,9 @@ export function extractCandidates(
   // Equations: deterministic detection + proximity attach to nearest preceding
   // candidate. Drop any equation whose attached_term isn't actually a candidate
   // we kept (e.g. attached to a rejected equation-shaped "heading").
-  const knownNormalized = new Set(candidates.map(c => c.normalized));
   const equations = extractEquationsWithSections(blocks, sectionPaths).map(eq => ({
     ...eq,
-    attached_term: eq.attached_term && knownNormalized.has(eq.attached_term) ? eq.attached_term : null,
+    attached_term: eq.attached_term ?? equationFallbackTag(eq),
   }));
 
   return {

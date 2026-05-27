@@ -258,7 +258,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   };
   const activeTabContent = (
     <>
-      {tab === 'overview' && <OverviewTab concept={concept} misconceptions={misconceptions} equations={equations} />}
+      {tab === 'overview' && <OverviewTab concept={concept} misconceptions={misconceptions} equations={equations} onEquationsChange={setEquations} />}
       {tab === 'challenge' && (
         <ChallengeTab
           tasks={tasks} selectedTask={selectedTask} onSelectTask={setSelectedTask}
@@ -322,21 +322,6 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
                 ×
                 <span style={{ fontSize: 11 }}>Source</span>
               </button>
-              <button
-                onClick={async () => {
-                  if (!concept) return;
-                  const ok = window.confirm(
-                    `Delete concept "${concept.name}"?\n\nThis also deletes its tasks, mastery, evidence records, and edges. Cannot be undone.`,
-                  );
-                  if (!ok) return;
-                  await window.api.concepts.delete(concept.id);
-                  onDeleted?.(concept.id);
-                }}
-                title="Delete this concept and all of its dependent rows (mastery, tasks, records, edges, misconceptions)"
-                style={{ background: 'transparent', border: '1px solid #7f1d1d', borderRadius: 4, padding: '2px 8px', color: '#fca5a5', fontSize: 14, cursor: 'pointer', lineHeight: 1, flexShrink: 0 }}
-              >
-                ×
-              </button>
             </div>
             {tabBar}
           </header>
@@ -350,7 +335,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
           style={{ width: 8, flexShrink: 0, cursor: 'col-resize', background: '#0d0d16', borderRight: '1px solid #111827' }}
         />
         <section style={{ flex: 1, minWidth: 520, display: 'flex', overflow: 'hidden' }}>
-          <PdfViewer key={`preview:${concept.id}`} conceptId={concept.id} conceptName={concept.name} />
+          <PdfViewer key={`preview:${concept.id}`} conceptId={concept.id} conceptName={concept.name} stabilityKey={tab} />
         </section>
       </main>
     );
@@ -388,24 +373,6 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
           >
             Source
           </button>
-          <button
-            onClick={async () => {
-              if (!concept) return;
-              const ok = window.confirm(
-                `Delete concept "${concept.name}"?\n\nThis also deletes its tasks, mastery, evidence records, and edges. Cannot be undone.`,
-              );
-              if (!ok) return;
-              await window.api.concepts.delete(concept.id);
-              onDeleted?.(concept.id);
-            }}
-            title="Delete this concept and all of its dependent rows (mastery, tasks, records, edges, misconceptions)"
-            style={{
-              background: 'transparent', border: '1px solid #7f1d1d', borderRadius: 4,
-              padding: '2px 8px', color: '#fca5a5', fontSize: 14, cursor: 'pointer', lineHeight: 1,
-            }}
-          >
-            ×
-          </button>
         </div>
         {tabBar}
       </header>
@@ -420,7 +387,12 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   );
 }
 
-function OverviewTab({ concept, misconceptions, equations }: { concept: Concept; misconceptions: Misconception[]; equations: Equation[] }) {
+function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: {
+  concept: Concept;
+  misconceptions: Misconception[];
+  equations: Equation[];
+  onEquationsChange: (equations: Equation[]) => void;
+}) {
   const [local, setLocal] = useState({
     definition_text: concept.definition_text || '',
     why_exists:      concept.why_exists      || '',
@@ -437,6 +409,24 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
   const [pasteText, setPasteText] = useState('');
   const [pasteErr, setPasteErr] = useState<string | null>(null);
   const [pasteApplied, setPasteApplied] = useState(false);
+  const [addingEquation, setAddingEquation] = useState(false);
+  const [equationDraft, setEquationDraft] = useState('');
+  const [equationPageDraft, setEquationPageDraft] = useState('');
+  const [equationVarsDraft, setEquationVarsDraft] = useState('');
+  const [equationBusy, setEquationBusy] = useState(false);
+  const [equationErr, setEquationErr] = useState<string | null>(null);
+  const [pendingEquationDeletes, setPendingEquationDeletes] = useState<Equation[]>([]);
+  const equationsRef = useRef(equations);
+  const conceptIdRef = useRef(concept.id);
+  const pendingEquationDeleteTimers = useRef<Map<number, number>>(new Map());
+
+  useEffect(() => {
+    equationsRef.current = equations;
+  }, [equations]);
+
+  useEffect(() => {
+    conceptIdRef.current = concept.id;
+  }, [concept.id]);
 
   // Re-sync local state when the parent switches to a different concept.
   useEffect(() => {
@@ -448,6 +438,12 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
     setConstellations(normalizeReappears(concept.where_reappears));
     setEnrichErr(null);
     setCopiedPrompt(false);
+    setAddingEquation(false);
+    setEquationDraft('');
+    setEquationPageDraft('');
+    setEquationVarsDraft('');
+    setEquationErr(null);
+    setPendingEquationDeletes([]);
   }, [concept.id]);
 
   async function enrich() {
@@ -469,6 +465,74 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
       setEnrichErr(e instanceof Error ? e.message : String(e));
     } finally {
       setEnriching(false);
+    }
+  }
+
+  async function addEquation(): Promise<void> {
+    const latex = equationDraft.trim();
+    if (!latex) {
+      setEquationErr('Equation cannot be empty.');
+      return;
+    }
+    setEquationBusy(true);
+    setEquationErr(null);
+    try {
+      const variables = equationVarsDraft
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean);
+      const page = equationPageDraft.trim() ? Number(equationPageDraft) : undefined;
+      if (page !== undefined && (!Number.isFinite(page) || page < 0)) {
+        throw new Error('Page must be a positive number.');
+      }
+      const created = await window.api.concepts.equationCreate({
+        conceptId: concept.id,
+        latex,
+        page,
+        variables: variables.length ? variables : undefined,
+      }) as Equation;
+      onEquationsChange([...equations, created].sort((a, b) => a.page - b.page || a.id - b.id));
+      window.dispatchEvent(new CustomEvent('starcall:equations-changed', { detail: { conceptId: concept.id } }));
+      setEquationDraft('');
+      setEquationPageDraft('');
+      setEquationVarsDraft('');
+      setAddingEquation(false);
+    } catch (e) {
+      setEquationErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEquationBusy(false);
+    }
+  }
+
+  function deleteEquation(eq: Equation): void {
+    setEquationErr(null);
+    if (pendingEquationDeleteTimers.current.has(eq.id)) return;
+    onEquationsChange(equationsRef.current.filter(item => item.id !== eq.id));
+    setPendingEquationDeletes(prev => [...prev.filter(item => item.id !== eq.id), eq]);
+    const timerId = window.setTimeout(() => {
+      pendingEquationDeleteTimers.current.delete(eq.id);
+      setPendingEquationDeletes(prev => prev.filter(item => item.id !== eq.id));
+      void window.api.concepts.equationDelete(eq.id).then(() => {
+        window.dispatchEvent(new CustomEvent('starcall:equations-changed', { detail: { conceptId: concept.id } }));
+      }).catch(e => {
+        setEquationErr(e instanceof Error ? e.message : String(e));
+        if (conceptIdRef.current === concept.id && !equationsRef.current.some(item => item.id === eq.id)) {
+          onEquationsChange([...equationsRef.current, eq].sort((a, b) => a.page - b.page || a.id - b.id));
+        }
+      });
+    }, 5_000);
+    pendingEquationDeleteTimers.current.set(eq.id, timerId);
+  }
+
+  function undoDeleteEquation(eq: Equation): void {
+    const timerId = pendingEquationDeleteTimers.current.get(eq.id);
+    if (timerId != null) {
+      window.clearTimeout(timerId);
+      pendingEquationDeleteTimers.current.delete(eq.id);
+    }
+    setPendingEquationDeletes(prev => prev.filter(item => item.id !== eq.id));
+    if (!equationsRef.current.some(item => item.id === eq.id)) {
+      onEquationsChange([...equationsRef.current, eq].sort((a, b) => a.page - b.page || a.id - b.id));
     }
   }
 
@@ -623,11 +687,136 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
         onSave={() => saveField('what_breaks', local.what_breaks)}
         placeholder="What goes wrong when missing or misapplied."
       />
-      {equations.length > 0 && (
-        <Section title={`Equations (${equations.length})`}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {equations.map(eq => (
-              <div key={eq.id} style={{ background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 6, padding: '10px 12px' }}>
+      <Section title={`Equations (${equations.length})`}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              onClick={() => setAddingEquation(v => !v)}
+              disabled={equationBusy}
+              style={{
+                background: addingEquation ? '#1e1b4b' : 'transparent',
+                border: '1px dashed #374151',
+                borderRadius: 4,
+                padding: '5px 12px',
+                color: addingEquation ? '#c7d2fe' : '#a5b4fc',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: equationBusy ? 'wait' : 'pointer',
+              }}
+            >
+              {addingEquation ? 'Cancel' : '+ Add equation'}
+            </button>
+            {equationErr && <span style={{ fontSize: 11, color: '#fca5a5' }}>{equationErr}</span>}
+          </div>
+
+          {pendingEquationDeletes.map(eq => (
+            <div
+              key={eq.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                background: '#111827',
+                border: '1px solid #312e81',
+                borderRadius: 6,
+                padding: '8px 10px',
+                color: '#cbd5e1',
+                fontSize: 12,
+              }}
+            >
+              <span style={{ color: '#94a3b8' }}>Equation deleted.</span>
+              <button
+                onClick={() => undoDeleteEquation(eq)}
+                style={{
+                  marginLeft: 'auto',
+                  background: '#1e1b4b',
+                  border: '1px solid #6366f1',
+                  borderRadius: 4,
+                  color: '#c7d2fe',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '3px 9px',
+                }}
+              >
+                Undo
+              </button>
+            </div>
+          ))}
+
+          {addingEquation && (
+            <div style={{ background: '#0d0d16', border: '1px solid #312e81', borderRadius: 6, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <textarea
+                value={equationDraft}
+                onChange={e => setEquationDraft(e.target.value)}
+                placeholder="Type equation or LaTeX-ish formula..."
+                rows={3}
+                style={{
+                  width: '100%', boxSizing: 'border-box', resize: 'vertical',
+                  background: '#111827', border: '1px solid #1f2937', borderRadius: 4,
+                  padding: '8px 10px', color: '#fde68a', fontSize: 13,
+                  lineHeight: 1.55, fontFamily: 'inherit', outline: 'none',
+                }}
+              />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  value={equationPageDraft}
+                  onChange={e => setEquationPageDraft(e.target.value)}
+                  placeholder="page"
+                  inputMode="numeric"
+                  style={{
+                    width: 80, background: '#111827', border: '1px solid #1f2937',
+                    borderRadius: 4, padding: '6px 8px', color: '#cbd5e1', fontSize: 12,
+                  }}
+                />
+                <input
+                  value={equationVarsDraft}
+                  onChange={e => setEquationVarsDraft(e.target.value)}
+                  placeholder="vars, comma separated (optional)"
+                  style={{
+                    flex: '1 1 220px', background: '#111827', border: '1px solid #1f2937',
+                    borderRadius: 4, padding: '6px 8px', color: '#cbd5e1', fontSize: 12,
+                  }}
+                />
+                <button onClick={() => void addEquation()} disabled={equationBusy} style={btnSecondary(equationBusy)}>
+                  {equationBusy ? 'Saving...' : 'Save equation'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {equations.length === 0 && !addingEquation && (
+            <div style={{ color: '#4b5563', fontSize: 12 }}>No equations attached yet.</div>
+          )}
+
+          {equations.length > 0 && equations.map(eq => (
+              <div key={eq.id} style={{ position: 'relative', background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 6, padding: '10px 38px 10px 12px' }}>
+                <button
+                  onClick={() => void deleteEquation(eq)}
+                  disabled={equationBusy}
+                  title="Delete equation"
+                  style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    width: 22,
+                    height: 22,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'transparent',
+                    border: '1px solid #3f1515',
+                    borderRadius: 4,
+                    color: '#fca5a5',
+                    padding: 0,
+                    cursor: equationBusy ? 'wait' : 'pointer',
+                    fontSize: 13,
+                    lineHeight: 1,
+                    opacity: equationBusy ? 0.5 : 1,
+                  }}
+                >
+                  x
+                </button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: eq.variables.length ? 6 : 0, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 10, color: '#4b5563' }}>p.{eq.page}</span>
                   <LatexMath value={eq.latex} size={14} />
@@ -639,9 +828,8 @@ function OverviewTab({ concept, misconceptions, equations }: { concept: Concept;
                 )}
               </div>
             ))}
-          </div>
-        </Section>
-      )}
+        </div>
+      </Section>
       <Section title="Constellations">
         <WhereItReappearsEditor
           conceptId={concept.id}
@@ -1201,4 +1389,3 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     </div>
   );
 }
-

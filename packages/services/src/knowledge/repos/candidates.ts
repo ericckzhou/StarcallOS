@@ -9,6 +9,21 @@ import type { RelationKind } from '../../ingestion/grammar';
 import type { EquationCandidate } from '../../ingestion/equations';
 import { PARSER_VERSION } from '../../core/version';
 
+function normalizeAttachedTerm(term: string): string {
+  return term.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9\s-]/g, '').trim();
+}
+
+function inferEquationVariables(latex: string): string[] {
+  const seen = new Set<string>();
+  for (const match of latex.matchAll(/\b[A-Za-z][A-Za-z0-9_]*\b/g)) {
+    const token = match[0];
+    if (token.length > 12) continue;
+    if (/^(sum|frac|text|sqrt|exp|log|ln|min|max|sin|cos|tan|where|and|or|the|to|of|in)$/i.test(token)) continue;
+    seen.add(token);
+  }
+  return [...seen].slice(0, 12);
+}
+
 // ─── Concept candidates ───────────────────────────────────────────────────────
 
 export interface StoredConceptCandidate extends ConceptCandidate {
@@ -185,12 +200,17 @@ export function createRelationCandidate(
   db: DatabaseSync,
   sourceId: number,
   r: RelationCandidate,
-): void {
-  db.prepare(
+): StoredRelationCandidate {
+  const result = db.prepare(
     `INSERT INTO relation_candidates
        (source_id, from_term, to_term, relation_kind, quote, page, parser_version)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(sourceId, r.from, r.to, r.kind, r.quote, r.page, PARSER_VERSION);
+  const row = db
+    .prepare('SELECT * FROM relation_candidates WHERE id = ?')
+    .get(Number(result.lastInsertRowid)) as unknown as RelationCandidateRow | undefined;
+  if (!row) throw new Error('Failed to create relation candidate.');
+  return rowToRelationCandidate(row);
 }
 
 export function listRelationCandidatesBySource(
@@ -202,6 +222,30 @@ export function listRelationCandidatesBySource(
       .prepare('SELECT * FROM relation_candidates WHERE source_id = ? ORDER BY id')
       .all(sourceId) as unknown as RelationCandidateRow[]
   ).map(rowToRelationCandidate);
+}
+
+export function updateRelationCandidate(
+  db: DatabaseSync,
+  id: number,
+  input: { from: string; to: string; kind: RelationKind; quote?: string; page?: number },
+): StoredRelationCandidate {
+  const from = input.from.trim();
+  const to = input.to.trim();
+  if (!from || !to) throw new Error('Relation endpoints cannot be empty.');
+  db.prepare(
+    `UPDATE relation_candidates
+     SET from_term = ?, to_term = ?, relation_kind = ?, quote = ?, page = ?
+     WHERE id = ?`,
+  ).run(from, to, input.kind, input.quote?.trim() ?? '', Math.max(0, Math.floor(input.page ?? 0)), id);
+  const row = db
+    .prepare('SELECT * FROM relation_candidates WHERE id = ?')
+    .get(id) as unknown as RelationCandidateRow | undefined;
+  if (!row) throw new Error(`Relation candidate ${id} not found.`);
+  return rowToRelationCandidate(row);
+}
+
+export function deleteRelationCandidate(db: DatabaseSync, id: number): void {
+  db.prepare('DELETE FROM relation_candidates WHERE id = ?').run(id);
 }
 
 // ─── Misconception candidates ─────────────────────────────────────────────────
@@ -239,12 +283,19 @@ export function createMisconceptionCandidate(
   db: DatabaseSync,
   sourceId: number,
   m: { quote: string; page: number; section_path: string[] },
-): void {
-  db.prepare(
+): StoredMisconceptionCandidate {
+  const quote = m.quote.trim();
+  if (!quote) throw new Error('Misconception phrase cannot be empty.');
+  const result = db.prepare(
     `INSERT INTO misconception_candidates
        (source_id, quote, page, section_path, parser_version)
      VALUES (?, ?, ?, ?, ?)`,
-  ).run(sourceId, m.quote, m.page, JSON.stringify(m.section_path), PARSER_VERSION);
+  ).run(sourceId, quote, Math.max(0, Math.floor(m.page)), JSON.stringify(m.section_path), PARSER_VERSION);
+  const row = db
+    .prepare('SELECT * FROM misconception_candidates WHERE id = ?')
+    .get(Number(result.lastInsertRowid)) as unknown as MisconceptionCandidateRow | undefined;
+  if (!row) throw new Error('Failed to create misconception candidate.');
+  return rowToMisconceptionCandidate(row);
 }
 
 export function listMisconceptionCandidatesBySource(
@@ -256,6 +307,29 @@ export function listMisconceptionCandidatesBySource(
       .prepare('SELECT * FROM misconception_candidates WHERE source_id = ? ORDER BY id')
       .all(sourceId) as unknown as MisconceptionCandidateRow[]
   ).map(rowToMisconceptionCandidate);
+}
+
+export function updateMisconceptionCandidate(
+  db: DatabaseSync,
+  id: number,
+  input: { quote: string; page?: number; section_path?: string[] },
+): StoredMisconceptionCandidate {
+  const quote = input.quote.trim();
+  if (!quote) throw new Error('Misconception phrase cannot be empty.');
+  db.prepare(
+    `UPDATE misconception_candidates
+     SET quote = ?, page = ?, section_path = ?
+     WHERE id = ?`,
+  ).run(quote, Math.max(0, Math.floor(input.page ?? 0)), JSON.stringify(input.section_path ?? []), id);
+  const row = db
+    .prepare('SELECT * FROM misconception_candidates WHERE id = ?')
+    .get(id) as unknown as MisconceptionCandidateRow | undefined;
+  if (!row) throw new Error(`Misconception candidate ${id} not found.`);
+  return rowToMisconceptionCandidate(row);
+}
+
+export function deleteMisconceptionCandidate(db: DatabaseSync, id: number): void {
+  db.prepare('DELETE FROM misconception_candidates WHERE id = ?').run(id);
 }
 
 export function getConceptCandidateById(
@@ -310,8 +384,8 @@ export function createEquationCandidate(
   db: DatabaseSync,
   sourceId: number,
   eq: EquationCandidate,
-): void {
-  db.prepare(
+): StoredEquationCandidate {
+  const result = db.prepare(
     `INSERT INTO equation_candidates
        (source_id, latex, variables, page, reading_order, section_path, attached_term, parser_version)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -325,6 +399,11 @@ export function createEquationCandidate(
     eq.attached_term,
     PARSER_VERSION,
   );
+  const row = db
+    .prepare('SELECT * FROM equation_candidates WHERE id = ?')
+    .get(Number(result.lastInsertRowid)) as unknown as EquationCandidateRow | undefined;
+  if (!row) throw new Error('Failed to create equation candidate.');
+  return rowToEquationCandidate(row);
 }
 
 export function listEquationCandidatesForConcept(
@@ -335,7 +414,7 @@ export function listEquationCandidatesForConcept(
     .prepare('SELECT source_id, name FROM concepts WHERE id = ?')
     .get(conceptId) as { source_id: number; name: string } | undefined;
   if (!c) return [];
-  const term = c.name.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9\s-]/g, '').trim();
+  const term = normalizeAttachedTerm(c.name);
   return (
     db
       .prepare(
@@ -345,6 +424,108 @@ export function listEquationCandidatesForConcept(
       )
       .all(c.source_id, term) as unknown as EquationCandidateRow[]
   ).map(rowToEquationCandidate);
+}
+
+export function createManualEquationForConcept(
+  db: DatabaseSync,
+  input: { conceptId: number; latex: string; page?: number; variables?: string[] },
+): StoredEquationCandidate {
+  const concept = db
+    .prepare('SELECT source_id, name, section_path FROM concepts WHERE id = ?')
+    .get(input.conceptId) as { source_id: number; name: string; section_path: string } | undefined;
+  if (!concept) throw new Error(`concept ${input.conceptId} not found`);
+
+  const latex = input.latex.trim();
+  if (!latex) throw new Error('Equation cannot be empty.');
+
+  const maxOrder = db
+    .prepare('SELECT COALESCE(MAX(reading_order), 0) AS max_order FROM equation_candidates WHERE source_id = ?')
+    .get(concept.source_id) as { max_order: number } | undefined;
+  const variables = input.variables?.length ? input.variables : inferEquationVariables(latex);
+  const result = db.prepare(
+    `INSERT INTO equation_candidates
+       (source_id, latex, variables, page, reading_order, section_path, attached_term, parser_version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    concept.source_id,
+    latex,
+    JSON.stringify(variables),
+    Math.max(0, Math.floor(input.page ?? 0)),
+    Number(maxOrder?.max_order ?? 0) + 1,
+    concept.section_path || '[]',
+    normalizeAttachedTerm(concept.name),
+    PARSER_VERSION,
+  );
+
+  const row = db
+    .prepare('SELECT * FROM equation_candidates WHERE id = ?')
+    .get(Number(result.lastInsertRowid)) as unknown as EquationCandidateRow | undefined;
+  if (!row) throw new Error('Failed to create equation.');
+  return rowToEquationCandidate(row);
+}
+
+export function deleteEquationCandidate(db: DatabaseSync, equationId: number): void {
+  db.prepare('DELETE FROM equation_candidates WHERE id = ?').run(equationId);
+}
+
+export function createEquationCandidateForSource(
+  db: DatabaseSync,
+  input: { sourceId: number; latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null },
+): StoredEquationCandidate {
+  const latex = input.latex.trim();
+  if (!latex) throw new Error('Equation cannot be empty.');
+  const maxOrder = db
+    .prepare('SELECT COALESCE(MAX(reading_order), 0) AS max_order FROM equation_candidates WHERE source_id = ?')
+    .get(input.sourceId) as { max_order: number } | undefined;
+  const result = db.prepare(
+    `INSERT INTO equation_candidates
+       (source_id, latex, variables, page, reading_order, section_path, attached_term, parser_version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.sourceId,
+    latex,
+    JSON.stringify(input.variables?.length ? input.variables : inferEquationVariables(latex)),
+    Math.max(0, Math.floor(input.page ?? 0)),
+    Number(maxOrder?.max_order ?? 0) + 1,
+    JSON.stringify(input.section_path ?? []),
+    input.attached_term ? normalizeAttachedTerm(input.attached_term) : null,
+    PARSER_VERSION,
+  );
+  const row = db
+    .prepare('SELECT * FROM equation_candidates WHERE id = ?')
+    .get(Number(result.lastInsertRowid)) as unknown as EquationCandidateRow | undefined;
+  if (!row) throw new Error('Failed to create equation candidate.');
+  return rowToEquationCandidate(row);
+}
+
+export function updateEquationCandidate(
+  db: DatabaseSync,
+  id: number,
+  input: { latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null },
+): StoredEquationCandidate {
+  const existing = db
+    .prepare('SELECT * FROM equation_candidates WHERE id = ?')
+    .get(id) as unknown as EquationCandidateRow | undefined;
+  if (!existing) throw new Error(`Equation candidate ${id} not found.`);
+  const latex = input.latex.trim();
+  if (!latex) throw new Error('Equation cannot be empty.');
+  db.prepare(
+    `UPDATE equation_candidates
+     SET latex = ?, variables = ?, page = ?, section_path = ?, attached_term = ?
+     WHERE id = ?`,
+  ).run(
+    latex,
+    JSON.stringify(input.variables?.length ? input.variables : inferEquationVariables(latex)),
+    Math.max(0, Math.floor(input.page ?? existing.page)),
+    JSON.stringify(input.section_path ?? (JSON.parse(existing.section_path) as string[])),
+    input.attached_term ? normalizeAttachedTerm(input.attached_term) : null,
+    id,
+  );
+  const row = db
+    .prepare('SELECT * FROM equation_candidates WHERE id = ?')
+    .get(id) as unknown as EquationCandidateRow | undefined;
+  if (!row) throw new Error(`Equation candidate ${id} not found.`);
+  return rowToEquationCandidate(row);
 }
 
 export function listEquationCandidatesBySource(

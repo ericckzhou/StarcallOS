@@ -4,6 +4,7 @@ interface Hit {
   id: number;
   name: string;
   importance: string;
+  source_filename?: string;
 }
 
 interface Props {
@@ -67,6 +68,12 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
     onChange(value.filter((_, idx) => idx !== i));
   }
 
+  function addBestHit() {
+    if (hits.length === 0) return;
+    const exact = hits.find(h => h.name.toLowerCase() === input.trim().toLowerCase());
+    addHit(exact ?? hits[0]);
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (!open || hits.length === 0) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => Math.min(hits.length - 1, i + 1)); }
@@ -103,26 +110,48 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
       )}
 
       <div style={{ position: 'relative' }}>
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
-          onFocus={() => { if (hits.length > 0) setOpen(true); }}
-          onBlur={() => setTimeout(() => setOpen(false), 120)}
-          placeholder="Type to link a concept on this source..."
-          style={{
-            width: '100%',
-            background: '#0d0d16',
-            border: '1px solid #1f2937',
-            borderRadius: 4,
-            padding: '6px 10px',
-            color: '#e2e8f0',
-            fontSize: 12,
-            outline: 'none',
-            boxSizing: 'border-box',
-            fontFamily: 'inherit',
-          }}
-        />
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 6 }}>
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
+            onFocus={() => { if (hits.length > 0) setOpen(true); }}
+            onBlur={() => setTimeout(() => setOpen(false), 120)}
+            placeholder="Type to link any concept..."
+            style={{
+              width: '100%',
+              background: '#0d0d16',
+              border: '1px solid #1f2937',
+              borderRadius: 4,
+              padding: '6px 10px',
+              color: '#e2e8f0',
+              fontSize: 12,
+              outline: 'none',
+              boxSizing: 'border-box',
+              fontFamily: 'inherit',
+            }}
+          />
+          <button
+            type="button"
+            disabled={hits.length === 0}
+            onMouseDown={e => e.preventDefault()}
+            onClick={addBestHit}
+            title={hits.length > 0 ? `Add ${hits[0].name}` : 'Type a matching concept name first'}
+            style={{
+              background: hits.length > 0 ? '#1e1b4b' : 'transparent',
+              border: hits.length > 0 ? '1px solid #6366f1' : '1px solid #1f2937',
+              borderRadius: 4,
+              color: hits.length > 0 ? '#c7d2fe' : '#475569',
+              cursor: hits.length > 0 ? 'pointer' : 'not-allowed',
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '0 10px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            + Add
+          </button>
+        </div>
         {open && hits.length > 0 && (
           <div
             role="listbox"
@@ -154,6 +183,11 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
                 <span style={{ fontSize: 10, color: IMP_COLOR[h.importance] ?? '#6b7280' }}>
                   {h.importance}
                 </span>
+                {h.source_filename && (
+                  <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: '#64748b' }}>
+                    {h.source_filename}
+                  </span>
+                )}
               </button>
             ))}
           </div>

@@ -59,8 +59,10 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
   }
 
   async function handleAdd() {
-    const source = await window.api.sources.create({});
-    if (source) onSourcesChange([...sources, source as Source]);
+    const result = await window.api.sources.create({});
+    if (!result) return;
+    const added = Array.isArray(result) ? result as Source[] : [result as Source];
+    if (added.length > 0) onSourcesChange([...sources, ...added]);
   }
 
   async function handleAddText() {

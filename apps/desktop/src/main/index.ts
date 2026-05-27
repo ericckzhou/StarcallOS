@@ -19,16 +19,20 @@ import {
   deriveTopicAnchors, setTopicAnchors,
   listConceptCandidatesBySource, listRelationCandidatesBySource,
   listMisconceptionCandidatesBySource, listEquationCandidatesBySource,
-  listEquationCandidatesForConcept,
+  listEquationCandidatesForConcept, createManualEquationForConcept, deleteEquationCandidate,
+  createRelationCandidate, updateRelationCandidate, deleteRelationCandidate,
+  createMisconceptionCandidate, updateMisconceptionCandidate, deleteMisconceptionCandidate,
+  createEquationCandidateForSource, updateEquationCandidate,
   ensureTasksForConcept,
   regenerateTasksForConcept,
-  promoteCandidate, rejectCandidate,
+  promoteCandidate, rejectCandidate, createManualConcept,
   getLlmFilter, setLlmFilter,
   segmentTextWithDiagnostics,
   clearDerivedDataForSource, recoverInterruptedSources,
   createParseRun, listParseRunsBySource,
   loadSettings, saveSettings, applyEnvFallbacks, resolveProviderConfig, MODEL_CHOICES,
-  type LLMSettings, type PassName,
+  chatJSON,
+  type ConceptImportance, type LLMSettings, type PassName, type RelationKind,
   runEnricher,
   runConceptExtractor, runGraphBuilder,
   runMisconceptionExtractor, runTaskGenerator, computeCentrality,
@@ -36,7 +40,25 @@ import {
   resetUsageStats, getUsageStats,
 } from '@starcall/services';
 import { IPC } from '@starcall/shared';
-import type { CreateSourceArgs, CreateTextSourceArgs, ProcessSourceArgs, SubmitEvidenceArgs } from '@starcall/shared';
+import type {
+  CandidateLlmFilterArgs,
+  CandidateLlmFilterDecision,
+  CreateSourceArgs,
+  CreateTextSourceArgs,
+  ProcessSourceArgs,
+  SubmitEvidenceArgs,
+} from '@starcall/shared';
+
+const CONCEPT_IMPORTANCE_VALUES = new Set(['foundational', 'core', 'supporting', 'peripheral', 'reference_only']);
+const RELATION_KIND_VALUES = new Set(['requires', 'causes', 'enables', 'contrasts_with', 'example_of']);
+
+function toConceptImportance(value: string | undefined): ConceptImportance | undefined {
+  return CONCEPT_IMPORTANCE_VALUES.has(value ?? '') ? (value as ConceptImportance) : undefined;
+}
+
+function toRelationKind(value: string | undefined): RelationKind {
+  return RELATION_KIND_VALUES.has(value ?? '') ? (value as RelationKind) : 'requires';
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -79,23 +101,89 @@ function cfgFor(pass: PassName): ReturnType<typeof resolveProviderConfig> {
   return resolveProviderConfig(s, pass);
 }
 
+function stripJsonFences(raw: string): string {
+  let body = raw.trim();
+  const fenced = body.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced) body = fenced[1].trim();
+  if (!body.startsWith('{')) {
+    const start = body.indexOf('{');
+    const end = body.lastIndexOf('}');
+    if (start >= 0 && end > start) body = body.slice(start, end + 1);
+  }
+  return body;
+}
+
+function buildCandidateLlmFilterPrompt(sourceTitle: string | undefined, candidates: CandidateLlmFilterArgs['candidates']): string {
+  const title = sourceTitle || '(unknown source title)';
+  const lines = candidates.map(c => JSON.stringify({
+    term: c.normalized,
+    display: c.term,
+    mentions: c.mention_count,
+    page: c.first_page,
+    score: c.final_score ?? c.confidence ?? null,
+    signals: c.signals ?? [],
+    labels: c.labels ?? [],
+    context: c.context_snippet ?? '',
+  })).join('\n');
+  return [
+    `You're filtering candidate concepts extracted from a book.`,
+    `Book title: "${title}"`,
+    ``,
+    `Decide whether each candidate ACTUALLY belongs to this book's domain.`,
+    `Keep concepts a reader of this book would specifically want to learn.`,
+    `Reject overly broad words, boilerplate headings, captions, fragments, index/table-of-contents leftovers, and terms that are not really about this book's subject.`,
+    ``,
+    `Candidates are JSONL below. Use the "term" value exactly in your response:`,
+    lines,
+    ``,
+    `Respond only as JSON with this shape:`,
+    `{"decisions":[{"term":"<term verbatim>","keep":true|false,"reason":"short optional reason"}]}`,
+  ].join('\n');
+}
+
+function parseCandidateLlmFilterResponse(raw: string): CandidateLlmFilterDecision[] {
+  const parsed = JSON.parse(stripJsonFences(raw)) as { decisions?: unknown };
+  if (!Array.isArray(parsed.decisions)) {
+    throw new Error('LLM response did not include a decisions array.');
+  }
+  return parsed.decisions
+    .map((d): CandidateLlmFilterDecision | null => {
+      if (!d || typeof d !== 'object') return null;
+      const obj = d as { term?: unknown; keep?: unknown; reason?: unknown };
+      if (typeof obj.term !== 'string' || typeof obj.keep !== 'boolean') return null;
+      return {
+        term: obj.term,
+        keep: obj.keep,
+        reason: typeof obj.reason === 'string' ? obj.reason : undefined,
+      };
+    })
+    .filter((d): d is CandidateLlmFilterDecision => d !== null);
+}
+
 function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.SOURCES_LIST, () => listSources(db));
 
   ipcMain.handle(IPC.SOURCES_CREATE, async (_e, args: CreateSourceArgs) => {
-    let filePath = args.filePath;
-    if (!filePath) {
+    let filePaths = args.filePaths?.filter(Boolean) ?? (args.filePath ? [args.filePath] : []);
+    const explicitSingle = !!args.filePath && !args.filePaths;
+    if (filePaths.length === 0) {
       const result = await dialog.showOpenDialog({
         filters: [{ name: 'PDF', extensions: ['pdf'] }],
-        properties: ['openFile'],
+        properties: ['openFile', 'multiSelections'],
       });
       if (result.canceled || !result.filePaths[0]) return null;
-      filePath = result.filePaths[0];
+      filePaths = result.filePaths;
     }
-    const filename = path.basename(filePath);
-    const source = createSource(db, { filename, file_path: filePath, title: args.title, author: args.author });
-    emitEvent(db, 'source.created', { sourceId: source.id }, { entityType: 'source', entityId: source.id });
-    return source;
+    const sources = filePaths.map((filePath, index) => {
+      const filename = path.basename(filePath);
+      const title = filePaths.length === 1 ? args.title : undefined;
+      const author = filePaths.length === 1 ? args.author : undefined;
+      const source = createSource(db, { filename, file_path: filePath, title, author });
+      emitEvent(db, 'source.created', { sourceId: source.id }, { entityType: 'source', entityId: source.id });
+      console.log(`[SOURCE] imported ${index + 1}/${filePaths.length}: ${filename}`);
+      return source;
+    });
+    return explicitSingle ? sources[0] : sources;
   });
 
   ipcMain.handle(IPC.SOURCES_PROCESS, async (_e, args: ProcessSourceArgs) => {
@@ -373,10 +461,32 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     return source;
   });
   ipcMain.handle(IPC.CONCEPTS_BY_SOURCE, (_e, sourceId: number) => listConceptsBySource(db, sourceId));
+  ipcMain.handle(IPC.CONCEPTS_CREATE_MANUAL, (_e, args: {
+    sourceId: number;
+    name: string;
+    importance?: string;
+    definition_text?: string;
+    why_exists?: string;
+    what_breaks?: string;
+  }) => createManualConcept(db, {
+    sourceId: args.sourceId,
+    name: args.name,
+    importance: toConceptImportance(args.importance),
+    definition_text: args.definition_text,
+    why_exists: args.why_exists,
+    what_breaks: args.what_breaks,
+  }));
   ipcMain.handle(IPC.CONCEPTS_TASKS, (_e, conceptId: number) => listTasksByConcept(db, conceptId));
   ipcMain.handle(IPC.CONCEPTS_MASTERY, (_e, conceptId: number) => getMastery(db, conceptId));
   ipcMain.handle(IPC.CONCEPTS_MISCONCEPTIONS, (_e, conceptId: number) => listMisconceptionsByConcept(db, conceptId));
   ipcMain.handle(IPC.CONCEPTS_EQUATIONS, (_e, conceptId: number) => listEquationCandidatesForConcept(db, conceptId));
+  ipcMain.handle(IPC.CONCEPTS_EQUATION_CREATE, (_e, args: { conceptId: number; latex: string; page?: number; variables?: string[] }) =>
+    createManualEquationForConcept(db, args),
+  );
+  ipcMain.handle(IPC.CONCEPTS_EQUATION_DELETE, (_e, equationId: number) => {
+    deleteEquationCandidate(db, equationId);
+    return { ok: true as const };
+  });
   ipcMain.handle(IPC.CONCEPTS_ENSURE_TASKS, async (_e, conceptId: number) => {
     return ensureTasksForConcept(cfgFor('lazy_tasks'), db, conceptId);
   });
@@ -512,6 +622,111 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CANDIDATES_REJECT,  (_e, candidateId: number) => {
     rejectCandidate(db, candidateId);
     return { ok: true };
+  });
+  ipcMain.handle(IPC.CANDIDATES_RELATION_CREATE, (_e, args: {
+    sourceId: number; from: string; to: string; kind?: string; quote?: string; page?: number;
+  }) => createRelationCandidate(db, args.sourceId, {
+    from: args.from,
+    to: args.to,
+    kind: toRelationKind(args.kind),
+    quote: args.quote ?? '',
+    page: Math.max(0, Math.floor(args.page ?? 0)),
+  }));
+  ipcMain.handle(IPC.CANDIDATES_RELATION_UPDATE, (_e, args: {
+    id: number; from: string; to: string; kind?: string; quote?: string; page?: number;
+  }) => updateRelationCandidate(db, args.id, {
+    from: args.from,
+    to: args.to,
+    kind: toRelationKind(args.kind),
+    quote: args.quote ?? '',
+    page: Math.max(0, Math.floor(args.page ?? 0)),
+  }));
+  ipcMain.handle(IPC.CANDIDATES_RELATION_DELETE, (_e, id: number) => {
+    deleteRelationCandidate(db, id);
+    return { ok: true as const };
+  });
+  ipcMain.handle(IPC.CANDIDATES_MISCONCEPTION_CREATE, (_e, args: {
+    sourceId: number; quote: string; page?: number; section_path?: string[];
+  }) => createMisconceptionCandidate(db, args.sourceId, {
+    quote: args.quote,
+    page: Math.max(0, Math.floor(args.page ?? 0)),
+    section_path: args.section_path ?? [],
+  }));
+  ipcMain.handle(IPC.CANDIDATES_MISCONCEPTION_UPDATE, (_e, args: {
+    id: number; quote: string; page?: number; section_path?: string[];
+  }) => updateMisconceptionCandidate(db, args.id, {
+    quote: args.quote,
+    page: Math.max(0, Math.floor(args.page ?? 0)),
+    section_path: args.section_path ?? [],
+  }));
+  ipcMain.handle(IPC.CANDIDATES_MISCONCEPTION_DELETE, (_e, id: number) => {
+    deleteMisconceptionCandidate(db, id);
+    return { ok: true as const };
+  });
+  ipcMain.handle(IPC.CANDIDATES_EQUATION_CREATE, (_e, args: {
+    sourceId: number; latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null;
+  }) => createEquationCandidateForSource(db, {
+    sourceId: args.sourceId,
+    latex: args.latex,
+    page: Math.max(0, Math.floor(args.page ?? 0)),
+    variables: args.variables,
+    section_path: args.section_path ?? [],
+    attached_term: args.attached_term ?? null,
+  }));
+  ipcMain.handle(IPC.CANDIDATES_EQUATION_UPDATE, (_e, args: {
+    id: number; latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null;
+  }) => updateEquationCandidate(db, args.id, {
+    latex: args.latex,
+    page: Math.max(0, Math.floor(args.page ?? 0)),
+    variables: args.variables,
+    section_path: args.section_path ?? [],
+    attached_term: args.attached_term ?? null,
+  }));
+  ipcMain.handle(IPC.CANDIDATES_EQUATION_DELETE, (_e, id: number) => {
+    deleteEquationCandidate(db, id);
+    return { ok: true as const };
+  });
+  ipcMain.handle(IPC.CANDIDATES_LLM_FILTER, async (_e, args: CandidateLlmFilterArgs) => {
+    const source = getSourceById(db, args.sourceId);
+    if (!source) throw new Error(`source ${args.sourceId} not found`);
+    const candidates = args.candidates.slice(0, 400);
+    const config = cfgFor('concepts');
+    if (candidates.length === 0) {
+      return {
+        provider: config.provider,
+        model: config.model,
+        sent: 0,
+        keepTerms: [],
+        decisions: [],
+      };
+    }
+    const { content } = await chatJSON(config, {
+      responseFormat: 'json',
+      temperature: 0,
+      maxTokens: 4096,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a precise textbook concept filter. Return valid JSON only.',
+        },
+        {
+          role: 'user',
+          content: buildCandidateLlmFilterPrompt(args.sourceTitle ?? source.title ?? source.filename, candidates),
+        },
+      ],
+    }, 'concepts');
+    const decisions = parseCandidateLlmFilterResponse(content);
+    const candidateTerms = new Set(candidates.map(c => c.normalized.toLowerCase()));
+    const keepTerms = decisions
+      .filter(d => d.keep && candidateTerms.has(d.term.toLowerCase()))
+      .map(d => d.term.toLowerCase());
+    return {
+      provider: config.provider,
+      model: config.model,
+      sent: candidates.length,
+      keepTerms: [...new Set(keepTerms)],
+      decisions,
+    };
   });
   ipcMain.handle(IPC.CANDIDATES_EXTRACT, async (_e, sourceId: number) => {
     const source = getSourceById(db, sourceId);
