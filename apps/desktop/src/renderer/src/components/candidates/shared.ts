@@ -55,6 +55,17 @@ export const SIGNAL_COLOR: Record<string, string> = {
   bold_block:         '#a855f7',
   repetition:         '#22d3ee',
   capitalized_phrase: '#6b7280',
+  section_heading:    '#2563eb',
+  weak_heading:       '#2563eb',
+  defined_term:       '#22c55e',
+  bold_emphasis:      '#a855f7',
+  large_font:         '#3b82f6',
+  repeated_term:      '#2563eb',
+  domain_phrase:      '#2563eb',
+  sentence_fragment:  '#ef4444',
+  caption_or_figure:  '#ef4444',
+  toc_or_index:       '#ef4444',
+  low_context:        '#ef4444',
 };
 
 export const RELATION_COLOR: Record<string, string> = {
@@ -113,13 +124,23 @@ export function passesBulkPromoteGate(c: ConceptCandidate & { bucket: Bucket }):
   return true;
 }
 
-export const SIGNAL_CHIPS: Array<{ key: string; label: string; color: string }> = [
-  { key: 'any',                label: 'Any signal',   color: '#9ca3af' },
-  { key: 'heading',            label: 'Heading',      color: SIGNAL_COLOR.heading },
-  { key: 'definition_pattern', label: 'Definition',   color: SIGNAL_COLOR.definition_pattern },
-  { key: 'bold_block',         label: 'Bold',         color: SIGNAL_COLOR.bold_block },
-  { key: 'repetition',         label: 'Repetition',   color: SIGNAL_COLOR.repetition },
-  { key: 'capitalized_phrase', label: 'Cap. phrase',  color: SIGNAL_COLOR.capitalized_phrase },
+export const CANDIDATE_FILTER_CHIPS: Array<{ key: string; label: string; color: string; kind: 'signal' | 'label' }> = [
+  { key: 'heading',            label: 'Heading',        color: SIGNAL_COLOR.heading,            kind: 'signal' },
+  { key: 'definition_pattern', label: 'Definition',     color: SIGNAL_COLOR.definition_pattern, kind: 'signal' },
+  { key: 'bold_block',         label: 'Bold',           color: SIGNAL_COLOR.bold_block,         kind: 'signal' },
+  { key: 'repetition',         label: 'Repetition',     color: SIGNAL_COLOR.repetition,         kind: 'signal' },
+  { key: 'capitalized_phrase', label: 'Cap. phrase',    color: SIGNAL_COLOR.capitalized_phrase, kind: 'signal' },
+  { key: 'section_heading',    label: 'Section heading', color: SIGNAL_COLOR.section_heading,   kind: 'label' },
+  { key: 'weak_heading',       label: 'Weak heading',   color: SIGNAL_COLOR.weak_heading,       kind: 'label' },
+  { key: 'defined_term',       label: 'Defined term',   color: SIGNAL_COLOR.defined_term,       kind: 'label' },
+  { key: 'bold_emphasis',      label: 'Bold emphasis',  color: SIGNAL_COLOR.bold_emphasis,      kind: 'label' },
+  { key: 'large_font',         label: 'Large font',     color: SIGNAL_COLOR.large_font,         kind: 'label' },
+  { key: 'repeated_term',      label: 'Repeated term',  color: SIGNAL_COLOR.repeated_term,      kind: 'label' },
+  { key: 'domain_phrase',      label: 'Domain phrase',  color: SIGNAL_COLOR.domain_phrase,      kind: 'label' },
+  { key: 'sentence_fragment',  label: 'Fragment',       color: SIGNAL_COLOR.sentence_fragment,  kind: 'label' },
+  { key: 'caption_or_figure',  label: 'Caption/figure', color: SIGNAL_COLOR.caption_or_figure,  kind: 'label' },
+  { key: 'toc_or_index',       label: 'TOC/index',      color: SIGNAL_COLOR.toc_or_index,       kind: 'label' },
+  { key: 'low_context',        label: 'Low context',    color: SIGNAL_COLOR.low_context,        kind: 'label' },
 ];
 
 export function parseTopicFitJson(raw: string): TopicFitResponse | null {

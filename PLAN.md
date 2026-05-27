@@ -8,8 +8,15 @@
 > path. Treat details below as background only unless they have been reconciled
 > with the current code.
 
-> **Status:** plan, not committed. WAITING FOR CONFIRMATION before Phase 0.
-> **Last revised:** 2026-05-23 (rev 2 — GUI direction)
+> **Status:** historical reference, superseded by the implemented app.
+> **Last reconciled:** 2026-05-26.
+
+> **Current implementation delta:** the shipped app now has deterministic
+> `final_score` candidate parsing with typography/context labels, configured
+> filtered-payload LLM topic filtering, side-by-side source preview, equation
+> grouping by nearby concept/section, profile/avatar/XP/background
+> customization, multi-PDF import, and a planned Star Hubs grouping primitive.
+> Use `README.md`, `ARCHITECTURE.md`, and `CLAUDE.md` for current behavior.
 
 ---
 

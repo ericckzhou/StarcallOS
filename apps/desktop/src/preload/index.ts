@@ -13,10 +13,15 @@ contextBridge.exposeInMainWorld('api', {
   },
   concepts: {
     bySource: (sourceId: number) => ipcRenderer.invoke('concepts:bySource', sourceId),
+    createManual: (args: { sourceId: number; name: string; importance?: string; definition_text?: string; why_exists?: string; what_breaks?: string }) =>
+      ipcRenderer.invoke('concepts:createManual', args),
     tasks: (conceptId: number) => ipcRenderer.invoke('concepts:tasks', conceptId),
     mastery: (conceptId: number) => ipcRenderer.invoke('concepts:mastery', conceptId),
     misconceptions: (conceptId: number) => ipcRenderer.invoke('concepts:misconceptions', conceptId),
     equations: (conceptId: number) => ipcRenderer.invoke('concepts:equations', conceptId),
+    equationCreate: (args: { conceptId: number; latex: string; page?: number; variables?: string[] }) =>
+      ipcRenderer.invoke('concepts:equationCreate', args),
+    equationDelete: (equationId: number) => ipcRenderer.invoke('concepts:equationDelete', equationId),
     ensureTasks: (conceptId: number) => ipcRenderer.invoke('concepts:ensureTasks', conceptId),
     regenerateTasks: (conceptId: number) => ipcRenderer.invoke('concepts:regenerateTasks', conceptId),
     sourceEvidence: (conceptId: number) => ipcRenderer.invoke('concepts:sourceEvidence', conceptId),
@@ -50,6 +55,16 @@ contextBridge.exposeInMainWorld('api', {
     promoteBulk: (candidateIds: number[]) => ipcRenderer.invoke('candidates:promoteBulk', candidateIds),
     reject:   (candidateId: number) => ipcRenderer.invoke('candidates:reject', candidateId),
     extract:  (sourceId: number) => ipcRenderer.invoke('candidates:extract', sourceId),
+    llmFilter: (args: unknown) => ipcRenderer.invoke('candidates:llmFilter', args),
+    relationCreate: (args: unknown) => ipcRenderer.invoke('candidates:relationCreate', args),
+    relationUpdate: (args: unknown) => ipcRenderer.invoke('candidates:relationUpdate', args),
+    relationDelete: (id: number) => ipcRenderer.invoke('candidates:relationDelete', id),
+    misconceptionCreate: (args: unknown) => ipcRenderer.invoke('candidates:misconceptionCreate', args),
+    misconceptionUpdate: (args: unknown) => ipcRenderer.invoke('candidates:misconceptionUpdate', args),
+    misconceptionDelete: (id: number) => ipcRenderer.invoke('candidates:misconceptionDelete', id),
+    equationCreate: (args: unknown) => ipcRenderer.invoke('candidates:equationCreate', args),
+    equationUpdate: (args: unknown) => ipcRenderer.invoke('candidates:equationUpdate', args),
+    equationDelete: (id: number) => ipcRenderer.invoke('candidates:equationDelete', id),
   },
   review: {
     queue: (limit?: number) => ipcRenderer.invoke('review:queueList', limit),

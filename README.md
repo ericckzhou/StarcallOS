@@ -19,7 +19,7 @@ Borrowed verbatim from the philosophy in [plan.md](PLAN.md) — these are the on
 | Question | Where you answer it |
 |---|---|
 | **What do I claim to understand?** | Concept list · Overview · Mastery stage badges |
-| **What evidence supports that claim?** | Challenge Me · Source preview · History · Your notes |
+| **What evidence supports that claim?** | Challenges · Source preview · History · Your notes |
 | **What should I study or test next?** | Review queue · `never reviewed` / `recognizes` chips · stage progression |
 
 If a screen doesn't answer one of those, it doesn't ship. No second-brain, no infinite-graph explorer, no LLM tutor chat.
@@ -65,17 +65,39 @@ The grader sees the same context. No domain bias, no default associations.
 
 ## What's in the box
 
-- **Structural PDF parsing** — headings by font/position, headers/footers/TOC/index stripped, broken headings merged across line breaks
-- **Deterministic candidate extraction** — weighted `concept_score`, lexicon-driven gates, no LLM in the ingestion path
+- **Structural PDF parsing** — headings by typography, spacing, isolation, indentation, section paths, and context; headers/footers/TOC/index/captions are penalized or stripped
+- **Deterministic candidate extraction** — score parts, parser labels, context snippets, and `final_score`, with no LLM in the default ingestion path
 - **Local-first SQLite storage** — your reading, attempts, and notes live on your machine, in one file
-- **Pluggable LLM providers** — Groq and Anthropic, per-pass model selection, free path via "Ask ChatGPT" if you don't want to pay
+- **Pluggable LLM providers** — Groq and Anthropic, per-pass model selection, configured LLM filtering, and a free "Ask ChatGPT" path if you don't want to pay
 - **Source-aware enrichment** — definitions anchored to the page you actually read
-- **Five-kind challenge mode** — each kind has a contract, the grader enforces it
-- **Compression-stage mastery** — six stages, climbable
-- **User-authored notes** — your own follow-ups attached to a concept, never overwritten by anything else
+- **Challenge mode with XP** — task difficulty is tracked, history shows task kind/difficulty, and XP only counts the highest completed difficulty per concept/task kind
+- **Side-by-side source preview** — available across concept tabs, resizable, zoomable, and anchored to evidence pages
+- **Equation extraction and display** — formulas render in a lightweight LaTeX-style view and attach to nearby concepts/sections when possible
+- **Profile customization** — local display name, avatar, XP stats, background image/video, and background opacity
+- **User-authored notes** — your own follow-ups attached to a concept, styled with the overview fields and never overwritten by anything else
+- **Multi-PDF import** — add several PDFs from one file-picker action
 - **Append-only event log** — every state change is auditable
 
 ---
+
+## Recent additions
+
+- Deterministic PDF candidate parsing now uses typography, spacing, isolation,
+  indentation, context snippets, score breakdowns, labels, and `final_score`.
+- Candidate review supports bucket/tag/min-score filters, filtered-payload LLM
+  topic filtering through Profile settings, manual ChatGPT filtering, and
+  conservative bulk promotion gates.
+- Equations are attached to nearby concept/section context and rendered with a
+  lightweight LaTeX-ish display in concept overview and candidate review.
+- Source preview is available beside all concept tabs, can be resized, remembers
+  the logical page, and re-anchors after tab, rail, zoom, and layout changes.
+- Profile now includes local avatar/name, XP/challenge stats, difficulty chart,
+  background image/video upload, and background opacity.
+- XP awards only the highest completed difficulty per concept/task kind, so the
+  same question type cannot be farmed repeatedly.
+- `+ PDF` supports importing multiple PDFs in one file-picker action.
+- Planned next grouping primitive: Star Hubs, named/color-coded concept groups
+  that will later feed constellation/graph organization.
 
 ## Quickstart
 

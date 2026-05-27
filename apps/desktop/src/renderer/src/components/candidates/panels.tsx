@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import LatexMath from '../LatexMath';
 import {
   BUCKET_COLOR,
@@ -231,39 +231,151 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
   );
 }
 
-export function RelationsPanel({ relations, knownTerms }: { relations: RelationCandidate[]; knownTerms: Set<string> }) {
-  if (relations.length === 0) {
-    return <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>No relation candidates.</div>;
-  }
+const RELATION_KINDS = ['requires', 'causes', 'enables', 'contrasts_with', 'example_of'];
+
+export function RelationsPanel({ relations, knownTerms, onCreate, onUpdate, onDelete }: {
+  relations: RelationCandidate[];
+  knownTerms: Set<string>;
+  onCreate: (input: { from: string; to: string; kind: string; quote?: string; page?: number }) => Promise<void>;
+  onUpdate: (id: number, input: { from: string; to: string; kind: string; quote?: string; page?: number }) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [busyId, setBusyId] = useState<number | 'new' | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [draft, setDraft] = useState({ from: '', to: '', kind: 'requires', quote: '', page: '' });
   function norm(s: string): string {
     return s.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9\s-]/g, '').trim();
   }
+  async function saveNew(): Promise<void> {
+    setBusyId('new'); setErr(null);
+    try {
+      await onCreate({ ...draft, page: Number(draft.page) || 0 });
+      setDraft({ from: '', to: '', kind: 'requires', quote: '', page: '' });
+      setAdding(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
   return (
     <>
+      <CrudHeader title="Relations" adding={adding} setAdding={setAdding} />
+      {adding && (
+        <RelationEditor
+          draft={draft}
+          setDraft={setDraft}
+          busy={busyId === 'new'}
+          onSave={() => void saveNew()}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+      {err && <ErrorLine message={err} />}
+      {relations.length === 0 && !adding && (
+        <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>No relation candidates.</div>
+      )}
       {relations.map(r => {
         const fromKnown = knownTerms.has(norm(r.from));
         const toKnown = knownTerms.has(norm(r.to));
         const color = RELATION_COLOR[r.kind] ?? '#6b7280';
         return (
-          <div key={r.id} style={{ borderBottom: '1px solid #111827', padding: '10px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <Term name={r.from} known={fromKnown} />
-              <span style={{
-                fontSize: 10, fontWeight: 600, color, textTransform: 'uppercase',
-                border: `1px solid ${color}`, borderRadius: 2, padding: '1px 6px',
-              }}>
-                {r.kind.replace(/_/g, ' ')}
-              </span>
-              <Term name={r.to} known={toKnown} />
-              <span style={{ marginLeft: 'auto', fontSize: 10, color: '#4b5563' }}>p.{r.page}</span>
-            </div>
-            <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', lineHeight: 1.5 }}>
-              "{r.quote}"
-            </div>
-          </div>
+          <RelationRow
+            key={r.id}
+            relation={r}
+            fromKnown={fromKnown}
+            toKnown={toKnown}
+            color={color}
+            busy={busyId === r.id}
+            setBusy={setBusyId}
+            setErr={setErr}
+            onUpdate={onUpdate}
+            onDelete={onDelete}
+          />
         );
       })}
     </>
+  );
+}
+
+function RelationRow({ relation: r, fromKnown, toKnown, color, busy, setBusy, setErr, onUpdate, onDelete }: {
+  relation: RelationCandidate;
+  fromKnown: boolean;
+  toKnown: boolean;
+  color: string;
+  busy: boolean;
+  setBusy: (id: number | 'new' | null) => void;
+  setErr: (msg: string | null) => void;
+  onUpdate: (id: number, input: { from: string; to: string; kind: string; quote?: string; page?: number }) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ from: r.from, to: r.to, kind: r.kind, quote: r.quote, page: String(r.page) });
+  async function save(): Promise<void> {
+    setBusy(r.id); setErr(null);
+    try {
+      await onUpdate(r.id, { ...draft, page: Number(draft.page) || 0 });
+      setEditing(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function remove(): Promise<void> {
+    setBusy(r.id); setErr(null);
+    try {
+      await onDelete(r.id);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+  if (editing) {
+    return <RelationEditor draft={draft} setDraft={setDraft} busy={busy} onSave={() => void save()} onCancel={() => setEditing(false)} />;
+  }
+  return (
+    <div style={{ borderBottom: '1px solid #111827', padding: '10px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Term name={r.from} known={fromKnown} />
+        <span style={{
+          fontSize: 10, fontWeight: 600, color, textTransform: 'uppercase',
+          border: `1px solid ${color}`, borderRadius: 2, padding: '1px 6px',
+        }}>
+          {r.kind.replace(/_/g, ' ')}
+        </span>
+        <Term name={r.to} known={toKnown} />
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: '#4b5563' }}>p.{r.page}</span>
+        <RowButton label="Edit" disabled={busy} onClick={() => setEditing(true)} />
+        <RowButton label="Delete" danger disabled={busy} onClick={() => void remove()} />
+      </div>
+      <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', lineHeight: 1.5 }}>
+        "{r.quote}"
+      </div>
+    </div>
+  );
+}
+
+function RelationEditor({ draft, setDraft, busy, onSave, onCancel }: {
+  draft: { from: string; to: string; kind: string; quote: string; page: string };
+  setDraft: (draft: { from: string; to: string; kind: string; quote: string; page: string }) => void;
+  busy: boolean;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div style={editorStyle}>
+      <input value={draft.from} onChange={e => setDraft({ ...draft, from: e.target.value })} placeholder="from concept" style={inputStyle} />
+      <select value={draft.kind} onChange={e => setDraft({ ...draft, kind: e.target.value })} style={inputStyle}>
+        {RELATION_KINDS.map(k => <option key={k} value={k}>{k.replace(/_/g, ' ')}</option>)}
+      </select>
+      <input value={draft.to} onChange={e => setDraft({ ...draft, to: e.target.value })} placeholder="to concept" style={inputStyle} />
+      <input value={draft.page} onChange={e => setDraft({ ...draft, page: e.target.value })} placeholder="page" style={{ ...inputStyle, width: 70, flex: '0 0 70px' }} />
+      <input value={draft.quote} onChange={e => setDraft({ ...draft, quote: e.target.value })} placeholder="evidence quote" style={{ ...inputStyle, flexBasis: '100%' }} />
+      <RowButton label={busy ? 'Saving...' : 'Save'} disabled={busy} onClick={onSave} />
+      <RowButton label="Cancel" disabled={busy} onClick={onCancel} />
+    </div>
   );
 }
 
@@ -280,55 +392,191 @@ function Term({ name, known }: { name: string; known: boolean }) {
   );
 }
 
-export function MisconceptionsPanel({ misconceptions }: { misconceptions: MisconceptionCandidate[] }) {
-  if (misconceptions.length === 0) {
-    return <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>No misconception phrases detected.</div>;
+export function MisconceptionsPanel({ misconceptions, onCreate, onUpdate, onDelete }: {
+  misconceptions: MisconceptionCandidate[];
+  onCreate: (input: { quote: string; page?: number; section_path?: string[] }) => Promise<void>;
+  onUpdate: (id: number, input: { quote: string; page?: number; section_path?: string[] }) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [busyId, setBusyId] = useState<number | 'new' | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [draft, setDraft] = useState({ quote: '', page: '', section_path: '' });
+  async function saveNew(): Promise<void> {
+    setBusyId('new'); setErr(null);
+    try {
+      await onCreate({ quote: draft.quote, page: Number(draft.page) || 0, section_path: splitList(draft.section_path, '>') });
+      setDraft({ quote: '', page: '', section_path: '' });
+      setAdding(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
   }
   return (
     <>
+      <CrudHeader title="Misconceptions" adding={adding} setAdding={setAdding} />
+      {adding && (
+        <MisconceptionEditor
+          draft={draft}
+          setDraft={setDraft}
+          busy={busyId === 'new'}
+          onSave={() => void saveNew()}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+      {err && <ErrorLine message={err} />}
+      {misconceptions.length === 0 && !adding && (
+        <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>No misconception phrases detected.</div>
+      )}
       {misconceptions.map(m => (
-        <div key={m.id} style={{ borderBottom: '1px solid #111827', padding: '12px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span style={{
-              fontSize: 9, color: '#fca5a5', border: '1px solid #7f1d1d',
-              borderRadius: 2, padding: '1px 5px', textTransform: 'uppercase', letterSpacing: '0.05em',
-            }}>
-              misconception phrase
-            </span>
-            <span style={{ marginLeft: 'auto', fontSize: 10, color: '#4b5563' }}>p.{m.page}</span>
-          </div>
-          <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.6, fontStyle: 'italic' }}>
-            "{m.quote}"
-          </div>
-          {m.section_path.length > 0 && (
-            <div style={{ marginTop: 4, fontSize: 10, color: '#4b5563' }}>
-              {m.section_path.join(' > ')}
-            </div>
-          )}
-        </div>
+        <MisconceptionRow
+          key={m.id}
+          item={m}
+          busy={busyId === m.id}
+          setBusy={setBusyId}
+          setErr={setErr}
+          onUpdate={onUpdate}
+          onDelete={onDelete}
+        />
       ))}
     </>
   );
 }
 
-export function EquationsPanel({ equations, unattached, byTerm }: {
+function MisconceptionRow({ item: m, busy, setBusy, setErr, onUpdate, onDelete }: {
+  item: MisconceptionCandidate;
+  busy: boolean;
+  setBusy: (id: number | 'new' | null) => void;
+  setErr: (msg: string | null) => void;
+  onUpdate: (id: number, input: { quote: string; page?: number; section_path?: string[] }) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ quote: m.quote, page: String(m.page), section_path: m.section_path.join(' > ') });
+  async function save(): Promise<void> {
+    setBusy(m.id); setErr(null);
+    try {
+      await onUpdate(m.id, { quote: draft.quote, page: Number(draft.page) || 0, section_path: splitList(draft.section_path, '>') });
+      setEditing(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function remove(): Promise<void> {
+    setBusy(m.id); setErr(null);
+    try {
+      await onDelete(m.id);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+  if (editing) {
+    return <MisconceptionEditor draft={draft} setDraft={setDraft} busy={busy} onSave={() => void save()} onCancel={() => setEditing(false)} />;
+  }
+  return (
+    <div style={{ borderBottom: '1px solid #111827', padding: '12px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <span style={{
+          fontSize: 9, color: '#fca5a5', border: '1px solid #7f1d1d',
+          borderRadius: 2, padding: '1px 5px', textTransform: 'uppercase', letterSpacing: '0.05em',
+        }}>
+          misconception phrase
+        </span>
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: '#4b5563' }}>p.{m.page}</span>
+        <RowButton label="Edit" disabled={busy} onClick={() => setEditing(true)} />
+        <RowButton label="Delete" danger disabled={busy} onClick={() => void remove()} />
+      </div>
+      <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.6, fontStyle: 'italic' }}>
+        "{m.quote}"
+      </div>
+      {m.section_path.length > 0 && (
+        <div style={{ marginTop: 4, fontSize: 10, color: '#4b5563' }}>
+          {m.section_path.join(' > ')}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MisconceptionEditor({ draft, setDraft, busy, onSave, onCancel }: {
+  draft: { quote: string; page: string; section_path: string };
+  setDraft: (draft: { quote: string; page: string; section_path: string }) => void;
+  busy: boolean;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div style={editorStyle}>
+      <input value={draft.quote} onChange={e => setDraft({ ...draft, quote: e.target.value })} placeholder="misconception phrase" style={{ ...inputStyle, flexBasis: '100%' }} />
+      <input value={draft.page} onChange={e => setDraft({ ...draft, page: e.target.value })} placeholder="page" style={{ ...inputStyle, width: 80, flex: '0 0 80px' }} />
+      <input value={draft.section_path} onChange={e => setDraft({ ...draft, section_path: e.target.value })} placeholder="section > subsection" style={inputStyle} />
+      <RowButton label={busy ? 'Saving...' : 'Save'} disabled={busy} onClick={onSave} />
+      <RowButton label="Cancel" disabled={busy} onClick={onCancel} />
+    </div>
+  );
+}
+
+export function EquationsPanel({ equations, unattached, byTerm, onCreate, onUpdate, onDelete }: {
   equations: EquationCandidate[];
   unattached: EquationCandidate[];
   byTerm: Map<string, EquationCandidate[]>;
+  onCreate: (input: { latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null }) => Promise<void>;
+  onUpdate: (id: number, input: { latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null }) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
 }) {
-  if (equations.length === 0) {
-    return <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>No equation candidates.</div>;
+  const [adding, setAdding] = useState(false);
+  const [busyId, setBusyId] = useState<number | 'new' | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [draft, setDraft] = useState({ latex: '', page: '', variables: '', attached_term: '', section_path: '' });
+  async function saveNew(): Promise<void> {
+    setBusyId('new'); setErr(null);
+    try {
+      await onCreate({
+        latex: draft.latex,
+        page: Number(draft.page) || 0,
+        variables: splitList(draft.variables, ','),
+        attached_term: draft.attached_term.trim() || null,
+        section_path: splitList(draft.section_path, '>'),
+      });
+      setDraft({ latex: '', page: '', variables: '', attached_term: '', section_path: '' });
+      setAdding(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
   }
   const attached = [...byTerm.entries()].sort((a, b) => b[1].length - a[1].length);
   return (
     <>
+      <CrudHeader title="Equations" adding={adding} setAdding={setAdding} />
+      {adding && (
+        <EquationEditor
+          draft={draft}
+          setDraft={setDraft}
+          busy={busyId === 'new'}
+          onSave={() => void saveNew()}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+      {err && <ErrorLine message={err} />}
+      {equations.length === 0 && !adding && (
+        <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>No equation candidates.</div>
+      )}
       {attached.map(([term, eqs]) => (
         <div key={term} style={{ borderBottom: '1px solid #111827', padding: '10px 16px' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: '#c7d2fe', marginBottom: 6 }}>
-            {term} <span style={{ color: '#4b5563', fontWeight: 400, fontSize: 10 }}>* {eqs.length} equation{eqs.length === 1 ? '' : 's'}</span>
+            {equationGroupLabel(term, eqs)}
+            <span style={{ color: '#4b5563', fontWeight: 400, fontSize: 10 }}> * {eqs.length} equation{eqs.length === 1 ? '' : 's'}</span>
           </div>
           {eqs.map(eq => (
-            <EquationRow key={eq.id} eq={eq} />
+            <EquationRow key={eq.id} eq={eq} busy={busyId === eq.id} setBusy={setBusyId} setErr={setErr} onUpdate={onUpdate} onDelete={onDelete} />
           ))}
         </div>
       ))}
@@ -337,14 +585,61 @@ export function EquationsPanel({ equations, unattached, byTerm }: {
           <div style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
             Unattached ({unattached.length})
           </div>
-          {unattached.map(eq => <EquationRow key={eq.id} eq={eq} />)}
+          {unattached.map(eq => <EquationRow key={eq.id} eq={eq} busy={busyId === eq.id} setBusy={setBusyId} setErr={setErr} onUpdate={onUpdate} onDelete={onDelete} />)}
         </div>
       )}
     </>
   );
 }
 
-function EquationRow({ eq }: { eq: EquationCandidate }) {
+function EquationRow({ eq, busy, setBusy, setErr, onUpdate, onDelete }: {
+  eq: EquationCandidate;
+  busy?: boolean;
+  setBusy?: (id: number | 'new' | null) => void;
+  setErr?: (msg: string | null) => void;
+  onUpdate?: (id: number, input: { latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null }) => Promise<void>;
+  onDelete?: (id: number) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({
+    latex: eq.latex,
+    page: String(eq.page),
+    variables: eq.variables.join(', '),
+    attached_term: eq.attached_term ?? '',
+    section_path: eq.section_path.join(' > '),
+  });
+  async function save(): Promise<void> {
+    if (!onUpdate || !setBusy || !setErr) return;
+    setBusy(eq.id); setErr(null);
+    try {
+      await onUpdate(eq.id, {
+        latex: draft.latex,
+        page: Number(draft.page) || 0,
+        variables: splitList(draft.variables, ','),
+        attached_term: draft.attached_term.trim() || null,
+        section_path: splitList(draft.section_path, '>'),
+      });
+      setEditing(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function remove(): Promise<void> {
+    if (!onDelete || !setBusy || !setErr) return;
+    setBusy(eq.id); setErr(null);
+    try {
+      await onDelete(eq.id);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+  if (editing) {
+    return <EquationEditor draft={draft} setDraft={setDraft} busy={!!busy} onSave={() => void save()} onCancel={() => setEditing(false)} />;
+  }
   return (
     <div style={{ fontSize: 11, color: '#d1d5db', lineHeight: 1.6, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       <span style={{ color: '#4b5563', fontSize: 10 }}>p.{eq.page}</span>
@@ -359,6 +654,114 @@ function EquationRow({ eq }: { eq: EquationCandidate }) {
           vars: {eq.variables.slice(0, 6).join(', ')}
         </span>
       )}
+      {onUpdate && <RowButton label="Edit" disabled={!!busy} onClick={() => setEditing(true)} />}
+      {onDelete && <RowButton label="Delete" danger disabled={!!busy} onClick={() => void remove()} />}
     </div>
   );
+}
+
+function EquationEditor({ draft, setDraft, busy, onSave, onCancel }: {
+  draft: { latex: string; page: string; variables: string; attached_term: string; section_path: string };
+  setDraft: (draft: { latex: string; page: string; variables: string; attached_term: string; section_path: string }) => void;
+  busy: boolean;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div style={editorStyle}>
+      <input value={draft.latex} onChange={e => setDraft({ ...draft, latex: e.target.value })} placeholder="equation / latex" style={{ ...inputStyle, flexBasis: '100%' }} />
+      <input value={draft.attached_term} onChange={e => setDraft({ ...draft, attached_term: e.target.value })} placeholder="attached concept / section" style={inputStyle} />
+      <input value={draft.page} onChange={e => setDraft({ ...draft, page: e.target.value })} placeholder="page" style={{ ...inputStyle, width: 80, flex: '0 0 80px' }} />
+      <input value={draft.variables} onChange={e => setDraft({ ...draft, variables: e.target.value })} placeholder="vars: x, y" style={inputStyle} />
+      <input value={draft.section_path} onChange={e => setDraft({ ...draft, section_path: e.target.value })} placeholder="section > subsection" style={inputStyle} />
+      <RowButton label={busy ? 'Saving...' : 'Save'} disabled={busy} onClick={onSave} />
+      <RowButton label="Cancel" disabled={busy} onClick={onCancel} />
+    </div>
+  );
+}
+
+function CrudHeader({ title, adding, setAdding }: { title: string; adding: boolean; setAdding: (v: boolean) => void }) {
+  return (
+    <div style={{ padding: '8px 16px', borderBottom: '1px solid #111827', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 800 }}>{title}</span>
+      <button
+        onClick={() => setAdding(!adding)}
+        style={{
+          marginLeft: 'auto', background: adding ? '#1f2937' : '#1e1b4b',
+          border: `1px solid ${adding ? '#374151' : '#6366f1'}`, borderRadius: 3,
+          color: adding ? '#cbd5e1' : '#c7d2fe', fontSize: 11, padding: '3px 8px', cursor: 'pointer',
+        }}
+      >
+        {adding ? 'Cancel' : '+ Add'}
+      </button>
+    </div>
+  );
+}
+
+function RowButton({ label, onClick, disabled, danger }: { label: string; onClick: () => void; disabled?: boolean; danger?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        background: 'transparent',
+        border: `1px solid ${danger ? '#7f1d1d' : '#374151'}`,
+        borderRadius: 3,
+        color: danger ? '#fca5a5' : '#9ca3af',
+        fontSize: 10,
+        padding: '2px 7px',
+        cursor: disabled ? 'wait' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ErrorLine({ message }: { message: string }) {
+  return <div style={{ padding: '8px 16px', color: '#fca5a5', fontSize: 11, borderBottom: '1px solid #111827' }}>{message}</div>;
+}
+
+const editorStyle: React.CSSProperties = {
+  borderBottom: '1px solid #111827',
+  padding: '10px 16px',
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 8,
+  background: 'rgba(8, 8, 18, 0.8)',
+};
+
+const inputStyle: React.CSSProperties = {
+  flex: '1 1 160px',
+  minWidth: 0,
+  background: '#080812',
+  border: '1px solid #1f2937',
+  borderRadius: 3,
+  color: '#dbeafe',
+  fontSize: 11,
+  padding: '5px 7px',
+  outline: 'none',
+};
+
+function splitList(value: string, separator: ',' | '>'): string[] {
+  return value
+    .split(separator)
+    .map(v => v.trim())
+    .filter(Boolean);
+}
+
+function normalizeLabel(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9\s-]/g, '').trim();
+}
+
+function equationGroupLabel(term: string, eqs: EquationCandidate[]): string {
+  const pathLabels = eqs
+    .flatMap(eq => eq.section_path.slice().reverse())
+    .map(s => s.trim())
+    .filter(Boolean);
+  const matchingPath = pathLabels.find(s => normalizeLabel(s) === term);
+  if (matchingPath) return matchingPath;
+  return pathLabels[0] ?? term;
 }

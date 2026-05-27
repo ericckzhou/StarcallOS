@@ -52,7 +52,7 @@ apps/desktop/        Electron: main process + preload + renderer (React)
 **Process boundary rule:** Renderer never touches SQLite or API keys.
 All data flows: renderer → contextBridge → IPC → main → services → DB.
 
-## Data Model (migrations 0001 → 0010)
+## Data Model (migrations 0001 → 0017+)
 
 ```
 sources                    PDF/text inputs + topic_anchors_json + llm_filter_keep_terms_json
@@ -72,6 +72,22 @@ misconception_candidates   deterministic misconception phrase spans
 
 parse_runs                 append-only audit of every Process click (mode, duration_ms, llm_call_count, llm_input_tokens, llm_output_tokens, diagnostics_json, parser_version, grammar_version, layout_version)
 ```
+
+## Recent Schema And Parser Additions
+
+- Candidate metadata now includes explicit score parts, labels, typography
+  signals, context snippets, and parser diagnostics after re-extract.
+- Candidate scoring is split into `typography_score`, `signal_score`,
+  `quality_score`, `context_score`, and `final_score`; `confidence` remains for
+  compatibility.
+- Candidate labels include `section_heading`, `defined_term`, `bold_emphasis`,
+  `large_font`, `repeated_term`, `domain_phrase`, `weak_heading`,
+  `sentence_fragment`, `caption_or_figure`, `toc_or_index`, and `low_context`.
+- Candidate buckets use `final_score`: High >= 0.80, Medium 0.55-0.79, Low
+  below 0.55, with separate suspicious/off-topic/broad/boilerplate buckets.
+- Equation candidates carry nearest concept/section attachment so the equation
+  list can group formulas under their source topic rather than leaving them
+  unattached whenever possible.
 
 ## Mastery Model (compression stages)
 ```
@@ -106,22 +122,30 @@ Every `concept_candidates` row stamps `parser_version`. Every `parse_runs` row s
 
 ## Candidate Quality Pipeline
 
-In `extractCandidates(blocks, sectionPaths, topicAnchors)`:
+In `extractCandidates(blocks, sectionPaths, topicAnchors)`, candidate scoring is
+deterministic and decomposed rather than a single opaque signal:
 
-1. **Heading-derived candidates** (signal weight 0.55) — block hint = heading/subheading, strip `#`, leading numbering, trailing colons.
-2. **Definition patterns** (0.40) — `findDefinitions` in `grammar.ts`: `X is defined as Y`, `X refers to Y`, `X is a type of Y`, etc.
-3. **Bold isolated lines** (0.30)
-4. **Repetition** (0.25) — capitalized phrase appears ≥4×
-5. **Capitalized phrases** (0.10) — fallback signal
+1. **Typography score** — font-size ratio, bold/italic/all-caps signals,
+   isolation, indentation, y-gaps, and heading depth.
+2. **Signal score** — heading, definition pattern, repetition, capitalized
+   phrase, bold emphasis, and domain phrase signals.
+3. **Quality score** — phrase completeness, token count, specificity, generic
+   word checks, formula/caption/TOC/index/fragment penalties.
+4. **Context score** — nearby definition/domain support, same-page neighbors,
+   previous heading path, adjacent body blocks, and source-page relevance.
+5. **Final score** — the UI sort and promotion score. `confidence` remains for
+   compatibility with older rows and contracts.
 
-Signals stack additively, capped at 1.0. Plus deterministic quality flags computed in the same pass:
+Candidate rows also expose parser labels such as `section_heading`,
+`defined_term`, `bold_emphasis`, `large_font`, `repeated_term`,
+`domain_phrase`, `weak_heading`, `sentence_fragment`, `caption_or_figure`,
+`toc_or_index`, and `low_context`.
 
-- `is_boilerplate` — normalized term matches `BOILERPLATE_HEADINGS` (Summary, References, Index, …)
-- `is_broad` — single short word, no definition signal, low mention count (e.g., "Coding", "Data")
-- `topic_relevance_score` (0–1) — Jaccard-ish overlap between (term tokens + evidence tokens) and per-source `topic_anchors_json`
-- `topic_anchors` derived once per source from title (×3 weight) + heading vocabulary (×1)
-
-The Candidates UI buckets these into: **All / High (≥0.85) / Medium / Low / Off-topic / Too broad / Boilerplate / Suspicious**. Bulk-promote uses a strict gate (confidence ≥ 0.9, mention_count ≥ 2, topic_relevance ≥ 0.55, no quality flags).
+The Candidates UI buckets by `final_score`: **All / High (>=0.80) / Medium
+(0.55-0.79) / Low (<0.55) / Off-topic / Too broad / Boilerplate /
+Suspicious**. Bulk-promote uses a strict gate: strong `final_score`, no
+suspicious labels, and either definition support, strong typography support, or
+repeated domain-term evidence.
 
 ## Promotion = Pure DB Upsert
 
@@ -151,11 +175,16 @@ UI workflow (CandidateReview → LLM topic filter modal):
 4. Persisted as normalized terms in `sources.llm_filter_keep_terms_json` (legacy `llm_filter_keep_ids_json` saves are read/backfilled; numeric ID saves auto-wiped on read)
 5. Toggle chip in bucket bar to enable/disable without losing the saved set
 
+The manual prompt and configured **Filter by LLM** button both operate on the
+currently visible filtered candidates, not the full source candidate set. The
+configured path uses the selected provider/model from Settings and persists the
+same normalized keep-term filter.
+
 ## UI Layout (current)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ Sources | Review | Settings                               │
+│ Sources | Review                         Profile / Settings│
 ├─────────┬────────────────────────────────────────────────┤
 │ Sources │ Candidates | Concepts | Runs                    │
 │ (list)  ├────────────────────────────────────────────────┤
@@ -167,7 +196,51 @@ UI workflow (CandidateReview → LLM topic filter modal):
 └─────────┴────────────────────────────────────────────────┘
 ```
 
-DetailPane tabs: **Overview** (editable fields + ChatGPT prompt + enrich) · **Challenge Me** (lazy task gen + answer + grade) · **History** · **Source** (pdf.js viewer with evidence side rail)
+DetailPane tabs: **Overview** (editable fields + ChatGPT prompt + enrich) ·
+**Challenges** (lazy task gen + answer + grade) · **History**. Source preview
+is a right-side toggle available beside all tabs, backed by the pdf.js viewer
+and evidence rail.
+
+## Recent UX Additions
+
+- `+ PDF` supports multi-select import and creates one source row per selected
+  PDF.
+- Candidate Review has bucket filters, tag filters, a styled min-score slider,
+  filtered-payload configured LLM filtering, manual ChatGPT topic filtering, and
+  conservative bulk promotion.
+- Source preview can be toggled beside all concept tabs, resized by dragging,
+  zoomed, narrowed with an evidence rail, and page-anchored across tab/rail
+  layout changes.
+- The Review Queue and Sources panels can be minimized/resized where relevant
+  and refresh immediately after concept deletion or review-history changes.
+- Concept Overview includes user notes styled like the other editable fields;
+  user notes are never overwritten by re-extract or enrichment.
+- Profile owns display name, avatar upload/removal, XP/challenge stats,
+  difficulty distribution, background image/video upload, and background
+  opacity. The app background applies behind empty/source/review surfaces.
+- XP is awarded by highest completed difficulty per concept/task kind, so the
+  same question type cannot be farmed repeatedly.
+- Lightweight equation rendering handles fractions, scripts, text blocks, and
+  orphan braces from imperfect PDF extraction.
+
+## Star Hubs / Constellations Roadmap
+
+Star Hubs are the planned grouping primitive for concept constellations. The
+first useful version should support click-hold multi-select on concept rows,
+creating a named/color-coded hub from selected concepts, adding/removing
+concepts from existing hubs, and showing hub chips/filters in concept lists.
+Future constellation work can then treat hubs as graph containers with internal
+concept links and cross-hub concept links.
+
+Potential data model:
+
+```text
+star_hubs          id, name, description, color, type, importance, parent_hub_id, timestamps
+star_hub_members  hub_id, concept_id, role, order_index
+```
+
+Useful member roles: `core`, `supporting`, `example`, `prerequisite`,
+`application`, `confusing_with`.
 
 ## Key Rules
 
@@ -195,6 +268,6 @@ Uses Node.js 22 built-in `node:sqlite` (experimental). No native compilation req
 
 ## Current State (snapshot)
 
-Shipped: candidate parser, equations, relations, misconception phrases; deterministic mode (default); candidate_gated mode (LLM-cheap); full mode (legacy); per-provider settings (Groq + Anthropic); per-source topic anchors; bucket + signal + LLM filters with persistence; bulk-promote w/ safe-default gate; lazy task gen; lazy concept enrichment; ChatGPT prompt round-trip; PDF viewer with evidence side rail; parse_runs audit; Re-extract preserving user data.
+Shipped: richer deterministic candidate parser, equations, relations, misconception phrases; deterministic mode (default); candidate_gated mode (LLM-cheap); full mode (legacy); per-provider settings (Groq + Anthropic); per-source topic anchors; bucket/tag/min-score + filtered LLM filters with persistence; bulk-promote w/ safe-default gate; lazy task gen; lazy concept enrichment; ChatGPT prompt round-trip; side-by-side PDF viewer with evidence rail, resize, zoom, and page anchoring; profile/avatar/XP/background customization; multi-PDF import; parse_runs audit; Re-extract preserving user data.
 
-Queued (not blocking): refactor `CandidateReview.tsx` into per-panel files; per-pass model override UI; many-to-one equation links; CSS design tokens; more tests for `promotion`, `cleanup`, `enrich_concept`.
+Queued (not blocking): Star Hubs grouping model and UI; constellation graph edges across/within hubs; refactor `CandidateReview.tsx` into per-panel files; per-pass model override UI; CSS design tokens; more tests for `promotion`, `cleanup`, `enrich_concept`, and source-preview page anchoring.

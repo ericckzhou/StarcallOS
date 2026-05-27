@@ -26,6 +26,7 @@ const IMP_RANK: Record<string, number> = {
   foundational: 0, core: 1, supporting: 2, peripheral: 3, reference_only: 4,
 };
 const COLLAPSED_KEY = 'starcall.layout.reviewQueueCollapsed';
+const GROUP_COLLAPSED_KEY = 'starcall.layout.reviewQueueCollapsedGroups';
 const WIDTH_KEY = 'starcall.layout.reviewQueueWidth';
 const SORT_KEY = 'starcall.layout.reviewQueueSort';
 
@@ -37,16 +38,27 @@ const SORT_LABEL: Record<SortMode, string> = {
   stage:      'stage',
 };
 
+interface QueueGroup {
+  key: string;
+  title: string;
+  items: QueueItem[];
+}
+
 interface Props {
   onSelect: (concept: Concept) => void;
   selectedConcept: Concept | null;
+  onDeleted?: (conceptId: number) => void;
 }
 
-export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
+export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Props) {
   const [items, setItems] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pendingConceptDeletes, setPendingConceptDeletes] = useState<QueueItem[]>([]);
+  const pendingConceptDeleteTimers = React.useRef<Map<number, number>>(new Map());
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === 'true');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups());
   const [width, setWidth] = useState(() => Number(localStorage.getItem(WIDTH_KEY)) || 420);
+  const [activeActionConceptId, setActiveActionConceptId] = useState<number | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>(() => {
     const stored = localStorage.getItem(SORT_KEY);
     return SORT_CYCLE.includes(stored as SortMode) ? (stored as SortMode) : 'default';
@@ -73,8 +85,24 @@ export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
   }, [refresh]);
 
   useEffect(() => {
+    const onDeleted = (event: Event) => {
+      const conceptId = (event as CustomEvent<{ conceptId?: number }>).detail?.conceptId;
+      if (typeof conceptId === 'number') {
+        setItems(prev => prev.filter(item => item.concept.id !== conceptId));
+      }
+      refresh();
+    };
+    window.addEventListener('starcall:concept-deleted', onDeleted);
+    return () => window.removeEventListener('starcall:concept-deleted', onDeleted);
+  }, [refresh]);
+
+  useEffect(() => {
     localStorage.setItem(COLLAPSED_KEY, String(collapsed));
   }, [collapsed]);
+
+  useEffect(() => {
+    localStorage.setItem(GROUP_COLLAPSED_KEY, JSON.stringify([...collapsedGroups]));
+  }, [collapsedGroups]);
 
   useEffect(() => {
     localStorage.setItem(WIDTH_KEY, String(width));
@@ -87,6 +115,43 @@ export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
   function cycleSort() {
     const idx = SORT_CYCLE.indexOf(sortMode);
     setSortMode(SORT_CYCLE[(idx + 1) % SORT_CYCLE.length]);
+  }
+
+  function toggleGroup(key: string): void {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function deleteConceptFromQueue(item: QueueItem): void {
+    if (pendingConceptDeleteTimers.current.has(item.concept.id)) return;
+    setItems(prev => prev.filter(entry => entry.concept.id !== item.concept.id));
+    setPendingConceptDeletes(prev => [...prev.filter(entry => entry.concept.id !== item.concept.id), item]);
+    onDeleted?.(item.concept.id);
+    const timerId = window.setTimeout(() => {
+      pendingConceptDeleteTimers.current.delete(item.concept.id);
+      setPendingConceptDeletes(prev => prev.filter(entry => entry.concept.id !== item.concept.id));
+      void window.api.concepts.delete(item.concept.id).then(() => {
+        window.dispatchEvent(new CustomEvent('starcall:concept-deleted', { detail: { conceptId: item.concept.id } }));
+        window.dispatchEvent(new Event('starcall:review-queue-stale'));
+      }).catch(() => {
+        setItems(prev => prev.some(entry => entry.concept.id === item.concept.id) ? prev : [item, ...prev]);
+      });
+    }, 5_000);
+    pendingConceptDeleteTimers.current.set(item.concept.id, timerId);
+  }
+
+  function undoDeleteConcept(item: QueueItem): void {
+    const timerId = pendingConceptDeleteTimers.current.get(item.concept.id);
+    if (timerId != null) {
+      window.clearTimeout(timerId);
+      pendingConceptDeleteTimers.current.delete(item.concept.id);
+    }
+    setPendingConceptDeletes(prev => prev.filter(entry => entry.concept.id !== item.concept.id));
+    setItems(prev => prev.some(entry => entry.concept.id === item.concept.id) ? prev : [item, ...prev]);
   }
 
   // Apply sort over the already-fetched list. Default keeps the backend
@@ -105,6 +170,18 @@ export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
     // stage: highest stage on top
     return [...items].sort((a, b) => (b.compression_stage - a.compression_stage) || cmpName(a, b));
   }, [items, sortMode]);
+
+  const groupedItems = useMemo<QueueGroup[]>(() => {
+    const groups = new Map<string, QueueGroup>();
+    for (const item of displayedItems) {
+      const title = item.source_title || item.source_filename || 'Untitled source';
+      const key = title.toLowerCase();
+      const group = groups.get(key) ?? { key, title, items: [] };
+      group.items.push(item);
+      groups.set(key, group);
+    }
+    return [...groups.values()];
+  }, [displayedItems]);
 
   function beginResize(e: React.MouseEvent<HTMLDivElement>): void {
     e.preventDefault();
@@ -212,43 +289,171 @@ export default function ReviewQueue({ onSelect, selectedConcept }: Props) {
         </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {displayedItems.map(it => {
-          const c = it.concept;
-          const stage = it.compression_stage;
-          return (
-            <div
-              key={c.id}
-              onClick={() => onSelect(c as unknown as Concept)}
+        {pendingConceptDeletes.map(item => (
+          <div
+            key={item.concept.id}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              margin: '8px 12px',
+              background: '#111827',
+              border: '1px solid #312e81',
+              borderRadius: 6,
+              padding: '8px 10px',
+              color: '#cbd5e1',
+              fontSize: 12,
+            }}
+          >
+            <span style={{ color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Deleted {item.concept.name}.
+            </span>
+            <button
+              onClick={() => undoDeleteConcept(item)}
               style={{
-                padding: '12px 20px', borderBottom: '1px solid #111827', cursor: 'pointer',
+                marginLeft: 'auto',
+                background: '#1e1b4b',
+                border: '1px solid #6366f1',
+                borderRadius: 4,
+                color: '#c7d2fe',
+                cursor: 'pointer',
+                fontSize: 11,
+                fontWeight: 700,
+                padding: '3px 9px',
+                flexShrink: 0,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: STAGE_COLORS[stage], flexShrink: 0 }} />
-                <div style={{ fontSize: 16, fontWeight: 500, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {c.name}
+              Undo
+            </button>
+          </div>
+        ))}
+        {groupedItems.map(group => (
+          <div key={group.key}>
+            <button
+              onClick={() => toggleGroup(group.key)}
+              title={`${collapsedGroups.has(group.key) ? 'Expand' : 'Collapse'} ${group.title}`}
+              style={{
+              position: 'sticky', top: 0, zIndex: 2,
+              padding: '8px 20px 7px',
+              borderBottom: '1px solid #1f2937',
+              borderLeft: '2px solid #a78bfa',
+              borderRight: 'none',
+              borderTop: 'none',
+              width: '100%',
+              background: 'transparent',
+              display: 'flex', alignItems: 'center', gap: 8,
+              cursor: 'pointer',
+              textAlign: 'left',
+            }}>
+              <span style={{ width: 12, color: '#64748b', fontSize: 11, flexShrink: 0 }}>
+                {collapsedGroups.has(group.key) ? '>' : 'v'}
+              </span>
+              <div style={{
+                minWidth: 0, flex: 1,
+                fontSize: 10, fontWeight: 800, color: '#e2e8f0',
+                textTransform: 'uppercase', letterSpacing: '0.09em',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {group.title}
+              </div>
+              <span style={{ fontSize: 10, color: '#64748b', flexShrink: 0 }}>
+                {group.items.length}
+              </span>
+            </button>
+            {!collapsedGroups.has(group.key) && group.items.map(it => {
+              const c = it.concept;
+              const stage = it.compression_stage;
+              const actionsVisible = activeActionConceptId === c.id;
+              return (
+                <div
+                  key={c.id}
+                  onClick={() => onSelect(c as unknown as Concept)}
+                  onMouseEnter={() => setActiveActionConceptId(c.id)}
+                  onMouseLeave={() => setActiveActionConceptId(prev => prev === c.id ? null : prev)}
+                  onFocus={() => setActiveActionConceptId(c.id)}
+                  onBlur={e => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                      setActiveActionConceptId(prev => prev === c.id ? null : prev);
+                    }
+                  }}
+                  style={{
+                    padding: '12px 16px 11px 20px',
+                    borderBottom: '1px solid #111827',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'grid', gridTemplateColumns: '8px minmax(0, 1fr) 22px', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: STAGE_COLORS[stage], flexShrink: 0 }} />
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {c.name}
+                    </div>
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        deleteConceptFromQueue(it);
+                      }}
+                      title="Delete this concept"
+                      aria-label={`Delete ${c.name}`}
+                      style={{
+                        width: 20, height: 20,
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        background: actionsVisible ? 'rgba(248, 113, 113, 0.10)' : 'transparent',
+                        border: actionsVisible ? '1px solid rgba(248, 113, 113, 0.45)' : '1px solid transparent',
+                        borderRadius: 4,
+                        color: '#f87171',
+                        fontSize: 13,
+                        lineHeight: 1,
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                        opacity: actionsVisible ? 1 : 0.25,
+                        transition: 'opacity 120ms ease, background 120ms ease, border-color 120ms ease',
+                      }}
+                    >
+                      x
+                    </button>
+                  </div>
+                  <div style={{ paddingLeft: 18, paddingRight: 32, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#6b7280' }}>
+                    <span style={{
+                      color: IMP_COLOR[c.importance] ?? '#94a3b8',
+                      background: 'rgba(129, 140, 248, 0.10)',
+                      border: '1px solid rgba(129, 140, 248, 0.28)',
+                      borderRadius: 999,
+                      padding: '1px 6px',
+                      lineHeight: 1.5,
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {c.importance}
+                    </span>
+                    <span style={{
+                      color: STAGE_COLORS[stage],
+                      textTransform: 'lowercase',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {STAGES[stage]}
+                    </span>
+                    {it.attempts > 0 ? (
+                      <span style={{ marginLeft: 'auto', whiteSpace: 'nowrap' }}>{it.attempts} {it.attempts === 1 ? 'try' : 'tries'}</span>
+                    ) : (
+                      <span style={{ color: '#f59e0b', marginLeft: 'auto', whiteSpace: 'nowrap' }}>never reviewed</span>
+                    )}
+                  </div>
                 </div>
-                <span style={{ fontSize: 10, color: IMP_COLOR[c.importance] ?? '#6b7280', marginLeft: 'auto' }}>
-                  {c.importance}
-                </span>
-                <span style={{ fontSize: 10, color: STAGE_COLORS[stage] }}>
-                  {STAGES[stage]}
-                </span>
-              </div>
-              <div style={{ paddingLeft: 18, display: 'flex', gap: 12, fontSize: 11, color: '#6b7280' }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 280 }}>
-                  {it.source_title || it.source_filename}
-                </span>
-                {it.attempts > 0 ? (
-                  <span style={{ marginLeft: 'auto', whiteSpace: 'nowrap' }}>{it.attempts} {it.attempts === 1 ? 'try' : 'tries'}</span>
-                ) : (
-                  <span style={{ color: '#f59e0b', marginLeft: 'auto', whiteSpace: 'nowrap' }}>never reviewed</span>
-                )}
-              </div>
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        ))}
       </div>
     </aside>
   );
+}
+
+function readCollapsedGroups(): Set<string> {
+  try {
+    const raw = localStorage.getItem(GROUP_COLLAPSED_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? new Set(parsed.filter(v => typeof v === 'string')) : new Set();
+  } catch {
+    return new Set();
+  }
 }

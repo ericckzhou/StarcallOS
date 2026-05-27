@@ -36,12 +36,18 @@ const ZOOM_MIN  = 0.5;
 const ZOOM_MAX  = 3.0;
 const ZOOM_STEP = 0.1;
 
+interface SavedPdfViewState {
+  page: number;
+  scrollTop: number;
+}
+
 interface Props {
   conceptId: number;
   conceptName: string;
+  stabilityKey?: string;
 }
 
-export default function PdfViewer({ conceptId, conceptName }: Props) {
+export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Props) {
   const [data, setData] = useState<SourceEvidence | null>(null);
   const [textBody, setTextBody] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -55,11 +61,22 @@ export default function PdfViewer({ conceptId, conceptName }: Props) {
     return Number.isFinite(stored) && stored >= ZOOM_MIN && stored <= ZOOM_MAX ? stored : 1.0;
   });
   const [fitScale, setFitScale] = useState<number>(1.0);
-  const [intrinsicPageWidth, setIntrinsicPageWidth] = useState<number | null>(null);
+  const [intrinsicPageSize, setIntrinsicPageSize] = useState<{ width: number; height: number } | null>(null);
+  const renderScale = fitScale * userZoom;
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const initialScrollPageRef = useRef<number | null>(null);
+  const hasRestoredInitialScrollRef = useRef(false);
+  const currentPageRef = useRef(1);
+  const currentPageOffsetRef = useRef(0);
+  const currentPageOffsetRatioRef = useRef(0);
+  const scaleBeforeResizeRef = useRef(renderScale);
+  const fitScaleInitializedRef = useRef(false);
+  // Tracks which pages have completed their async size measurement. Drives
+  // the initial-scroll attempt (event-driven, not RAF polling).
+  const measuredPagesRef = useRef<Set<number>>(new Set());
+  const onPageMeasuredRef = useRef<((pageNum: number) => void) | null>(null);
 
   useEffect(() => {
     localStorage.setItem(EVIDENCE_RAIL_KEY, String(evidenceRailCollapsed));
@@ -68,6 +85,8 @@ export default function PdfViewer({ conceptId, conceptName }: Props) {
   useEffect(() => {
     localStorage.setItem(ZOOM_KEY, String(userZoom));
   }, [userZoom]);
+
+  const viewStateKey = useMemo(() => `starcall.pdfView.${conceptId}`, [conceptId]);
 
   // Pages that have any evidence (deduped + sorted)
   const evidencePages = useMemo(() => {
@@ -83,9 +102,12 @@ export default function PdfViewer({ conceptId, conceptName }: Props) {
     setData(null);
     setTextBody(null);
     setPdfDoc(null);
-    setIntrinsicPageWidth(null);
+    setIntrinsicPageSize(null);
+    fitScaleInitializedRef.current = false;
     pageRefs.current.clear();
+    measuredPagesRef.current.clear();
     initialScrollPageRef.current = null;
+    hasRestoredInitialScrollRef.current = false;
     (async () => {
       try {
         const meta = await window.api.concepts.sourceEvidence(conceptId);
@@ -97,19 +119,24 @@ export default function PdfViewer({ conceptId, conceptName }: Props) {
           const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes) }).promise;
           if (cancelled) { doc.destroy(); return; }
           setPdfDoc(doc);
-          // Cache page-1 width at scale=1 so we can compute fit-to-width as
-          // soon as we know the container width.
+          // Cache page-1 size at scale=1 so every page can reserve an estimated
+          // box before its own async measurement finishes. Without this,
+          // deep evidence pages briefly collapse near the top and the header can
+          // say p.552 while the visible canvas is still somewhere else.
           try {
             const p1 = await doc.getPage(1);
             if (!cancelled) {
-              setIntrinsicPageWidth(p1.getViewport({ scale: 1 }).width);
+              const vp = p1.getViewport({ scale: 1 });
+              setIntrinsicPageSize({ width: vp.width, height: vp.height });
             }
           } catch {
-            // intrinsic width is a nice-to-have; PdfPage's own measurement
+            // intrinsic size is a nice-to-have; PdfPage's own measurement
             // covers the layout even if this fails.
           }
-          const startPage = meta.evidence[0]?.page ?? 1;
+          const firstEvidencePage = meta.evidence[0]?.page ?? 1;
+          const startPage = clampPage(firstEvidencePage, doc.numPages);
           setPage(startPage);
+          currentPageRef.current = startPage;
           initialScrollPageRef.current = startPage;
         } else {
           const bytes = await window.api.sources.bytes(meta.sourceId);
@@ -123,96 +150,226 @@ export default function PdfViewer({ conceptId, conceptName }: Props) {
       }
     })();
     return () => { cancelled = true; };
-  }, [conceptId]);
+  }, [conceptId, viewStateKey]);
 
-  // Measure the scroll container width and derive fit-to-width scale. Updates
-  // on container resize (e.g. user drags the split divider).
-  useLayoutEffect(() => {
+  const computeFitScaleFromContainer = useCallback(() => {
     const el = scrollContainerRef.current;
-    if (!el || intrinsicPageWidth == null || intrinsicPageWidth === 0) return;
+    if (!el || intrinsicPageSize == null || intrinsicPageSize.width === 0) return false;
+    // -2 to dodge the 1px scrollbar gutter on Windows.
+    const w = el.clientWidth - 2;
+    if (w <= 0) return false;
+    setFitScale(w / intrinsicPageSize.width);
+    return true;
+  }, [intrinsicPageSize]);
+
+  // Fit the PDF once when it opens. After that, evidence rail toggles and
+  // split-pane width changes must not mutate page height; otherwise the same
+  // scrollTop lands several pages away. The zoom reset button is the explicit
+  // way to refit to the current width.
+  useLayoutEffect(() => {
+    if (fitScaleInitializedRef.current) return;
     const compute = () => {
-      // -2 to dodge the 1px scrollbar gutter on Windows.
-      const w = el.clientWidth - 2;
-      if (w <= 0) return;
-      setFitScale(w / intrinsicPageWidth);
+      if (fitScaleInitializedRef.current) return;
+      if (computeFitScaleFromContainer()) {
+        fitScaleInitializedRef.current = true;
+      }
     };
     compute();
+    const el = scrollContainerRef.current;
+    if (!el || fitScaleInitializedRef.current) return;
     const ro = new ResizeObserver(compute);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [intrinsicPageWidth]);
+  }, [computeFitScaleFromContainer]);
 
-  const renderScale = fitScale * userZoom;
-
-  // Initial scroll to first evidence page once layout has settled. Each
-  // PdfPage measures its intrinsic size asynchronously (one getPage call
-  // per page through pdfjs's worker). For a 1108-page book scrolling to
-  // page 257 means waiting on 257 of those measurements to land — way
-  // longer than a fixed RAF poll. Use a ResizeObserver on the scroll
-  // container so we re-check every time a page measurement extends the
-  // total content height, and a hard 30s timeout as a final fallback.
+  // Initial scroll to first evidence page once that target page has a DOM
+  // position. Large books should not wait for every prior page to report size:
+  // that makes the header say "p.552" while the viewport is still parked on p.1.
   useEffect(() => {
     if (!pdfDoc) return;
     const target = initialScrollPageRef.current;
     if (target == null) return;
-    const container = scrollContainerRef.current;
-    if (!container) return;
 
     let done = false;
+    let rafId: number | null = null;
     const tryScroll = () => {
       if (done) return;
+      const container = scrollContainerRef.current;
       const el = pageRefs.current.get(target);
-      if (!el || el.offsetHeight === 0) return;
-      for (let p = 1; p <= target; p++) {
-        const wrap = pageRefs.current.get(p);
-        if (!wrap || wrap.offsetHeight === 0) return; // not ready
-      }
+      if (!container || !el || el.offsetHeight === 0) return;
       done = true;
-      el.scrollIntoView({ block: 'start', behavior: 'auto' });
-      initialScrollPageRef.current = null;
+      onPageMeasuredRef.current = null;
+      window.requestAnimationFrame(() => {
+        container.scrollTop = el.offsetTop;
+        setPage(target);
+        currentPageRef.current = target;
+        currentPageOffsetRef.current = 0;
+        currentPageOffsetRatioRef.current = 0;
+        initialScrollPageRef.current = null;
+        hasRestoredInitialScrollRef.current = true;
+        savePdfViewState(viewStateKey, { page: target, scrollTop: container.scrollTop });
+      });
     };
 
-    // Initial attempt + watch for layout extension as pages measure in.
+    onPageMeasuredRef.current = (pageNum: number) => {
+      if (pageNum !== target) return;
+      tryScroll();
+    };
+    // Initial attempt in case some pages were already measured from a
+    // previous mount before this effect ran.
     tryScroll();
-    const ro = new ResizeObserver(tryScroll);
-    ro.observe(container);
-    for (const el of pageRefs.current.values()) ro.observe(el);
 
-    // 30s safety net: scroll best-effort even if not every page above target
-    // has measured. Lands close enough that the user can finish manually.
+    let attempts = 0;
+    const retryUntilMounted = () => {
+      if (done) return;
+      tryScroll();
+      if (done) return;
+      attempts += 1;
+      if (attempts < 180) {
+        rafId = window.requestAnimationFrame(retryUntilMounted);
+      }
+    };
+    rafId = window.requestAnimationFrame(retryUntilMounted);
+
     const timeoutId = window.setTimeout(() => {
       if (done) return;
-      done = true;
       const el = pageRefs.current.get(target);
-      if (el) el.scrollIntoView({ block: 'start', behavior: 'auto' });
-      initialScrollPageRef.current = null;
-      ro.disconnect();
-    }, 30_000);
+      const container = scrollContainerRef.current;
+      if (el && container) {
+        done = true;
+        onPageMeasuredRef.current = null;
+        container.scrollTop = el.offsetTop;
+        setPage(target);
+        currentPageRef.current = target;
+        currentPageOffsetRef.current = 0;
+        currentPageOffsetRatioRef.current = 0;
+        savePdfViewState(viewStateKey, { page: target, scrollTop: container.scrollTop });
+        initialScrollPageRef.current = null;
+        hasRestoredInitialScrollRef.current = true;
+      }
+    }, 4_000);
 
     return () => {
-      ro.disconnect();
-      window.clearTimeout(timeoutId);
-      // No-op marker so the closure stops invoking after unmount.
       done = true;
+      onPageMeasuredRef.current = null;
+      if (rafId != null) window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timeoutId);
     };
-  }, [pdfDoc]);
+  }, [pdfDoc, intrinsicPageSize, viewStateKey]);
+
+  const handlePageMeasured = useCallback((pageNum: number) => {
+    measuredPagesRef.current.add(pageNum);
+    onPageMeasuredRef.current?.(pageNum);
+  }, []);
+
+  const captureCurrentAnchor = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const containerTop = container.scrollTop;
+    let bestPage = 1;
+    let bestOffsetTop = 0;
+    let bestHeight = 1;
+    let fallbackPage = 1;
+    let fallbackDelta = Infinity;
+    for (const [pageNum, el] of pageRefs.current.entries()) {
+      if (el.offsetTop <= containerTop + 4 && el.offsetTop >= bestOffsetTop) {
+        bestPage = pageNum;
+        bestOffsetTop = el.offsetTop;
+        bestHeight = Math.max(1, el.offsetHeight);
+      }
+      const delta = Math.abs(el.offsetTop - containerTop);
+      if (delta < fallbackDelta) {
+        fallbackDelta = delta;
+        fallbackPage = pageNum;
+      }
+    }
+    if (bestOffsetTop === 0 && containerTop > 4) {
+      const fallbackEl = pageRefs.current.get(fallbackPage);
+      bestPage = fallbackPage;
+      bestOffsetTop = fallbackEl?.offsetTop ?? 0;
+      bestHeight = Math.max(1, fallbackEl?.offsetHeight ?? 1);
+    }
+    const offset = Math.max(0, containerTop - bestOffsetTop);
+    currentPageRef.current = bestPage;
+    currentPageOffsetRef.current = offset;
+    currentPageOffsetRatioRef.current = Math.max(0, Math.min(1, offset / bestHeight));
+  }, []);
+
+  useEffect(() => {
+    const refreshEvidence = (event: Event) => {
+      const detail = (event as CustomEvent<{ conceptId?: number }>).detail;
+      if (detail?.conceptId !== conceptId) return;
+      captureCurrentAnchor();
+      void window.api.concepts.sourceEvidence(conceptId).then(next => {
+        if (next) setData(next);
+      });
+    };
+    window.addEventListener('starcall:equations-changed', refreshEvidence);
+    return () => window.removeEventListener('starcall:equations-changed', refreshEvidence);
+  }, [captureCurrentAnchor, conceptId]);
 
   // Track currently visible page based on scroll position.
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    const containerTop = container.scrollTop;
-    let bestPage = 1;
-    let bestDelta = Infinity;
-    for (const [pageNum, el] of pageRefs.current.entries()) {
-      const delta = Math.abs(el.offsetTop - containerTop);
-      if (delta < bestDelta) {
-        bestDelta = delta;
-        bestPage = pageNum;
-      }
-    }
+    captureCurrentAnchor();
+    const bestPage = currentPageRef.current;
     setPage(prev => (prev === bestPage ? prev : bestPage));
-  }, []);
+    if (hasRestoredInitialScrollRef.current) {
+      savePdfViewState(viewStateKey, { page: bestPage, scrollTop: container.scrollTop });
+    }
+  }, [captureCurrentAnchor, viewStateKey]);
+
+  const reanchorCurrentPage = useCallback(() => {
+    if (!pdfDoc || initialScrollPageRef.current != null) return;
+    if (!hasRestoredInitialScrollRef.current) return;
+    const target = currentPageRef.current;
+    window.requestAnimationFrame(() => {
+      const el = pageRefs.current.get(target);
+      if (!el) return;
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      const offset = Math.min(
+        Math.max(0, el.offsetHeight - 1),
+        currentPageOffsetRatioRef.current * Math.max(1, el.offsetHeight),
+      );
+      currentPageOffsetRef.current = offset;
+      container.scrollTop = el.offsetTop + offset;
+      setPage(target);
+      if (container) savePdfViewState(viewStateKey, { page: target, scrollTop: container.scrollTop });
+    });
+  }, [pdfDoc, viewStateKey]);
+
+  // Layout changes (closing side rails, resizing split panes, zoom changes) alter
+  // every page's pixel height. Re-anchor by logical page so the header and the
+  // visible PDF page cannot drift apart.
+  useLayoutEffect(() => {
+    if (!pdfDoc || initialScrollPageRef.current != null) return;
+    if (!hasRestoredInitialScrollRef.current) return;
+    if (scaleBeforeResizeRef.current === renderScale) return;
+    scaleBeforeResizeRef.current = renderScale;
+    reanchorCurrentPage();
+  }, [pdfDoc, renderScale, reanchorCurrentPage]);
+
+  useLayoutEffect(() => {
+    reanchorCurrentPage();
+  }, [stabilityKey, reanchorCurrentPage]);
+
+  // Electron/Chromium may restore scroll containers after focus/visibility
+  // changes. Trust the logical page we tracked, then put the PDF stack back
+  // under that label when the window becomes active again.
+  useEffect(() => {
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'hidden') return;
+      reanchorCurrentPage();
+    };
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    return () => {
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+  }, [reanchorCurrentPage]);
 
   const registerPageRef = useCallback((pageNum: number, el: HTMLDivElement | null) => {
     if (el) pageRefs.current.set(pageNum, el);
@@ -221,12 +378,25 @@ export default function PdfViewer({ conceptId, conceptName }: Props) {
 
   function scrollToPage(targetPage: number): void {
     const el = pageRefs.current.get(targetPage);
-    if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    if (el) {
+      const container = scrollContainerRef.current;
+      if (container) container.scrollTop = el.offsetTop;
+      else el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      setPage(targetPage);
+      currentPageRef.current = targetPage;
+      currentPageOffsetRef.current = 0;
+      currentPageOffsetRatioRef.current = 0;
+      savePdfViewState(viewStateKey, { page: targetPage, scrollTop: container?.scrollTop ?? el.offsetTop });
+    }
   }
 
-  function zoomIn():   void { setUserZoom(z => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2))); }
-  function zoomOut():  void { setUserZoom(z => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2))); }
-  function zoomReset(): void { setUserZoom(1.0); }
+  function zoomIn():   void { captureCurrentAnchor(); setUserZoom(z => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2))); }
+  function zoomOut():  void { captureCurrentAnchor(); setUserZoom(z => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2))); }
+  function zoomReset(): void {
+    captureCurrentAnchor();
+    computeFitScaleFromContainer();
+    setUserZoom(1.0);
+  }
 
   if (loading) {
     return <div style={panelStyle}>Loading source…</div>;
@@ -287,7 +457,7 @@ export default function PdfViewer({ conceptId, conceptName }: Props) {
       }}>
         {evidenceRailCollapsed ? (
           <button
-            onClick={() => setEvidenceRailCollapsed(false)}
+            onClick={() => { captureCurrentAnchor(); setEvidenceRailCollapsed(false); }}
             title={`Evidence (${data.evidence.length}) - click to expand`}
             style={{
               marginTop: 8, background: 'transparent', border: '1px solid #1f2937', borderRadius: 3,
@@ -305,7 +475,7 @@ export default function PdfViewer({ conceptId, conceptName }: Props) {
                   Evidence ({data.evidence.length})
                 </div>
                 <button
-                  onClick={() => setEvidenceRailCollapsed(true)}
+                  onClick={() => { captureCurrentAnchor(); setEvidenceRailCollapsed(true); }}
                   title="Minimize evidence rail"
                   style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '2px 7px', color: '#6b7280', fontSize: 11, cursor: 'pointer' }}
                 >
@@ -401,13 +571,18 @@ export default function PdfViewer({ conceptId, conceptName }: Props) {
             padding: 0, gap: 8,
           }}
         >
-          {pdfDoc && intrinsicPageWidth != null && Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
+          {pdfDoc && intrinsicPageSize != null && Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
             <PdfPage
               key={pageNum}
               doc={pdfDoc}
               pageNum={pageNum}
               scale={renderScale}
+              fallbackSize={{
+                width: intrinsicPageSize.width * renderScale,
+                height: intrinsicPageSize.height * renderScale,
+              }}
               registerRef={registerPageRef}
+              onMeasured={handlePageMeasured}
               scrollContainerRef={scrollContainerRef}
             />
           ))}
@@ -422,12 +597,14 @@ export default function PdfViewer({ conceptId, conceptName }: Props) {
 // selectable text layer when scrolled into view, and re-renders whenever
 // the scale changes (fit-to-width recompute or user zoom).
 function PdfPage({
-  doc, pageNum, scale, registerRef, scrollContainerRef,
+  doc, pageNum, scale, fallbackSize, registerRef, onMeasured, scrollContainerRef,
 }: {
   doc: pdfjs.PDFDocumentProxy;
   pageNum: number;
   scale: number;
+  fallbackSize: { width: number; height: number };
   registerRef: (pageNum: number, el: HTMLDivElement | null) => void;
+  onMeasured?: (pageNum: number) => void;
   scrollContainerRef: React.RefObject<HTMLDivElement>;
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -437,10 +614,12 @@ function PdfPage({
   const textTaskRef = useRef<{ cancel: () => void } | null>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [visible, setVisible] = useState(false);
+  const boxSize = size ?? fallbackSize;
 
   // Recompute reserved size whenever scale changes.
   useEffect(() => {
     let cancelled = false;
+    setSize(null);
     (async () => {
       try {
         const p = await doc.getPage(pageNum);
@@ -453,6 +632,14 @@ function PdfPage({
     })();
     return () => { cancelled = true; };
   }, [doc, pageNum, scale]);
+
+  // Fire onMeasured AFTER the DOM commit so the parent can read a non-zero
+  // offsetHeight on the wrapper. useLayoutEffect runs synchronously after
+  // size state is applied — using a plain useEffect (or calling from
+  // inside the async block above) would race ahead of the browser's layout.
+  useLayoutEffect(() => {
+    if (size && onMeasured) onMeasured(pageNum);
+  }, [size, onMeasured, pageNum]);
 
   // Visibility tracking via IntersectionObserver scoped to the scroll container.
   // ±400px rootMargin gives a smoother scroll.
@@ -468,7 +655,7 @@ function PdfPage({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [scrollContainerRef, size]);
+  }, [scrollContainerRef, boxSize.width, boxSize.height]);
 
   // Render canvas + selectable text layer when visible at current scale.
   useEffect(() => {
@@ -544,8 +731,8 @@ function PdfPage({
       }}
       data-page-num={pageNum}
       style={{
-        width: size?.width,
-        height: size?.height,
+        width: boxSize.width,
+        height: boxSize.height,
         background: '#fff',
         boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
         position: 'relative',
@@ -593,6 +780,33 @@ function Header({ data, conceptName, extras }: { data: SourceEvidence; conceptNa
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>{extras}</div>
     </div>
   );
+}
+
+function readSavedPdfViewState(key: string): SavedPdfViewState | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SavedPdfViewState>;
+    if (!Number.isFinite(parsed.page) || !Number.isFinite(parsed.scrollTop)) return null;
+    return { page: Number(parsed.page), scrollTop: Math.max(0, Number(parsed.scrollTop)) };
+  } catch {
+    return null;
+  }
+}
+
+function savePdfViewState(key: string, state: SavedPdfViewState): void {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({
+      page: Math.max(1, Math.floor(state.page)),
+      scrollTop: Math.max(0, Math.floor(state.scrollTop)),
+    }));
+  } catch {
+    // Session storage is best-effort; source navigation should still work.
+  }
+}
+
+function clampPage(page: number, totalPages: number): number {
+  return Math.max(1, Math.min(Math.floor(page), Math.max(1, totalPages)));
 }
 
 const navBtnEvidenceStyle: React.CSSProperties = {

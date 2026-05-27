@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../../core/infra/db';
 import { createSource } from './sources';
-import { createConcept, searchConceptsByPrefix, searchConceptsByPrefixForConcept } from './concepts';
+import { createConcept, searchConceptsByPrefix, searchConceptsByPrefixForConcept, searchConceptsByPrefixGlobal } from './concepts';
 
 function seed(db: ReturnType<typeof openDb>) {
   const source = createSource(db, { filename: 'b.txt', file_path: 'b.txt' });
@@ -114,12 +114,29 @@ describe('searchConceptsByPrefix', () => {
 });
 
 describe('searchConceptsByPrefixForConcept', () => {
-  it('resolves source from the conceptId and excludes self', () => {
+  it('searches across sources and excludes self', () => {
     const db = openDb(':memory:');
     const sourceId = seed(db);
+    const sourceB = createSource(db, { filename: 'other.txt', file_path: 'other.txt' });
+    createConcept(db, {
+      source_id: sourceB.id,
+      name: 'Retina',
+      slug: 'retina',
+      importance: 'core',
+      definition_text: '',
+      why_exists: '',
+      what_breaks: '',
+      where_reappears: [],
+      chunk_ids: [],
+      section_path: [],
+      exam_value: 0,
+      misconception_risk: 0,
+      centrality_score: 0.99,
+    });
     const self = searchConceptsByPrefix(db, sourceId, 'retriever')[0];
     const hits = searchConceptsByPrefixForConcept(db, self.id, 'ret');
     expect(hits.find(h => h.id === self.id)).toBeUndefined();
+    expect(hits.find(h => h.name === 'Retina')?.source_filename).toBe('other.txt');
     expect(hits.length).toBeGreaterThan(0);
     db.close();
   });
@@ -128,6 +145,34 @@ describe('searchConceptsByPrefixForConcept', () => {
     const db = openDb(':memory:');
     seed(db);
     expect(searchConceptsByPrefixForConcept(db, 99999, 'ret')).toEqual([]);
+    db.close();
+  });
+});
+
+describe('searchConceptsByPrefixGlobal', () => {
+  it('returns cross-source hits with source filenames', () => {
+    const db = openDb(':memory:');
+    seed(db);
+    const sourceB = createSource(db, { filename: 'bible.pdf', file_path: 'bible.pdf' });
+    createConcept(db, {
+      source_id: sourceB.id,
+      name: 'Genesis',
+      slug: 'genesis',
+      importance: 'supporting',
+      definition_text: '',
+      why_exists: '',
+      what_breaks: '',
+      where_reappears: [],
+      chunk_ids: [],
+      section_path: [],
+      exam_value: 0,
+      misconception_risk: 0,
+      centrality_score: 0.4,
+    });
+    expect(searchConceptsByPrefixGlobal(db, 'gen').find(h => h.name === 'Genesis')).toMatchObject({
+      name: 'Genesis',
+      source_filename: 'bible.pdf',
+    });
     db.close();
   });
 });

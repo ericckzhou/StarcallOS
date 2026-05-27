@@ -93,6 +93,50 @@ export function promoteCandidate(db: DatabaseSync, candidateId: number): Concept
   return concept;
 }
 
+export function createManualConcept(
+  db: DatabaseSync,
+  input: {
+    sourceId: number;
+    name: string;
+    importance?: ConceptImportance;
+    definition_text?: string;
+    why_exists?: string;
+    what_breaks?: string;
+  },
+): Concept {
+  const name = input.name.trim();
+  if (!name) throw new Error('Concept name cannot be empty.');
+
+  const slug = slugify(name) || `manual-${Date.now()}`;
+  const existing = getConceptBySlug(db, input.sourceId, slug);
+  if (existing) return existing;
+
+  const concept = createConcept(db, {
+    source_id: input.sourceId,
+    name,
+    slug,
+    importance: input.importance ?? 'supporting',
+    definition_text: input.definition_text?.trim() ?? '',
+    why_exists: input.why_exists?.trim() ?? '',
+    what_breaks: input.what_breaks?.trim() ?? '',
+    where_reappears: [],
+    chunk_ids: [],
+    section_path: [],
+    exam_value: 0,
+    misconception_risk: 0,
+    centrality_score: 0,
+  });
+
+  upsertMastery(db, concept.id, 0);
+  emitEvent(
+    db,
+    'concept.created',
+    { conceptId: concept.id, sourceId: input.sourceId, name, manual: true },
+    { entityType: 'concept', entityId: concept.id },
+  );
+  return concept;
+}
+
 export function rejectCandidate(db: DatabaseSync, candidateId: number): void {
   const cand = getConceptCandidateById(db, candidateId);
   if (!cand) return;

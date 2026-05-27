@@ -177,7 +177,14 @@ export default function App() {
         </div>
       ) : topLevel === 'review' ? (
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
-          <ReviewQueue onSelect={handleReviewSelect} selectedConcept={selectedConcept} />
+          <ReviewQueue
+            onSelect={handleReviewSelect}
+            selectedConcept={selectedConcept}
+            onDeleted={() => {
+              setSelectedConcept(null);
+              setConceptsRefreshKey(k => k + 1);
+            }}
+          />
           <DetailPane
             concept={selectedConcept}
             profile={profile}
