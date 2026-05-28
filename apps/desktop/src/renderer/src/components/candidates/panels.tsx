@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import LatexMath from '../LatexMath';
+import { InlineEditor, type FieldSpec } from './editing';
 import {
   BUCKET_COLOR,
   RELATION_COLOR,
@@ -310,6 +311,13 @@ function RelationRow({ relation: r, fromKnown, toKnown, color, busy, setBusy, se
   const [editing, setEditing] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [draft, setDraft] = useState({ from: r.from, to: r.to, kind: r.kind, quote: r.quote, page: String(r.page) });
+  // Always start an edit (and cancel) from the CURRENT item values so a prior
+  // cancelled edit can never leak into the next Save.
+  function resetDraft(): void {
+    setDraft({ from: r.from, to: r.to, kind: r.kind, quote: r.quote, page: String(r.page) });
+  }
+  function openEdit(): void { resetDraft(); setEditing(true); }
+  function cancelEdit(): void { resetDraft(); setEditing(false); }
   async function save(): Promise<void> {
     setBusy(r.id); setErr(null);
     try {
@@ -332,7 +340,7 @@ function RelationRow({ relation: r, fromKnown, toKnown, color, busy, setBusy, se
     }
   }
   if (editing) {
-    return <RelationEditor draft={draft} setDraft={setDraft} busy={busy} onSave={() => void save()} onCancel={() => setEditing(false)} />;
+    return <RelationEditor draft={draft} setDraft={setDraft} busy={busy} onSave={() => void save()} onCancel={cancelEdit} />;
   }
   return (
     <div
@@ -362,13 +370,21 @@ function RelationRow({ relation: r, fromKnown, toKnown, color, busy, setBusy, se
           </div>
         </div>
         <RowActions page={r.page} active={actionsOpen || busy}>
-          <RowButton label="Edit" variant="secondary" disabled={busy} onClick={() => setEditing(true)} />
+          <RowButton label="Edit" variant="secondary" disabled={busy} onClick={openEdit} />
           <RowButton label="Delete" variant="danger" disabled={busy} onClick={() => void remove()} />
         </RowActions>
       </div>
     </div>
   );
 }
+
+const RELATION_FIELDS: readonly FieldSpec[] = [
+  { key: 'from', placeholder: 'from concept' },
+  { key: 'kind', placeholder: 'kind', kind: 'select', options: RELATION_KINDS, optionLabel: k => k.replace(/_/g, ' ') },
+  { key: 'to', placeholder: 'to concept' },
+  { key: 'page', placeholder: 'page', kind: 'number', span: 'fixed', width: 70 },
+  { key: 'quote', placeholder: 'evidence quote', span: 'full' },
+];
 
 function RelationEditor({ draft, setDraft, busy, onSave, onCancel }: {
   draft: { from: string; to: string; kind: string; quote: string; page: string };
@@ -378,17 +394,14 @@ function RelationEditor({ draft, setDraft, busy, onSave, onCancel }: {
   onCancel: () => void;
 }) {
   return (
-    <div style={editorStyle}>
-      <input value={draft.from} onChange={e => setDraft({ ...draft, from: e.target.value })} placeholder="from concept" style={inputStyle} />
-      <select value={draft.kind} onChange={e => setDraft({ ...draft, kind: e.target.value })} style={inputStyle}>
-        {RELATION_KINDS.map(k => <option key={k} value={k}>{k.replace(/_/g, ' ')}</option>)}
-      </select>
-      <input value={draft.to} onChange={e => setDraft({ ...draft, to: e.target.value })} placeholder="to concept" style={inputStyle} />
-      <input value={draft.page} onChange={e => setDraft({ ...draft, page: e.target.value })} placeholder="page" style={{ ...inputStyle, width: 70, flex: '0 0 70px' }} />
-      <input value={draft.quote} onChange={e => setDraft({ ...draft, quote: e.target.value })} placeholder="evidence quote" style={{ ...inputStyle, flexBasis: '100%' }} />
-      <RowButton label={busy ? 'Saving...' : 'Save'} variant="primary" disabled={busy} onClick={onSave} />
-      <RowButton label="Cancel" variant="secondary" disabled={busy} onClick={onCancel} />
-    </div>
+    <InlineEditor
+      fields={RELATION_FIELDS}
+      draft={draft as unknown as Record<string, string>}
+      setDraft={d => setDraft(d as unknown as typeof draft)}
+      busy={busy}
+      onSave={onSave}
+      onCancel={onCancel}
+    />
   );
 }
 
@@ -467,6 +480,11 @@ function MisconceptionRow({ item: m, busy, setBusy, setErr, onUpdate, onDelete }
   const [editing, setEditing] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [draft, setDraft] = useState({ quote: m.quote, page: String(m.page), section_path: m.section_path.join(' > ') });
+  function resetDraft(): void {
+    setDraft({ quote: m.quote, page: String(m.page), section_path: m.section_path.join(' > ') });
+  }
+  function openEdit(): void { resetDraft(); setEditing(true); }
+  function cancelEdit(): void { resetDraft(); setEditing(false); }
   async function save(): Promise<void> {
     setBusy(m.id); setErr(null);
     try {
@@ -489,7 +507,7 @@ function MisconceptionRow({ item: m, busy, setBusy, setErr, onUpdate, onDelete }
     }
   }
   if (editing) {
-    return <MisconceptionEditor draft={draft} setDraft={setDraft} busy={busy} onSave={() => void save()} onCancel={() => setEditing(false)} />;
+    return <MisconceptionEditor draft={draft} setDraft={setDraft} busy={busy} onSave={() => void save()} onCancel={cancelEdit} />;
   }
   return (
     <div
@@ -522,13 +540,19 @@ function MisconceptionRow({ item: m, busy, setBusy, setErr, onUpdate, onDelete }
           )}
         </div>
         <RowActions page={m.page} active={actionsOpen || busy}>
-          <RowButton label="Edit" variant="secondary" disabled={busy} onClick={() => setEditing(true)} />
+          <RowButton label="Edit" variant="secondary" disabled={busy} onClick={openEdit} />
           <RowButton label="Delete" variant="danger" disabled={busy} onClick={() => void remove()} />
         </RowActions>
       </div>
     </div>
   );
 }
+
+const MISCONCEPTION_FIELDS: readonly FieldSpec[] = [
+  { key: 'quote', placeholder: 'misconception phrase', span: 'full' },
+  { key: 'page', placeholder: 'page', kind: 'number', span: 'fixed', width: 80 },
+  { key: 'section_path', placeholder: 'section > subsection' },
+];
 
 function MisconceptionEditor({ draft, setDraft, busy, onSave, onCancel }: {
   draft: { quote: string; page: string; section_path: string };
@@ -538,13 +562,14 @@ function MisconceptionEditor({ draft, setDraft, busy, onSave, onCancel }: {
   onCancel: () => void;
 }) {
   return (
-    <div style={editorStyle}>
-      <input value={draft.quote} onChange={e => setDraft({ ...draft, quote: e.target.value })} placeholder="misconception phrase" style={{ ...inputStyle, flexBasis: '100%' }} />
-      <input value={draft.page} onChange={e => setDraft({ ...draft, page: e.target.value })} placeholder="page" style={{ ...inputStyle, width: 80, flex: '0 0 80px' }} />
-      <input value={draft.section_path} onChange={e => setDraft({ ...draft, section_path: e.target.value })} placeholder="section > subsection" style={inputStyle} />
-      <RowButton label={busy ? 'Saving...' : 'Save'} variant="primary" disabled={busy} onClick={onSave} />
-      <RowButton label="Cancel" variant="secondary" disabled={busy} onClick={onCancel} />
-    </div>
+    <InlineEditor
+      fields={MISCONCEPTION_FIELDS}
+      draft={draft as unknown as Record<string, string>}
+      setDraft={d => setDraft(d as unknown as typeof draft)}
+      busy={busy}
+      onSave={onSave}
+      onCancel={onCancel}
+    />
   );
 }
 
@@ -633,6 +658,17 @@ function EquationRow({ eq, busy, setBusy, setErr, onUpdate, onDelete }: {
     attached_term: eq.attached_term ?? '',
     section_path: eq.section_path.join(' > '),
   });
+  function resetDraft(): void {
+    setDraft({
+      latex: eq.latex,
+      page: String(eq.page),
+      variables: eq.variables.join(', '),
+      attached_term: eq.attached_term ?? '',
+      section_path: eq.section_path.join(' > '),
+    });
+  }
+  function openEdit(): void { resetDraft(); setEditing(true); }
+  function cancelEdit(): void { resetDraft(); setEditing(false); }
   async function save(): Promise<void> {
     if (!onUpdate || !setBusy || !setErr) return;
     setBusy(eq.id); setErr(null);
@@ -663,7 +699,7 @@ function EquationRow({ eq, busy, setBusy, setErr, onUpdate, onDelete }: {
     }
   }
   if (editing) {
-    return <EquationEditor draft={draft} setDraft={setDraft} busy={!!busy} onSave={() => void save()} onCancel={() => setEditing(false)} />;
+    return <EquationEditor draft={draft} setDraft={setDraft} busy={!!busy} onSave={() => void save()} onCancel={cancelEdit} />;
   }
   return (
     <div
@@ -691,7 +727,7 @@ function EquationRow({ eq, busy, setBusy, setErr, onUpdate, onDelete }: {
         </div>
         {(onUpdate || onDelete) && (
           <RowActions page={eq.page} active={actionsOpen || !!busy}>
-            {onUpdate && <RowButton label="Edit" variant="secondary" disabled={!!busy} onClick={() => setEditing(true)} />}
+            {onUpdate && <RowButton label="Edit" variant="secondary" disabled={!!busy} onClick={openEdit} />}
             {onDelete && <RowButton label="Delete" variant="danger" disabled={!!busy} onClick={() => void remove()} />}
           </RowActions>
         )}
@@ -699,6 +735,14 @@ function EquationRow({ eq, busy, setBusy, setErr, onUpdate, onDelete }: {
     </div>
   );
 }
+
+const EQUATION_FIELDS: readonly FieldSpec[] = [
+  { key: 'latex', placeholder: 'equation / latex', span: 'full' },
+  { key: 'attached_term', placeholder: 'attached concept / section' },
+  { key: 'page', placeholder: 'page', kind: 'number', span: 'fixed', width: 80 },
+  { key: 'variables', placeholder: 'vars: x, y' },
+  { key: 'section_path', placeholder: 'section > subsection' },
+];
 
 function EquationEditor({ draft, setDraft, busy, onSave, onCancel }: {
   draft: { latex: string; page: string; variables: string; attached_term: string; section_path: string };
@@ -708,15 +752,15 @@ function EquationEditor({ draft, setDraft, busy, onSave, onCancel }: {
   onCancel: () => void;
 }) {
   return (
-    <div style={editorStyle}>
-      <input value={draft.latex} onChange={e => setDraft({ ...draft, latex: e.target.value })} placeholder="equation / latex" style={{ ...inputStyle, flexBasis: '100%' }} />
-      <input value={draft.attached_term} onChange={e => setDraft({ ...draft, attached_term: e.target.value })} placeholder="attached concept / section" style={inputStyle} />
-      <input value={draft.page} onChange={e => setDraft({ ...draft, page: e.target.value })} placeholder="page" style={{ ...inputStyle, width: 80, flex: '0 0 80px' }} />
-      <input value={draft.variables} onChange={e => setDraft({ ...draft, variables: e.target.value })} placeholder="vars: x, y" style={inputStyle} />
-      <input value={draft.section_path} onChange={e => setDraft({ ...draft, section_path: e.target.value })} placeholder="section > subsection" style={inputStyle} />
-      <RowButton label={busy ? 'Saving...' : 'Save'} variant="primary" disabled={busy} onClick={onSave} />
-      <RowButton label="Cancel" variant="secondary" disabled={busy} onClick={onCancel} />
-    </div>
+    <InlineEditor
+      fields={EQUATION_FIELDS}
+      draft={draft as unknown as Record<string, string>}
+      setDraft={d => setDraft(d as unknown as typeof draft)}
+      busy={busy}
+      onSave={onSave}
+      onCancel={onCancel}
+      preview={draft.latex.trim() ? <LatexMath value={draft.latex} size={14} /> : null}
+    />
   );
 }
 
@@ -825,29 +869,6 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 function ErrorLine({ message }: { message: string }) {
   return <div style={{ padding: '8px 16px', color: '#fca5a5', fontSize: 11, borderBottom: '1px solid rgba(31, 41, 55, 0.55)', background: 'rgba(127, 29, 29, 0.08)' }}>{message}</div>;
 }
-
-const editorStyle: React.CSSProperties = {
-  borderBottom: '1px solid rgba(31, 41, 55, 0.55)',
-  padding: '12px 16px',
-  display: 'flex',
-  flexWrap: 'wrap',
-  alignItems: 'center',
-  gap: 8,
-  background: 'rgba(8, 13, 30, 0.44)',
-  backdropFilter: 'blur(12px)',
-};
-
-const inputStyle: React.CSSProperties = {
-  flex: '1 1 160px',
-  minWidth: 0,
-  background: 'rgba(15, 23, 42, 0.42)',
-  border: '1px solid rgba(148, 163, 184, 0.20)',
-  borderRadius: 5,
-  color: '#dbeafe',
-  fontSize: 11,
-  padding: '6px 8px',
-  outline: 'none',
-};
 
 const candidateRowStyle: React.CSSProperties = {
   borderBottom: '1px solid rgba(31, 41, 55, 0.46)',

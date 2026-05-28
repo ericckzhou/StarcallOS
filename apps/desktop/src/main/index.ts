@@ -484,6 +484,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CONCEPTS_EQUATION_CREATE, (_e, args: { conceptId: number; latex: string; page?: number; variables?: string[] }) =>
     createManualEquationForConcept(db, args),
   );
+  ipcMain.handle(IPC.CONCEPTS_EQUATION_UPDATE, (_e, args: { equationId: number; latex: string; page?: number; variables?: string[] }) =>
+    updateEquationCandidate(db, args.equationId, { latex: args.latex, page: args.page, variables: args.variables }),
+  );
   ipcMain.handle(IPC.CONCEPTS_EQUATION_DELETE, (_e, equationId: number) => {
     deleteEquationCandidate(db, equationId);
     return { ok: true as const };

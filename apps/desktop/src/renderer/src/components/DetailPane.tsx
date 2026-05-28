@@ -251,6 +251,15 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   }
 
   const stage = mastery?.compression_stage ?? 0;
+  // Header evidence-kind chips. evidenceKinds is a snapshot from sourceEvidence
+  // at load; the "equation" kind is derived live from the equations state so
+  // adding/deleting an equation updates the chip without a refetch.
+  const headerKinds = (() => {
+    const set = new Set(evidenceKinds);
+    if (equations.length > 0) set.add('equation');
+    else set.delete('equation');
+    return [...set];
+  })();
   const TAB_LABELS = {
     overview: 'Overview',
     challenge: 'Challenges',
@@ -308,7 +317,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
               <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: `${IMP_COLOR[concept.importance] ?? '#374151'}22`, color: IMP_COLOR[concept.importance] ?? '#6b7280', flexShrink: 0 }}>
                 {concept.importance}
               </span>
-              {evidenceKinds.map(k => (
+              {headerKinds.map(k => (
                 <span key={k} style={{
                   fontSize: 10, padding: '2px 7px', borderRadius: 3,
                   border: `1px solid ${EVIDENCE_KIND_COLOR[k] ?? '#374151'}`,
@@ -361,7 +370,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
           <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: `${IMP_COLOR[concept.importance] ?? '#374151'}22`, color: IMP_COLOR[concept.importance] ?? '#6b7280' }}>
             {concept.importance}
           </span>
-          {evidenceKinds.map(k => (
+          {headerKinds.map(k => (
             <span key={k} style={{
               fontSize: 10, padding: '2px 7px', borderRadius: 3,
               border: `1px solid ${EVIDENCE_KIND_COLOR[k] ?? '#374151'}`,
@@ -427,6 +436,51 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
   const [equationVarsDraft, setEquationVarsDraft] = useState('');
   const [equationBusy, setEquationBusy] = useState(false);
   const [equationErr, setEquationErr] = useState<string | null>(null);
+  const [editingEquationId, setEditingEquationId] = useState<number | null>(null);
+  const [editEqLatex, setEditEqLatex] = useState('');
+  const [editEqPage, setEditEqPage] = useState('');
+  const [editEqVars, setEditEqVars] = useState('');
+
+  function startEditEquation(eq: Equation): void {
+    setEquationErr(null);
+    setEditingEquationId(eq.id);
+    setEditEqLatex(eq.latex);
+    setEditEqPage(String(eq.page));
+    setEditEqVars(eq.variables.join(', '));
+  }
+
+  function cancelEditEquation(): void {
+    setEditingEquationId(null);
+  }
+
+  async function saveEditEquation(eq: Equation): Promise<void> {
+    const latex = editEqLatex.trim();
+    if (!latex) { setEquationErr('Equation cannot be empty.'); return; }
+    setEquationBusy(true);
+    setEquationErr(null);
+    try {
+      const page = editEqPage.trim() ? Number(editEqPage) : undefined;
+      if (page !== undefined && (!Number.isFinite(page) || page < 0)) {
+        throw new Error('Page must be a positive number.');
+      }
+      const variables = editEqVars.split(',').map(v => v.trim()).filter(Boolean);
+      const updated = await window.api.concepts.equationUpdate({
+        equationId: eq.id,
+        latex,
+        page,
+        variables: variables.length ? variables : undefined,
+      }) as Equation;
+      onEquationsChange(
+        equations.map(item => (item.id === eq.id ? updated : item)).sort((a, b) => a.page - b.page || a.id - b.id),
+      );
+      window.dispatchEvent(new CustomEvent('starcall:equations-changed', { detail: { conceptId: concept.id } }));
+      setEditingEquationId(null);
+    } catch (e) {
+      setEquationErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEquationBusy(false);
+    }
+  }
   const [pendingEquationDeletes, setPendingEquationDeletes] = useState<Equation[]>([]);
   const equationsRef = useRef(equations);
   const conceptIdRef = useRef(concept.id);
@@ -802,34 +856,62 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
           )}
 
           {equations.length > 0 && equations.map(eq => (
-              <div key={eq.id} style={{ position: 'relative', background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 6, padding: '10px 38px 10px 12px' }}>
-                <button
-                  onClick={() => void deleteEquation(eq)}
-                  disabled={equationBusy}
-                  title="Delete equation"
-                  style={{
-                    position: 'absolute',
-                    top: 8,
-                    right: 8,
-                    width: 22,
-                    height: 22,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: 'transparent',
-                    border: '1px solid #3f1515',
-                    borderRadius: 4,
-                    color: '#fca5a5',
-                    padding: 0,
-                    cursor: equationBusy ? 'wait' : 'pointer',
-                    fontSize: 13,
-                    lineHeight: 1,
-                    opacity: equationBusy ? 0.5 : 1,
-                  }}
+              editingEquationId === eq.id ? (
+                <div key={eq.id} style={{ background: '#0d0d16', border: '1px solid #312e81', borderRadius: 6, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <input
+                    value={editEqLatex}
+                    onChange={e => setEditEqLatex(e.target.value)}
+                    placeholder="LaTeX, e.g. 100 * 500M => 50B"
+                    autoFocus
+                    style={eqEditInput}
+                  />
+                  <LatexMath value={editEqLatex || '\\;'} size={14} />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input value={editEqPage} onChange={e => setEditEqPage(e.target.value)} placeholder="page" style={{ ...eqEditInput, width: 70 }} />
+                    <input value={editEqVars} onChange={e => setEditEqVars(e.target.value)} placeholder="vars (comma-separated)" style={{ ...eqEditInput, flex: 1 }} />
+                  </div>
+                  {equationErr && <div style={{ fontSize: 11, color: '#fca5a5' }}>{equationErr}</div>}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => void saveEditEquation(eq)} disabled={equationBusy} style={btnSecondary(equationBusy)}>
+                      {equationBusy ? 'Saving…' : 'Save'}
+                    </button>
+                    <button onClick={cancelEditEquation} disabled={equationBusy} style={btnTiny(equationBusy)}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+              <div key={eq.id} style={{ position: 'relative', background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 6, padding: '10px 70px 10px 12px' }}>
+                <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={() => startEditEquation(eq)}
+                    disabled={equationBusy}
+                    title="Edit equation"
+                    style={{
+                      width: 36, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      background: 'transparent', border: '1px solid #1f2937', borderRadius: 4,
+                      color: '#9ca3af', padding: 0, cursor: equationBusy ? 'wait' : 'pointer', fontSize: 11,
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => void deleteEquation(eq)}
+                    disabled={equationBusy}
+                    title="Delete equation"
+                    style={{
+                      width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      background: 'transparent', border: '1px solid #3f1515', borderRadius: 4,
+                      color: '#fca5a5', padding: 0, cursor: equationBusy ? 'wait' : 'pointer',
+                      fontSize: 13, lineHeight: 1, opacity: equationBusy ? 0.5 : 1,
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+                <div
+                  onClick={() => startEditEquation(eq)}
+                  title="Click to edit"
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: eq.variables.length ? 6 : 0, flexWrap: 'wrap', cursor: 'pointer' }}
                 >
-                  x
-                </button>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: eq.variables.length ? 6 : 0, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 10, color: '#4b5563' }}>p.{eq.page}</span>
                   <LatexMath value={eq.latex} size={14} />
                 </div>
@@ -839,6 +921,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                   </div>
                 )}
               </div>
+              )
             ))}
         </div>
       </Section>
@@ -1001,6 +1084,11 @@ function EditableSection({ title, value, saving, onChange, onSave, placeholder }
   );
 }
 
+const eqEditInput: React.CSSProperties = {
+  background: 'rgba(13,13,22,0.6)', border: '1px solid #312e81', borderRadius: 4,
+  padding: '6px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none',
+  fontFamily: 'inherit', boxSizing: 'border-box',
+};
 function btnSecondary(busy: boolean): React.CSSProperties {
   return {
     background: 'transparent', border: '1px solid #4338ca', borderRadius: 4,

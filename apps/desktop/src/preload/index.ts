@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('api', {
     equations: (conceptId: number) => ipcRenderer.invoke('concepts:equations', conceptId),
     equationCreate: (args: { conceptId: number; latex: string; page?: number; variables?: string[] }) =>
       ipcRenderer.invoke('concepts:equationCreate', args),
+    equationUpdate: (args: { equationId: number; latex: string; page?: number; variables?: string[] }) =>
+      ipcRenderer.invoke('concepts:equationUpdate', args),
     equationDelete: (equationId: number) => ipcRenderer.invoke('concepts:equationDelete', equationId),
     ensureTasks: (conceptId: number) => ipcRenderer.invoke('concepts:ensureTasks', conceptId),
     regenerateTasks: (conceptId: number) => ipcRenderer.invoke('concepts:regenerateTasks', conceptId),
