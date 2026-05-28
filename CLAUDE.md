@@ -51,8 +51,10 @@ Remember these as the active state of the repo:
 ## Current Product Shape
 
 StarcallOS is an Electron desktop app for turning PDFs/text sources into
-evidence-backed ML/AI learning loops. It is not chat-with-PDF and not a generic
-summarizer.
+evidence-backed learning loops. It is domain-agnostic (textbooks, papers,
+lecture notes, legal/clinical/internal docs — any subject), not ML/AI-specific;
+prompts and the README are framed accordingly. It is not chat-with-PDF and not
+a generic summarizer.
 
 The default path is candidate-first:
 
@@ -146,6 +148,18 @@ Candidate rows and parse runs stamp these versions for auditability.
   during extraction, enrichment, or UI refresh.
 - Review queue rows must be refreshed/removed immediately after concept delete
   or evidence-history changes.
+- Deleting an evidence record recomputes derived state for that concept: the
+  XP winner for the affected (concept, task kind) bucket is re-awarded to the
+  next-highest-difficulty surviving attempt, and mastery is recomputed as
+  `MAX(compression_stage)` of remaining records (the mastery row is removed
+  when none remain → Unseen). Never leave XP stranded or mastery frozen on a
+  deleted attempt's value.
+- Concept rename updates `concepts.name` only; never change `slug` (promotion
+  idempotency depends on `(source_id, slug)`).
+- All renderer delete buttons render `×`, never the word "Delete", and carry a
+  descriptive `title`.
+- Background customization accepts video (`mp4`/`webm`) and images; video
+  backgrounds render via `<video autoplay muted loop playsinline>`.
 
 ## Current UX Notes
 
@@ -154,12 +168,33 @@ Candidate rows and parse runs stamp these versions for auditability.
   topic-filter modal, and conservative bulk promotion.
 - Relations, Misconceptions, and Equations candidate tabs use shared glass
   add/edit/delete controls with inline editors.
-- Source preview is available beside all concept tabs, can be resized/zoomed,
+- Source preview is available beside all concept tabs (toggled by the Source
+  button; the legacy in-tab Source tab was removed), can be resized/zoomed,
   has an evidence rail, and must preserve logical page position through tab,
-  rail, and width changes.
+  rail, and width changes. The viewer renders all pages in one continuous
+  vertical scroll (no Prev/Next paging), fits page width with − / % / + zoom,
+  exposes a selectable/copyable text layer per page, and auto-scrolls to the
+  first evidence page on open.
 - PDF source preview supports concept-scoped highlights and sticky notes.
   Highlight overlays must not block text selection; sticky note position must
   persist after drag/remount.
+- The concept title in the DetailPane header is click-to-rename (display name
+  only; slug stays stable so promotion idempotency on `(source_id, slug)`
+  holds). The header also shows evidence-kind chips next to the importance tag.
+- Constellations are cross-source: the Overview typeahead links a concept to
+  any promoted concept across all sources (suggestion rows show the other
+  source's filename). The list is user-curated only — enrich, the ChatGPT
+  paste flow, and the generated prompt never write it.
+- Regenerating Challenge tasks excludes every already-seen prompt (live tasks
+  + every `task_prompt_snapshot`), sends them as an AVOID list with a twist
+  instruction, and post-filters exact normalized duplicates.
+- The grader always returns a non-empty `gaps_detected`, even on `understood`
+  — framed as the next-stage step.
+- The Review Queue header has a sort-cycle button (default → importance →
+  stage, persisted in localStorage); there is no Refresh button (refetch is
+  event-driven via the `starcall:review-queue-stale` window event).
+- The top-level source tab defaults to Candidates on first launch and
+  remembers the last pick.
 - Review queue rows are grouped by source/book with collapsible headers and
   quiet inline delete/undo behavior.
 - Concept Overview supports manual concept fields, equations, constellations,

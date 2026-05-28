@@ -71,7 +71,9 @@ The grader sees the same context. No domain bias, no default associations.
 - **Pluggable LLM providers** — Groq and Anthropic, per-pass model selection, compact configured LLM filtering, and a free "Ask ChatGPT" path if you don't want to pay
 - **Source-aware enrichment** — definitions anchored to the page you actually read
 - **Challenge mode with XP** — task difficulty is tracked, history shows task kind/difficulty, and XP only counts the highest completed difficulty per concept/task kind
-- **Side-by-side source preview** — available across concept tabs, resizable, zoomable, anchored to evidence pages, and equipped with concept-scoped highlights and sticky notes
+- **Side-by-side source preview** — continuous-scroll PDF that fits page width, zooms (− / % / +), lets you select and copy text, auto-jumps to the evidence page, and carries concept-scoped highlights and draggable sticky notes
+- **Cross-source constellations** — link a concept to any other promoted concept across all your sources from the Overview typeahead; the list is yours, never LLM-written
+- **Replayable challenges** — rename concepts inline, regenerate tasks (never re-asking a question you've already answered), and the grader always tells you what would push an answer to the next stage
 - **Equation extraction and display** — formulas render in a lightweight LaTeX-style view and attach to nearby concepts/sections when possible
 - **Profile customization** — local display name, avatar, XP stats, background image/video, and background opacity
 - **User-authored notes** — your own follow-ups attached to a concept, styled with the overview fields and never overwritten by anything else

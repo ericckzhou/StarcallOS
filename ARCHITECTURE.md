@@ -219,9 +219,16 @@ work; sticky note markers are draggable and persist their normalized position.
 ```
 
 DetailPane tabs: **Overview** (editable fields + ChatGPT prompt + enrich) ·
-**Challenges** (lazy task gen + answer + grade) · **History**. Source preview
-is a right-side toggle available beside all tabs, backed by the pdf.js viewer
-and evidence rail.
+**Challenges** (lazy task gen + answer + grade) · **History**. The concept
+title in the header is click-to-rename (display name only; slug stays stable).
+The legacy in-tab Source tab was removed — source preview is a right-side
+toggle available beside all tabs, backed by the pdf.js viewer and evidence
+rail. The preview renders all pages in one continuous vertical scroll
+(no Prev/Next paging), fits page width to the pane with − / % / + zoom on
+top, exposes a selectable/copyable text layer over each page, and auto-scrolls
+to the first evidence page on open. The concept header also shows the
+evidence-kind chips (heading / definition / equation / …) next to the
+importance tag.
 
 ## Recent UX Additions
 
@@ -248,12 +255,44 @@ and evidence rail.
   opacity. The app background applies behind empty/source/review surfaces.
 - XP is awarded by highest completed difficulty per concept/task kind, so the
   same question type cannot be farmed repeatedly.
+- Deleting a History entry recomputes derived state for that concept: the XP
+  winner for the affected (concept, task kind) bucket is re-awarded to the
+  next-highest-difficulty surviving attempt, and the mastery stage is
+  recomputed as `MAX(compression_stage)` of remaining records (the mastery
+  row is removed entirely when no records remain → concept reads Unseen).
+- Regenerating Challenge tasks excludes every prompt the learner has already
+  seen (live `evidence_tasks` plus every `task_prompt_snapshot` in
+  `evidence_records`): the prior prompts are sent to the model as an AVOID
+  list, a "twist" instruction asks for a new angle, and any exact normalized
+  duplicate that slips through is filtered out after generation.
+- The grader always returns a non-empty `gaps_detected`, even on a full
+  "understood" score — framed as the stage-N → N+1 next step (missing
+  first-principles compression, missing failure mode, missing sibling-concept
+  link), so the learner always has a concrete way to push further.
+- Constellations are now cross-source: the Overview typeahead links a concept
+  to any promoted concept across all sources (the suggestion row shows the
+  other concept's source filename). Entries are user-curated only — enrich,
+  the ChatGPT paste flow, and the generated prompt never write the
+  constellations list.
+- The Review Queue header has a sort-cycle button (default → importance →
+  stage) whose selection persists in localStorage; the old Refresh button was
+  dropped in favor of event-driven refetch.
+- The top-level source tab defaults to **Candidates** on first launch and
+  remembers the last-selected tab thereafter.
 - Lightweight equation rendering handles fractions, scripts, text blocks, and
   orphan braces from imperfect PDF extraction.
+- Background customization accepts video (`mp4` / `webm`) as well as images;
+  video backgrounds autoplay muted and looped behind the app chrome.
+- All delete affordances render a compact `×` (not the word "Delete") with a
+  descriptive `title`.
 
 ## Star Hubs / Constellations Roadmap
 
-Star Hubs are the planned grouping primitive for concept constellations. The
+**Shipped so far:** per-concept cross-source constellation links via the
+Overview typeahead (stored in `concepts.where_reappears`; user-curated, never
+LLM-written). This is the lightweight, flat version of concept linking.
+
+**Still planned — Star Hubs** are the grouping primitive on top of those links. The
 first useful version should support click-hold multi-select on concept rows,
 creating a named/color-coded hub from selected concepts, adding/removing
 concepts from existing hubs, and showing hub chips/filters in concept lists.
@@ -296,6 +335,6 @@ Uses Node.js 22 built-in `node:sqlite` (experimental). No native compilation req
 
 ## Current State (snapshot)
 
-Shipped: richer deterministic candidate parser, equations, relations, misconception phrases; deterministic mode (default); candidate_gated mode (LLM-cheap); full mode (legacy); per-provider settings (Groq + Anthropic); per-source topic anchors; bucket/tag/min-score + filtered LLM filters with persistence and compact API batching; bulk-promote w/ safe-default gate; lazy task gen; lazy concept enrichment; ChatGPT prompt round-trip; side-by-side PDF viewer with evidence rail, resize, zoom, page anchoring, concept-scoped highlights, and draggable sticky notes; profile/avatar/XP/background customization; multi-PDF import; centered text-source import overlay; manual concept/equation/candidate CRUD; parse_runs audit; Re-extract preserving user data.
+Shipped: richer deterministic candidate parser, equations, relations, misconception phrases; deterministic mode (default); candidate_gated mode (LLM-cheap); full mode (legacy); per-provider settings (Groq + Anthropic); per-source topic anchors; bucket/tag/min-score + filtered LLM filters with persistence and compact API batching (min-score now applies to the suspicious bucket too); bulk-promote w/ safe-default gate; lazy task gen; lazy concept enrichment; ChatGPT prompt round-trip; continuous-scroll side-by-side PDF viewer with fit-to-width, − / % / + zoom, a selectable/copyable text layer, evidence rail, auto-scroll to the first evidence page, concept-scoped highlights, and draggable sticky notes; click-to-rename concept titles; evidence-kind chips on the concept header; cross-source constellations via Overview typeahead; Challenge-task regeneration that excludes already-answered prompts and adds a twist; grader that always surfaces next-stage gaps; History-delete that recomputes XP winner and mastery stage; Review Queue sort-cycle (default/importance/stage); source tab defaulting to Candidates; user-authored concept notes; profile/avatar/XP/background customization with image **and video** backgrounds; multi-PDF import; centered text-source import overlay; manual concept/equation/candidate CRUD; parse_runs audit; Re-extract preserving user data.
 
 Queued (not blocking): Star Hubs grouping model and UI; constellation graph edges across/within hubs; refactor `CandidateReview.tsx` into per-panel files; per-pass model override UI; CSS design tokens; more tests for `promotion`, `cleanup`, `enrich_concept`, annotations, candidate CRUD, LLM topic filtering, and source-preview page anchoring.
