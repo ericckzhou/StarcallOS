@@ -272,9 +272,7 @@ export function RelationsPanel({ relations, knownTerms, onCreate, onUpdate, onDe
         />
       )}
       {err && <ErrorLine message={err} />}
-      {relations.length === 0 && !adding && (
-        <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>No relation candidates.</div>
-      )}
+      {relations.length === 0 && !adding && <EmptyState>No relation candidates.</EmptyState>}
       {relations.map(r => {
         const fromKnown = knownTerms.has(norm(r.from));
         const toKnown = knownTerms.has(norm(r.to));
@@ -310,6 +308,7 @@ function RelationRow({ relation: r, fromKnown, toKnown, color, busy, setBusy, se
   onDelete: (id: number) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [draft, setDraft] = useState({ from: r.from, to: r.to, kind: r.kind, quote: r.quote, page: String(r.page) });
   async function save(): Promise<void> {
     setBusy(r.id); setErr(null);
@@ -336,22 +335,36 @@ function RelationRow({ relation: r, fromKnown, toKnown, color, busy, setBusy, se
     return <RelationEditor draft={draft} setDraft={setDraft} busy={busy} onSave={() => void save()} onCancel={() => setEditing(false)} />;
   }
   return (
-    <div style={{ borderBottom: '1px solid #111827', padding: '10px 16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <Term name={r.from} known={fromKnown} />
-        <span style={{
-          fontSize: 10, fontWeight: 600, color, textTransform: 'uppercase',
-          border: `1px solid ${color}`, borderRadius: 2, padding: '1px 6px',
-        }}>
-          {r.kind.replace(/_/g, ' ')}
-        </span>
-        <Term name={r.to} known={toKnown} />
-        <span style={{ marginLeft: 'auto', fontSize: 10, color: '#4b5563' }}>p.{r.page}</span>
-        <RowButton label="Edit" disabled={busy} onClick={() => setEditing(true)} />
-        <RowButton label="Delete" danger disabled={busy} onClick={() => void remove()} />
-      </div>
-      <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', lineHeight: 1.5 }}>
-        "{r.quote}"
+    <div
+      onMouseEnter={() => setActionsOpen(true)}
+      onMouseLeave={() => setActionsOpen(false)}
+      onFocus={() => setActionsOpen(true)}
+      onBlur={e => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setActionsOpen(false);
+      }}
+      style={candidateRowStyle}
+    >
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'start', gap: 14 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+            <Term name={r.from} known={fromKnown} />
+            <span style={{
+              fontSize: 10, fontWeight: 700, color, textTransform: 'uppercase',
+              border: `1px solid ${color}`, borderRadius: 3, padding: '1px 7px',
+              background: `${color}14`,
+            }}>
+              {r.kind.replace(/_/g, ' ')}
+            </span>
+            <Term name={r.to} known={toKnown} />
+          </div>
+          <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', lineHeight: 1.5 }}>
+            "{r.quote}"
+          </div>
+        </div>
+        <RowActions page={r.page} active={actionsOpen || busy}>
+          <RowButton label="Edit" variant="secondary" disabled={busy} onClick={() => setEditing(true)} />
+          <RowButton label="Delete" variant="danger" disabled={busy} onClick={() => void remove()} />
+        </RowActions>
       </div>
     </div>
   );
@@ -373,8 +386,8 @@ function RelationEditor({ draft, setDraft, busy, onSave, onCancel }: {
       <input value={draft.to} onChange={e => setDraft({ ...draft, to: e.target.value })} placeholder="to concept" style={inputStyle} />
       <input value={draft.page} onChange={e => setDraft({ ...draft, page: e.target.value })} placeholder="page" style={{ ...inputStyle, width: 70, flex: '0 0 70px' }} />
       <input value={draft.quote} onChange={e => setDraft({ ...draft, quote: e.target.value })} placeholder="evidence quote" style={{ ...inputStyle, flexBasis: '100%' }} />
-      <RowButton label={busy ? 'Saving...' : 'Save'} disabled={busy} onClick={onSave} />
-      <RowButton label="Cancel" disabled={busy} onClick={onCancel} />
+      <RowButton label={busy ? 'Saving...' : 'Save'} variant="primary" disabled={busy} onClick={onSave} />
+      <RowButton label="Cancel" variant="secondary" disabled={busy} onClick={onCancel} />
     </div>
   );
 }
@@ -427,9 +440,7 @@ export function MisconceptionsPanel({ misconceptions, onCreate, onUpdate, onDele
         />
       )}
       {err && <ErrorLine message={err} />}
-      {misconceptions.length === 0 && !adding && (
-        <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>No misconception phrases detected.</div>
-      )}
+      {misconceptions.length === 0 && !adding && <EmptyState>No misconception phrases detected.</EmptyState>}
       {misconceptions.map(m => (
         <MisconceptionRow
           key={m.id}
@@ -454,6 +465,7 @@ function MisconceptionRow({ item: m, busy, setBusy, setErr, onUpdate, onDelete }
   onDelete: (id: number) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [draft, setDraft] = useState({ quote: m.quote, page: String(m.page), section_path: m.section_path.join(' > ') });
   async function save(): Promise<void> {
     setBusy(m.id); setErr(null);
@@ -480,26 +492,40 @@ function MisconceptionRow({ item: m, busy, setBusy, setErr, onUpdate, onDelete }
     return <MisconceptionEditor draft={draft} setDraft={setDraft} busy={busy} onSave={() => void save()} onCancel={() => setEditing(false)} />;
   }
   return (
-    <div style={{ borderBottom: '1px solid #111827', padding: '12px 16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <span style={{
-          fontSize: 9, color: '#fca5a5', border: '1px solid #7f1d1d',
-          borderRadius: 2, padding: '1px 5px', textTransform: 'uppercase', letterSpacing: '0.05em',
-        }}>
-          misconception phrase
-        </span>
-        <span style={{ marginLeft: 'auto', fontSize: 10, color: '#4b5563' }}>p.{m.page}</span>
-        <RowButton label="Edit" disabled={busy} onClick={() => setEditing(true)} />
-        <RowButton label="Delete" danger disabled={busy} onClick={() => void remove()} />
-      </div>
-      <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.6, fontStyle: 'italic' }}>
-        "{m.quote}"
-      </div>
-      {m.section_path.length > 0 && (
-        <div style={{ marginTop: 4, fontSize: 10, color: '#4b5563' }}>
-          {m.section_path.join(' > ')}
+    <div
+      onMouseEnter={() => setActionsOpen(true)}
+      onMouseLeave={() => setActionsOpen(false)}
+      onFocus={() => setActionsOpen(true)}
+      onBlur={e => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setActionsOpen(false);
+      }}
+      style={candidateRowStyle}
+    >
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'start', gap: 14 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
+            <span style={{
+              fontSize: 9, color: '#fca5a5', border: '1px solid rgba(248, 113, 113, 0.65)',
+              borderRadius: 3, padding: '1px 6px', textTransform: 'uppercase', letterSpacing: '0.05em',
+              background: 'rgba(127, 29, 29, 0.18)',
+            }}>
+              misconception phrase
+            </span>
+          </div>
+          <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.6, fontStyle: 'italic' }}>
+            "{m.quote}"
+          </div>
+          {m.section_path.length > 0 && (
+            <div style={{ marginTop: 4, fontSize: 10, color: '#64748b' }}>
+              {m.section_path.join(' > ')}
+            </div>
+          )}
         </div>
-      )}
+        <RowActions page={m.page} active={actionsOpen || busy}>
+          <RowButton label="Edit" variant="secondary" disabled={busy} onClick={() => setEditing(true)} />
+          <RowButton label="Delete" variant="danger" disabled={busy} onClick={() => void remove()} />
+        </RowActions>
+      </div>
     </div>
   );
 }
@@ -516,8 +542,8 @@ function MisconceptionEditor({ draft, setDraft, busy, onSave, onCancel }: {
       <input value={draft.quote} onChange={e => setDraft({ ...draft, quote: e.target.value })} placeholder="misconception phrase" style={{ ...inputStyle, flexBasis: '100%' }} />
       <input value={draft.page} onChange={e => setDraft({ ...draft, page: e.target.value })} placeholder="page" style={{ ...inputStyle, width: 80, flex: '0 0 80px' }} />
       <input value={draft.section_path} onChange={e => setDraft({ ...draft, section_path: e.target.value })} placeholder="section > subsection" style={inputStyle} />
-      <RowButton label={busy ? 'Saving...' : 'Save'} disabled={busy} onClick={onSave} />
-      <RowButton label="Cancel" disabled={busy} onClick={onCancel} />
+      <RowButton label={busy ? 'Saving...' : 'Save'} variant="primary" disabled={busy} onClick={onSave} />
+      <RowButton label="Cancel" variant="secondary" disabled={busy} onClick={onCancel} />
     </div>
   );
 }
@@ -566,9 +592,7 @@ export function EquationsPanel({ equations, unattached, byTerm, onCreate, onUpda
         />
       )}
       {err && <ErrorLine message={err} />}
-      {equations.length === 0 && !adding && (
-        <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>No equation candidates.</div>
-      )}
+      {equations.length === 0 && !adding && <EmptyState>No equation candidates.</EmptyState>}
       {attached.map(([term, eqs]) => (
         <div key={term} style={{ borderBottom: '1px solid #111827', padding: '10px 16px' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: '#c7d2fe', marginBottom: 6 }}>
@@ -601,6 +625,7 @@ function EquationRow({ eq, busy, setBusy, setErr, onUpdate, onDelete }: {
   onDelete?: (id: number) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [draft, setDraft] = useState({
     latex: eq.latex,
     page: String(eq.page),
@@ -641,21 +666,36 @@ function EquationRow({ eq, busy, setBusy, setErr, onUpdate, onDelete }: {
     return <EquationEditor draft={draft} setDraft={setDraft} busy={!!busy} onSave={() => void save()} onCancel={() => setEditing(false)} />;
   }
   return (
-    <div style={{ fontSize: 11, color: '#d1d5db', lineHeight: 1.6, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-      <span style={{ color: '#4b5563', fontSize: 10 }}>p.{eq.page}</span>
-      <span style={{
-        background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 3,
-        padding: '3px 7px', minWidth: 0,
-      }}>
-        <LatexMath value={eq.latex} size={12} />
-      </span>
-      {eq.variables.length > 0 && (
-        <span style={{ fontSize: 10, color: '#6b7280' }}>
-          vars: {eq.variables.slice(0, 6).join(', ')}
-        </span>
-      )}
-      {onUpdate && <RowButton label="Edit" disabled={!!busy} onClick={() => setEditing(true)} />}
-      {onDelete && <RowButton label="Delete" danger disabled={!!busy} onClick={() => void remove()} />}
+    <div
+      onMouseEnter={() => setActionsOpen(true)}
+      onMouseLeave={() => setActionsOpen(false)}
+      onFocus={() => setActionsOpen(true)}
+      onBlur={e => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setActionsOpen(false);
+      }}
+      style={{ ...candidateRowStyle, padding: '6px 0', borderBottom: 'none', marginBottom: 4 }}
+    >
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'center', gap: 12 }}>
+        <div style={{ fontSize: 11, color: '#d1d5db', lineHeight: 1.6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }}>
+          <span style={{
+            background: 'rgba(15, 23, 42, 0.46)', border: '1px solid rgba(148, 163, 184, 0.20)', borderRadius: 4,
+            padding: '3px 7px', minWidth: 0,
+          }}>
+            <LatexMath value={eq.latex} size={12} />
+          </span>
+          {eq.variables.length > 0 && (
+            <span style={{ fontSize: 10, color: '#64748b' }}>
+              vars: {eq.variables.slice(0, 6).join(', ')}
+            </span>
+          )}
+        </div>
+        {(onUpdate || onDelete) && (
+          <RowActions page={eq.page} active={actionsOpen || !!busy}>
+            {onUpdate && <RowButton label="Edit" variant="secondary" disabled={!!busy} onClick={() => setEditing(true)} />}
+            {onDelete && <RowButton label="Delete" variant="danger" disabled={!!busy} onClick={() => void remove()} />}
+          </RowActions>
+        )}
+      </div>
     </div>
   );
 }
@@ -674,44 +714,103 @@ function EquationEditor({ draft, setDraft, busy, onSave, onCancel }: {
       <input value={draft.page} onChange={e => setDraft({ ...draft, page: e.target.value })} placeholder="page" style={{ ...inputStyle, width: 80, flex: '0 0 80px' }} />
       <input value={draft.variables} onChange={e => setDraft({ ...draft, variables: e.target.value })} placeholder="vars: x, y" style={inputStyle} />
       <input value={draft.section_path} onChange={e => setDraft({ ...draft, section_path: e.target.value })} placeholder="section > subsection" style={inputStyle} />
-      <RowButton label={busy ? 'Saving...' : 'Save'} disabled={busy} onClick={onSave} />
-      <RowButton label="Cancel" disabled={busy} onClick={onCancel} />
+      <RowButton label={busy ? 'Saving...' : 'Save'} variant="primary" disabled={busy} onClick={onSave} />
+      <RowButton label="Cancel" variant="secondary" disabled={busy} onClick={onCancel} />
     </div>
   );
 }
 
 function CrudHeader({ title, adding, setAdding }: { title: string; adding: boolean; setAdding: (v: boolean) => void }) {
   return (
-    <div style={{ padding: '8px 16px', borderBottom: '1px solid #111827', display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div style={{
+      padding: '8px 16px',
+      borderBottom: '1px solid rgba(31, 41, 55, 0.55)',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      background: 'rgba(4, 6, 26, 0.18)',
+      backdropFilter: 'blur(10px)',
+    }}>
       <span style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 800 }}>{title}</span>
-      <button
-        onClick={() => setAdding(!adding)}
-        style={{
-          marginLeft: 'auto', background: adding ? '#1f2937' : '#1e1b4b',
-          border: `1px solid ${adding ? '#374151' : '#6366f1'}`, borderRadius: 3,
-          color: adding ? '#cbd5e1' : '#c7d2fe', fontSize: 11, padding: '3px 8px', cursor: 'pointer',
-        }}
-      >
-        {adding ? 'Cancel' : '+ Add'}
-      </button>
+      <span style={{ marginLeft: 'auto' }}>
+        <RowButton
+          label={adding ? 'Cancel' : '+ Add'}
+          variant={adding ? 'secondary' : 'primary'}
+          onClick={() => setAdding(!adding)}
+        />
+      </span>
     </div>
   );
 }
 
-function RowButton({ label, onClick, disabled, danger }: { label: string; onClick: () => void; disabled?: boolean; danger?: boolean }) {
+function RowActions({ page, active, children }: { page?: number; active: boolean; children: React.ReactNode }) {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+      gap: 7,
+      minWidth: 126,
+      opacity: active ? 1 : 0.35,
+      transition: 'opacity 140ms ease',
+    }}>
+      {page != null && (
+        <span style={{ fontSize: 10, color: '#64748b', whiteSpace: 'nowrap' }}>
+          p.{page}
+        </span>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function RowButton({
+  label,
+  onClick,
+  disabled,
+  variant = 'secondary',
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  variant?: 'primary' | 'secondary' | 'danger';
+}) {
+  const palette = {
+    primary: {
+      background: 'rgba(79, 70, 229, 0.34)',
+      border: 'rgba(129, 140, 248, 0.68)',
+      color: '#dbeafe',
+      shadow: '0 0 18px rgba(79, 70, 229, 0.14)',
+    },
+    secondary: {
+      background: 'rgba(15, 23, 42, 0.24)',
+      border: 'rgba(148, 163, 184, 0.24)',
+      color: '#a5b4fc',
+      shadow: 'none',
+    },
+    danger: {
+      background: 'rgba(127, 29, 29, 0.12)',
+      border: 'rgba(248, 113, 113, 0.48)',
+      color: '#fca5a5',
+      shadow: 'none',
+    },
+  }[variant];
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       style={{
-        background: 'transparent',
-        border: `1px solid ${danger ? '#7f1d1d' : '#374151'}`,
-        borderRadius: 3,
-        color: danger ? '#fca5a5' : '#9ca3af',
+        background: palette.background,
+        border: `1px solid ${palette.border}`,
+        borderRadius: 5,
+        color: palette.color,
         fontSize: 10,
-        padding: '2px 7px',
+        fontWeight: 700,
+        padding: '3px 8px',
         cursor: disabled ? 'wait' : 'pointer',
         opacity: disabled ? 0.5 : 1,
+        boxShadow: palette.shadow,
+        whiteSpace: 'nowrap',
       }}
     >
       {label}
@@ -719,30 +818,41 @@ function RowButton({ label, onClick, disabled, danger }: { label: string; onClic
   );
 }
 
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return <div style={{ padding: 40, textAlign: 'center', color: '#64748b', fontSize: 12, background: 'rgba(4, 6, 26, 0.10)' }}>{children}</div>;
+}
+
 function ErrorLine({ message }: { message: string }) {
-  return <div style={{ padding: '8px 16px', color: '#fca5a5', fontSize: 11, borderBottom: '1px solid #111827' }}>{message}</div>;
+  return <div style={{ padding: '8px 16px', color: '#fca5a5', fontSize: 11, borderBottom: '1px solid rgba(31, 41, 55, 0.55)', background: 'rgba(127, 29, 29, 0.08)' }}>{message}</div>;
 }
 
 const editorStyle: React.CSSProperties = {
-  borderBottom: '1px solid #111827',
-  padding: '10px 16px',
+  borderBottom: '1px solid rgba(31, 41, 55, 0.55)',
+  padding: '12px 16px',
   display: 'flex',
   flexWrap: 'wrap',
   alignItems: 'center',
   gap: 8,
-  background: 'rgba(8, 8, 18, 0.8)',
+  background: 'rgba(8, 13, 30, 0.44)',
+  backdropFilter: 'blur(12px)',
 };
 
 const inputStyle: React.CSSProperties = {
   flex: '1 1 160px',
   minWidth: 0,
-  background: '#080812',
-  border: '1px solid #1f2937',
-  borderRadius: 3,
+  background: 'rgba(15, 23, 42, 0.42)',
+  border: '1px solid rgba(148, 163, 184, 0.20)',
+  borderRadius: 5,
   color: '#dbeafe',
   fontSize: 11,
-  padding: '5px 7px',
+  padding: '6px 8px',
   outline: 'none',
+};
+
+const candidateRowStyle: React.CSSProperties = {
+  borderBottom: '1px solid rgba(31, 41, 55, 0.46)',
+  padding: '11px 16px',
+  background: 'rgba(4, 6, 26, 0.08)',
 };
 
 function splitList(value: string, separator: ',' | '>'): string[] {

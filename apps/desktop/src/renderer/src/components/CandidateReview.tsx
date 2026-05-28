@@ -25,6 +25,9 @@ import {
   RelationsPanel as CandidateRelationsPanel,
 } from './candidates/panels';
 
+const LLM_API_FILTER_LIMIT = 30;
+const LLM_API_CONTEXT_CHARS = 80;
+
 interface Props {
   sourceId: number;
   sourceTitle?: string;
@@ -173,12 +176,16 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
     }
     setLlmApiBusy(true);
     setBulkMsg(null);
-    setLlmFilterMsg(`Sending ${Math.min(filtered.length, 400)} visible candidate${filtered.length === 1 ? '' : 's'} to your configured LLM...`);
+    const apiCandidates = filtered.slice(0, LLM_API_FILTER_LIMIT);
+    setLlmFilterMsg(
+      `Sending ${apiCandidates.length} of ${filtered.length} visible candidate${filtered.length === 1 ? '' : 's'} to your configured LLM. ` +
+      `The API path uses a compact batch to stay under provider token limits.`,
+    );
     try {
       const result = await window.api.candidates.llmFilter({
         sourceId,
         sourceTitle,
-        candidates: filtered.slice(0, 400).map(c => ({
+        candidates: apiCandidates.map(c => ({
           id: c.id,
           normalized: c.normalized,
           term: c.term,
@@ -188,12 +195,13 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           confidence: c.confidence,
           signals: c.signals,
           labels: c.labels,
-          context_snippet: c.context_snippet,
+          context_snippet: c.context_snippet?.slice(0, LLM_API_CONTEXT_CHARS),
         })),
       });
       applyTopicFitFilter(JSON.stringify({ decisions: result.decisions }));
       setBulkMsg(
-        `LLM filter (${result.provider}/${result.model}) kept ${result.keepTerms.length} of ${result.sent} visible candidates.`,
+        `LLM filter (${result.provider}/${result.model}) kept ${result.keepTerms.length} of ${result.sent} sent candidates. ` +
+        (result.sent < filtered.length ? `${filtered.length - result.sent} visible candidates were not sent to avoid provider rate limits.` : ''),
       );
     } catch (e) {
       const msg = `LLM filter failed: ${e instanceof Error ? e.message : String(e)}`;
@@ -420,21 +428,39 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, lineHeight: 1.5 }}>
                 Source: <span style={{ color: '#9ca3af' }}>{sourceTitle || '(no title set)'}</span>
                 <br />
-                Sending {Math.min(filtered.length, 400)} of {filtered.length} visible candidates to be classified.
+                API sends {Math.min(filtered.length, LLM_API_FILTER_LIMIT)} of {filtered.length} visible candidates per compact batch.
               </div>
             </div>
 
             <div style={{
-              display: 'flex', alignItems: 'center', gap: 10,
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) auto',
+              alignItems: 'center',
+              gap: 12,
               padding: '10px 12px',
-              border: '1px solid #123047',
-              borderRadius: 6,
-              background: 'rgba(14, 22, 40, 0.72)',
+              border: '1px solid rgba(129, 140, 248, 0.30)',
+              borderRadius: 7,
+              background: 'rgba(15, 23, 42, 0.38)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
+              backdropFilter: 'blur(10px)',
             }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#bae6fd' }}>Use configured LLM provider</div>
-                <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.45, marginTop: 2 }}>
-                  Sends only the currently visible candidates through the API and saves the keep-list.
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: '#dbeafe' }}>Configured LLM</span>
+                  <span style={{
+                    fontSize: 10,
+                    color: '#93c5fd',
+                    border: '1px solid rgba(96, 165, 250, 0.36)',
+                    borderRadius: 999,
+                    padding: '1px 7px',
+                    background: 'rgba(37, 99, 235, 0.12)',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {Math.min(filtered.length, LLM_API_FILTER_LIMIT)} / {filtered.length} visible
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.45, marginTop: 4 }}>
+                  Runs a compact API batch using your Profile settings, then saves the kept concepts.
                 </div>
               </div>
               <button
@@ -442,19 +468,21 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                 disabled={llmApiBusy || filtered.length === 0}
                 title="Use the API provider and model selected in Profile settings to filter the currently visible candidates."
                 style={{
-                  marginLeft: 'auto',
-                  background: llmApiBusy || filtered.length === 0 ? '#0f172a' : '#0c4a6e',
-                  border: `1px solid ${llmApiBusy || filtered.length === 0 ? '#1e293b' : '#38bdf8'}`,
-                  borderRadius: 4,
-                  padding: '6px 12px',
-                  color: llmApiBusy || filtered.length === 0 ? '#64748b' : '#e0f2fe',
+                  background: llmApiBusy || filtered.length === 0
+                    ? 'rgba(15, 23, 42, 0.42)'
+                    : 'rgba(79, 70, 229, 0.34)',
+                  border: `1px solid ${llmApiBusy || filtered.length === 0 ? 'rgba(71, 85, 105, 0.44)' : 'rgba(129, 140, 248, 0.72)'}`,
+                  borderRadius: 6,
+                  padding: '6px 13px',
+                  color: llmApiBusy || filtered.length === 0 ? '#64748b' : '#dbeafe',
                   fontSize: 11,
                   fontWeight: 800,
                   cursor: llmApiBusy || filtered.length === 0 ? 'not-allowed' : 'pointer',
                   whiteSpace: 'nowrap',
+                  boxShadow: llmApiBusy || filtered.length === 0 ? 'none' : '0 0 18px rgba(79, 70, 229, 0.16)',
                 }}
               >
-                {llmApiBusy ? 'Filtering...' : 'Filter by LLM'}
+                {llmApiBusy ? 'Filtering...' : 'Run API Filter'}
               </button>
             </div>
 
@@ -607,18 +635,6 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                     {bulkBusy ? 'Promotingâ€¦' : `Promote ${filtered.length} visible`}
                   </button>
                 )}
-                <button
-                  onClick={runConfiguredLlmFilter}
-                  disabled={llmApiBusy || filtered.length === 0}
-                  title="Use the API provider and model selected in Settings to filter only the currently visible candidates."
-                  style={{
-                    background: '#111827', border: '1px solid #38bdf8', borderRadius: 3,
-                    padding: '3px 10px', fontSize: 10, cursor: llmApiBusy || filtered.length === 0 ? 'not-allowed' : 'pointer',
-                    color: '#bae6fd', fontWeight: 700, opacity: llmApiBusy || filtered.length === 0 ? 0.55 : 1,
-                  }}
-                >
-                  {llmApiBusy ? 'Filtering...' : 'Filter by LLM'}
-                </button>
                 <button
                   onClick={() => setLlmFilterOpen(true)}
                   title={`Generate a prompt for ChatGPT (or any LLM). Paste the JSON answer back, soft-filters the list to candidates the LLM agrees fit the book's topic.`}

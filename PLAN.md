@@ -12,10 +12,12 @@
 > **Last reconciled:** 2026-05-26.
 
 > **Current implementation delta:** the shipped app now has deterministic
-> `final_score` candidate parsing with typography/context labels, configured
-> filtered-payload LLM topic filtering, side-by-side source preview, equation
-> grouping by nearby concept/section, profile/avatar/XP/background
-> customization, multi-PDF import, and a planned Star Hubs grouping primitive.
+> `final_score` candidate parsing with typography/context labels, compact
+> configured LLM topic filtering, side-by-side source preview with
+> concept-scoped annotations, equation grouping by nearby concept/section,
+> profile/avatar/XP/background customization, multi-PDF import, centered text
+> import, manual concept/equation/candidate CRUD, and a planned Star Hubs
+> grouping primitive.
 > Use `README.md`, `ARCHITECTURE.md`, and `CLAUDE.md` for current behavior.
 
 ---

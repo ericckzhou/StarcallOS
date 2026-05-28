@@ -121,27 +121,24 @@ function buildCandidateLlmFilterPrompt(sourceTitle: string | undefined, candidat
   const title = sourceTitle || '(unknown source title)';
   const lines = candidates.map(c => JSON.stringify({
     term: c.normalized,
-    display: c.term,
-    mentions: c.mention_count,
-    page: c.first_page,
-    score: c.final_score ?? c.confidence ?? null,
-    signals: c.signals ?? [],
-    labels: c.labels ?? [],
-    context: c.context_snippet ?? '',
+    n: c.mention_count,
+    p: c.first_page,
+    s: Number((c.final_score ?? c.confidence ?? 0).toFixed(2)),
+    tags: [...(c.signals ?? []), ...(c.labels ?? [])].slice(0, 3),
+    ctx: (c.context_snippet ?? '').slice(0, 80),
   })).join('\n');
   return [
-    `You're filtering candidate concepts extracted from a book.`,
+    `Filter candidate concepts extracted from a book.`,
     `Book title: "${title}"`,
     ``,
-    `Decide whether each candidate ACTUALLY belongs to this book's domain.`,
-    `Keep concepts a reader of this book would specifically want to learn.`,
-    `Reject overly broad words, boilerplate headings, captions, fragments, index/table-of-contents leftovers, and terms that are not really about this book's subject.`,
+    `Keep only candidates a reader would specifically study for this book.`,
+    `Reject broad/generic words, boilerplate, captions, fragments, TOC/index leftovers, and off-topic terms.`,
     ``,
-    `Candidates are JSONL below. Use the "term" value exactly in your response:`,
+    `JSONL candidates. Use "term" exactly:`,
     lines,
     ``,
-    `Respond only as JSON with this shape:`,
-    `{"decisions":[{"term":"<term verbatim>","keep":true|false,"reason":"short optional reason"}]}`,
+    `Respond only with compact JSON:`,
+    `{"decisions":[{"term":"<term>","keep":true|false}]}`,
   ].join('\n');
 }
 
@@ -742,7 +739,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CANDIDATES_LLM_FILTER, async (_e, args: CandidateLlmFilterArgs) => {
     const source = getSourceById(db, args.sourceId);
     if (!source) throw new Error(`source ${args.sourceId} not found`);
-    const candidates = args.candidates.slice(0, 400);
+    const candidates = args.candidates.slice(0, 30);
     const config = cfgFor('concepts');
     if (candidates.length === 0) {
       return {
@@ -756,7 +753,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const { content } = await chatJSON(config, {
       responseFormat: 'json',
       temperature: 0,
-      maxTokens: 4096,
+      maxTokens: Math.min(600, Math.max(220, candidates.length * 8 + 80)),
       messages: [
         {
           role: 'system',

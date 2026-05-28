@@ -63,6 +63,7 @@ misconceptions             attached to concepts: description, why_think_it, why_
 evidence_tasks             5 kinds: definition | connection | application | misconception_resistance | compression
 mastery                    compression_stage 0–5 per concept
 evidence_records           graded attempts (append-only-ish)
+pdf_annotations            source/concept-scoped highlights and sticky notes
 events                     APPEND-ONLY audit log
 
 concept_candidates         deterministic candidates (term, confidence, signals, evidence, topic_relevance_score, is_boilerplate, is_broad)
@@ -178,7 +179,28 @@ UI workflow (CandidateReview → LLM topic filter modal):
 The manual prompt and configured **Filter by LLM** button both operate on the
 currently visible filtered candidates, not the full source candidate set. The
 configured path uses the selected provider/model from Settings and persists the
-same normalized keep-term filter.
+same normalized keep-term filter. The configured API path is intentionally
+compact (small visible batches with short context) so low-TPM providers such as
+Groq dev-tier models do not reject the request. Use the manual prompt path when
+you want a large-list external LLM review.
+
+## PDF Annotations
+
+PDF annotations are source records with optional concept context:
+
+- `scope`: `concept` or `source`
+- `concept_id`: creation context for concept-scoped notes/highlights
+- `type`: `highlight` or `note`
+- `selected_text`: exact PDF text selected for highlights
+- `label` and `note_body`: editable user metadata
+- `rects_json`: page-relative rectangles, allowing multi-line highlights
+- `created_from`: `manual_selection`, `manual_note`, or `evidence_quote`
+- `deleted_at`: soft-delete marker used for undo/restore
+
+Manual highlights and sticky notes are concept-scoped by default. Source-wide
+annotations remain supported but are hidden unless the Source-wide toggle is
+enabled. Highlight overlays stay non-interactive so text selection continues to
+work; sticky note markers are draggable and persist their normalized position.
 
 ## UI Layout (current)
 
@@ -204,17 +226,23 @@ and evidence rail.
 ## Recent UX Additions
 
 - `+ PDF` supports multi-select import and creates one source row per selected
-  PDF.
+  PDF. `+ Text` opens a centered workspace-sized glass overlay for long pasted
+  notes, articles, or transcripts.
 - Candidate Review has bucket filters, tag filters, a styled min-score slider,
-  filtered-payload configured LLM filtering, manual ChatGPT topic filtering, and
-  conservative bulk promotion.
+  compact configured LLM filtering inside the topic-filter modal, manual
+  ChatGPT topic filtering, and conservative bulk promotion.
+- Relations, Misconceptions, and Equations candidate panels support
+  add/edit/delete through shared glass inline controls.
 - Source preview can be toggled beside all concept tabs, resized by dragging,
   zoomed, narrowed with an evidence rail, and page-anchored across tab/rail
   layout changes.
+  It also supports concept-scoped highlights and draggable sticky notes.
 - The Review Queue and Sources panels can be minimized/resized where relevant
   and refresh immediately after concept deletion or review-history changes.
+  Review Queue groups concepts by source/book with collapsible headers.
 - Concept Overview includes user notes styled like the other editable fields;
-  user notes are never overwritten by re-extract or enrichment.
+  user notes are never overwritten by re-extract or enrichment. Overview also
+  supports manual equations and typed constellation links.
 - Profile owns display name, avatar upload/removal, XP/challenge stats,
   difficulty distribution, background image/video upload, and background
   opacity. The app background applies behind empty/source/review surfaces.
@@ -268,6 +296,6 @@ Uses Node.js 22 built-in `node:sqlite` (experimental). No native compilation req
 
 ## Current State (snapshot)
 
-Shipped: richer deterministic candidate parser, equations, relations, misconception phrases; deterministic mode (default); candidate_gated mode (LLM-cheap); full mode (legacy); per-provider settings (Groq + Anthropic); per-source topic anchors; bucket/tag/min-score + filtered LLM filters with persistence; bulk-promote w/ safe-default gate; lazy task gen; lazy concept enrichment; ChatGPT prompt round-trip; side-by-side PDF viewer with evidence rail, resize, zoom, and page anchoring; profile/avatar/XP/background customization; multi-PDF import; parse_runs audit; Re-extract preserving user data.
+Shipped: richer deterministic candidate parser, equations, relations, misconception phrases; deterministic mode (default); candidate_gated mode (LLM-cheap); full mode (legacy); per-provider settings (Groq + Anthropic); per-source topic anchors; bucket/tag/min-score + filtered LLM filters with persistence and compact API batching; bulk-promote w/ safe-default gate; lazy task gen; lazy concept enrichment; ChatGPT prompt round-trip; side-by-side PDF viewer with evidence rail, resize, zoom, page anchoring, concept-scoped highlights, and draggable sticky notes; profile/avatar/XP/background customization; multi-PDF import; centered text-source import overlay; manual concept/equation/candidate CRUD; parse_runs audit; Re-extract preserving user data.
 
-Queued (not blocking): Star Hubs grouping model and UI; constellation graph edges across/within hubs; refactor `CandidateReview.tsx` into per-panel files; per-pass model override UI; CSS design tokens; more tests for `promotion`, `cleanup`, `enrich_concept`, and source-preview page anchoring.
+Queued (not blocking): Star Hubs grouping model and UI; constellation graph edges across/within hubs; refactor `CandidateReview.tsx` into per-panel files; per-pass model override UI; CSS design tokens; more tests for `promotion`, `cleanup`, `enrich_concept`, annotations, candidate CRUD, LLM topic filtering, and source-preview page anchoring.

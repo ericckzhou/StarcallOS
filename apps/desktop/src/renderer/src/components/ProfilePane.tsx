@@ -142,7 +142,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
             <section style={panel}>
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 18, alignItems: 'center' }}>
                 <div>
-                  <div style={eyebrow}>Concept Select Background</div>
+                  <div style={eyebrow}>Select Background</div>
                   <div style={{ marginTop: 8, color: '#94a3b8', fontSize: 12, lineHeight: 1.5 }}>
                     Used only on the empty concept detail screen.
                   </div>
