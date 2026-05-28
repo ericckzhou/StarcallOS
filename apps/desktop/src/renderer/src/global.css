@@ -113,6 +113,23 @@ body::after {
   color: transparent;
 }
 
+/* pdf.js TextLayer requires these from the stylesheet — it sets transform:
+   scaleX(k) inline on each span but relies on CSS for transform-origin. Without
+   `transform-origin: 0 0`, spans scale around their center, drifting the
+   selectable text off the visible glyphs so highlights land offset / grab
+   blobs instead of starting at the cursor. */
+.pdf-text-layer {
+  transform-origin: 0 0;
+}
+
+.pdf-text-layer span,
+.pdf-text-layer br {
+  position: absolute;
+  white-space: pre;
+  transform-origin: 0 0;
+  cursor: text;
+}
+
 /* Default focus ring tamed for the dark theme. */
 :focus-visible {
   outline: 1px solid #818cf8;

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Concept } from './ConceptPane';
 import LatexMath from './LatexMath';
 import PdfViewer from './PdfViewer';
@@ -81,7 +81,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   const [misconceptions, setMisconceptions] = useState<Misconception[]>([]);
   const [equations, setEquations] = useState<Equation[]>([]);
   const [history, setHistory] = useState<HistoryRecord[]>([]);
-  const [tab, setTab] = useState<'overview' | 'challenge' | 'history'>('overview');
+  const [tab, setTab] = useState<'overview' | 'paper' | 'challenge' | 'history'>('overview');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [response, setResponse] = useState('');
   const [grading, setGrading] = useState(false);
@@ -262,12 +262,14 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   })();
   const TAB_LABELS = {
     overview: 'Overview',
+    paper: 'Paper',
     challenge: 'Challenges',
     history: `History${history.length ? ` (${history.length})` : ''}`,
   };
   const activeTabContent = (
     <>
       {tab === 'overview' && <OverviewTab concept={concept} misconceptions={misconceptions} equations={equations} onEquationsChange={setEquations} />}
+      {tab === 'paper' && <PaperTab conceptId={concept.id} />}
       {tab === 'challenge' && (
         <ChallengeTab
           tasks={tasks} selectedTask={selectedTask} onSelectTask={setSelectedTask}
@@ -284,7 +286,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   );
   const tabBar = (
     <div style={{ display: 'flex', gap: 2 }}>
-      {(['overview', 'challenge', 'history'] as const).map(t => (
+      {(['overview', 'paper', 'challenge', 'history'] as const).map(t => (
         <button key={t} onClick={() => setTab(t)} style={{
           background: 'none', border: 'none', padding: '6px 16px', fontSize: 12, cursor: 'pointer',
           color: tab === t ? '#818cf8' : '#4b5563',
@@ -405,6 +407,95 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
         {activeTabContent}
       </div>
     </main>
+  );
+}
+
+// Heading used for the single notes record that backs Paper mode. Hidden from
+// the structured "My Notes" list so the two views don't visually collide.
+export const PAPER_NOTE_HEADING = '__paper__';
+
+// Paper mode: a low-chrome personal-synthesis scratchpad backed by one
+// dedicated per-concept notes record. Notebook-style autosave (debounced +
+// on blur + on tab/concept switch) — never an explicit save. Plain text only;
+// [[concept]] / [[p.133]] backlinks stay literal for a future linking pass.
+function PaperTab({ conceptId }: { conceptId: number }) {
+  const [text, setText] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const textRef = useRef('');
+  const noteIdRef = useRef<number | null>(null);
+  const dirtyRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    window.api.concepts.notes.list(conceptId).then(rows => {
+      if (cancelled) return;
+      const paper = (rows as Array<{ id: number; heading: string; body: string }>)
+        .find(n => n.heading === PAPER_NOTE_HEADING);
+      noteIdRef.current = paper?.id ?? null;
+      const body = paper?.body ?? '';
+      textRef.current = body;
+      setText(body);
+      dirtyRef.current = false;
+      setLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, [conceptId]);
+
+  const flush = useCallback(async () => {
+    if (!dirtyRef.current) return;
+    const body = textRef.current;
+    // Don't create an empty record just because the tab was opened.
+    if (noteIdRef.current == null && body.trim() === '') return;
+    dirtyRef.current = false;
+    if (noteIdRef.current == null) {
+      const created = await window.api.concepts.notes.create({
+        conceptId, heading: PAPER_NOTE_HEADING, body,
+      });
+      noteIdRef.current = (created as { id: number }).id;
+    } else {
+      await window.api.concepts.notes.update({ id: noteIdRef.current, body });
+    }
+    setSavedAt(Date.now());
+  }, [conceptId]);
+
+  // Flush pending edits when switching concept/tab (component unmount).
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    void flush();
+  }, [flush]);
+
+  function onChange(v: string) {
+    setText(v);
+    textRef.current = v;
+    dirtyRef.current = true;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => { void flush(); }, 400);
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '60vh' }}>
+      <textarea
+        value={loaded ? text : ''}
+        onChange={e => onChange(e.target.value)}
+        onBlur={() => { void flush(); }}
+        readOnly={!loaded}
+        placeholder={loaded ? 'Think on paper. Synthesize, connect, draft — autosaves.' : 'Loading…'}
+        spellCheck
+        style={{
+          flex: 1, width: '100%', boxSizing: 'border-box',
+          background: 'transparent', border: 'none', outline: 'none', resize: 'none',
+          color: '#d8dee9', fontSize: 15, lineHeight: 1.8,
+          fontFamily: 'ui-serif, Georgia, "Times New Roman", serif',
+          padding: 0, minHeight: '58vh',
+        }}
+      />
+      <div style={{ fontSize: 10, color: '#374151', marginTop: 8, height: 12 }}>
+        {savedAt ? 'Saved' : ''}
+      </div>
+    </div>
   );
 }
 

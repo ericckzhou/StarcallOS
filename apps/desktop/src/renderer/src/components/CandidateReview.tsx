@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useCallback } from 'react';
+﻿import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   BUCKET_COLOR,
   BUCKET_LABEL,
@@ -25,8 +25,7 @@ import {
   RelationsPanel as CandidateRelationsPanel,
 } from './candidates/panels';
 
-const LLM_API_FILTER_LIMIT = 30;
-const LLM_API_CONTEXT_CHARS = 80;
+const LLM_API_FILTER_LIMIT = 75;
 
 interface Props {
   sourceId: number;
@@ -44,6 +43,8 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
   const [subTab, setSubTab] = useState<SubTab>('concepts');
   const [bucket, setBucket] = useState<Bucket>('all');
   const [signalFilter, setSignalFilter] = useState<string>('any');
+  const [search, setSearch] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -84,6 +85,20 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // "/" focuses candidate search (unless already typing); Esc clears + blurs.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const el = e.target as HTMLElement | null;
+      const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+      if (e.key === '/' && !typing && subTab === 'concepts') {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [subTab]);
+
   // Re-derive the active id-set whenever bundle OR saved-terms change.
   // Also clears the stale "Filter active" toast when the keep-set collapses.
   useEffect(() => {
@@ -112,7 +127,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
   function applyTopicFitFilter(raw: string): void {
     const parsed = parseTopicFitJson(raw);
     if (!parsed?.decisions) {
-      setLlmFilterMsg('Could not parse JSON. Expected {"decisions":[{"term":"â€¦","keep":true|false}, â€¦]}.');
+      setLlmFilterMsg('Could not parse JSON. Expected {"decisions":[{"term":"…","keep":true|false}, …]}.');
       return;
     }
     // Build lookup maps from current candidates so we can resolve both
@@ -195,7 +210,6 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           confidence: c.confidence,
           signals: c.signals,
           labels: c.labels,
-          context_snippet: c.context_snippet?.slice(0, LLM_API_CONTEXT_CHARS),
         })),
       });
       applyTopicFitFilter(JSON.stringify({ decisions: result.decisions }));
@@ -225,7 +239,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
         ...b,
         concepts: b.concepts.filter(c => !ids.includes(c.id) || failedIds.has(c.id) || !promotedSet.has(c.id)),
       }));
-      const errPart = r.errors.length > 0 ? ` Â· ${r.errors.length} failed` : '';
+      const errPart = r.errors.length > 0 ? ` · ${r.errors.length} failed` : '';
       setBulkMsg(`Promoted ${r.promoted.length} of ${ids.length}${errPart}`);
       onPromoted?.();
     } catch (e) {
@@ -309,11 +323,13 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
     }
     return Object.assign(c, { bucket: b });
   });
+  const searchQuery = search.trim().toLowerCase();
   const filtered = withBucket.filter(c =>
     (bucket === 'all' || c.bucket === bucket) &&
     (c.final_score ?? c.concept_score ?? c.confidence) >= minConf &&
     (signalFilter === 'any' || c.signals.includes(signalFilter) || (c.labels ?? []).includes(signalFilter)) &&
-    (!llmFilterEnabled || llmKeepIds === null || llmKeepIds.has(c.id)),
+    (!llmFilterEnabled || llmKeepIds === null || llmKeepIds.has(c.id)) &&
+    (searchQuery === '' || c.term.toLowerCase().includes(searchQuery) || c.normalized.toLowerCase().includes(searchQuery)),
   );
   // Count of candidates per signal/label for the chip pills (respects bucket + LLM filter).
   const filterCounts: Record<string, number> = {};
@@ -375,7 +391,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               <div style={{ fontSize: 12, color: '#9ca3af', lineHeight: 1.6 }}>
                 {description}
                 <div style={{ marginTop: 8, color: '#6b7280', fontSize: 11 }}>
-                  Top of list: {targetList.slice(0, 3).map(c => c.term).join(' Â· ')}{targetList.length > 3 ? ` â€¦ +${targetList.length - 3} more` : ''}
+                  Top of list: {targetList.slice(0, 3).map(c => c.term).join(' · ')}{targetList.length > 3 ? ` … +${targetList.length - 3} more` : ''}
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
@@ -391,7 +407,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                   disabled={bulkBusy}
                   style={{ background: '#14532d', border: '1px solid #22c55e', borderRadius: 4, padding: '5px 14px', color: '#bbf7d0', fontSize: 12, cursor: bulkBusy ? 'wait' : 'pointer', fontWeight: 600 }}
                 >
-                  {bulkBusy ? 'Promotingâ€¦' : `Promote ${targetList.length}`}
+                  {bulkBusy ? 'Promoting…' : `Promote ${targetList.length}`}
                 </button>
               </div>
             </div>
@@ -406,7 +422,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
           <span>{bulkMsg}</span>
-          <button onClick={() => setBulkMsg(null)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: '#4b5563', cursor: 'pointer', fontSize: 14 }}>Ã—</button>
+          <button onClick={() => setBulkMsg(null)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: '#4b5563', cursor: 'pointer', fontSize: 14 }}>×</button>
         </div>
       )}
 
@@ -492,7 +508,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                 marginLeft: 'auto', background: '#1e1b4b', border: '1px solid #4338ca', borderRadius: 3,
                 padding: '3px 10px', fontSize: 11, color: llmCopied ? '#86efac' : '#c7d2fe', cursor: 'pointer', fontWeight: 600,
               }}>
-                {llmCopied ? 'âœ“ Copied' : 'Copy Prompt'}
+                {llmCopied ? '✓ Copied' : 'Copy Prompt'}
               </button>
             </div>
             <pre style={{
@@ -500,7 +516,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               color: '#9ca3af', fontSize: 10, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               fontFamily: 'ui-monospace, Consolas, monospace', maxHeight: 140, overflow: 'auto',
             }}>
-              {topicFitPrompt.slice(0, 600)}{topicFitPrompt.length > 600 ? '\nâ€¦ (truncated; full prompt is on your clipboard)' : ''}
+              {topicFitPrompt.slice(0, 600)}{topicFitPrompt.length > 600 ? '\n… (truncated; full prompt is on your clipboard)' : ''}
             </pre>
 
             <div style={{ fontSize: 11, color: '#9ca3af' }}>2. Paste the LLM&apos;s JSON answer here (auto-parses on paste):</div>
@@ -553,12 +569,40 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
         </div>
       )}
 
-      {/* Top bar â€” bucket chips, counters, slider, refresh, run-extraction */}
+      {/* Top bar â€” bucket chips, counters, slider, and run-extraction */}
       <div style={{
         padding: '8px 16px', borderBottom: '1px solid #1f2937',
         display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap',
         order: 2,
       }}>
+        {subTab === 'concepts' && (
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <input
+              ref={searchRef}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') { e.preventDefault(); setSearch(''); searchRef.current?.blur(); }
+              }}
+              placeholder="Search title…  ( / )"
+              style={{
+                width: 160, boxSizing: 'border-box',
+                background: '#111827', border: '1px solid #263244', borderRadius: 3,
+                padding: '3px 22px 3px 8px', color: '#e2e8f0', fontSize: 11, outline: 'none',
+              }}
+            />
+            {search && (
+              <button
+                onClick={() => { setSearch(''); searchRef.current?.focus(); }}
+                title="Clear search"
+                style={{
+                  position: 'absolute', right: 5, background: 'transparent', border: 'none',
+                  color: '#6b7280', fontSize: 13, lineHeight: 1, cursor: 'pointer', padding: 0,
+                }}
+              >×</button>
+            )}
+          </div>
+        )}
         {subTab === 'concepts' && (['all', 'high', 'medium', 'low', 'off_topic', 'broad', 'boilerplate', 'suspicious'] as const).map(b => {
           const count = bucketCounts[b];
           const selected = bucket === b;
@@ -593,7 +637,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               fontWeight: 700, letterSpacing: '0.03em',
             }}
           >
-            {llmFilterEnabled ? 'â— LLM-kept' : 'â—‹ LLM-kept'} <span style={{ color: llmFilterEnabled ? '#818cf8' : '#4b5563', marginLeft: 4 }}>{llmKeepIds.size}</span>
+            {llmFilterEnabled ? '● LLM-kept' : '○ LLM-kept'} <span style={{ color: llmFilterEnabled ? '#818cf8' : '#4b5563', marginLeft: 4 }}>{llmKeepIds.size}</span>
           </button>
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -615,7 +659,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                       color: '#bbf7d0', opacity: bulkBusy ? 0.5 : 1, fontWeight: 700,
                     }}
                   >
-                    {bulkBusy ? 'Promotingâ€¦' : `Promote ${eligible.length} eligible`}
+                    {bulkBusy ? 'Promoting…' : `Promote ${eligible.length} eligible`}
                   </button>
                 )}
                 {filtered.length > 0 && (
@@ -632,7 +676,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                       color: '#bbf7d0', opacity: bulkBusy ? 0.5 : 1, fontWeight: 600,
                     }}
                   >
-                    {bulkBusy ? 'Promotingâ€¦' : `Promote ${filtered.length} visible`}
+                    {bulkBusy ? 'Promoting…' : `Promote ${filtered.length} visible`}
                   </button>
                 )}
                 <button
@@ -670,12 +714,6 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               </div>
             </>
           )}
-          <button
-            onClick={refresh}
-            style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 3, padding: '3px 10px', fontSize: 10, cursor: 'pointer', color: '#9ca3af' }}
-          >
-            Refresh
-          </button>
         </div>
       </div>
 
@@ -731,7 +769,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
 
       <div style={{ flex: 1, overflowY: 'auto', order: 4 }}>
         {loading && (
-          <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>Loading candidatesâ€¦</div>
+          <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>Loading candidates…</div>
         )}
 
         {!loading && subTab === 'concepts' && (

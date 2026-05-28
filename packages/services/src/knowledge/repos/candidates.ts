@@ -76,6 +76,9 @@ function rowToConceptCandidate(row: ConceptCandidateRow): StoredConceptCandidate
     mention_count: row.mention_count,
     first_page: row.first_page,
     section_path: JSON.parse(row.section_path) as string[],
+    section_source: (row.parser_diagnostics_json
+      ? ((JSON.parse(row.parser_diagnostics_json) as { section_source?: string }).section_source ?? 'none')
+      : 'none') as ConceptCandidate['section_source'],
     evidence: JSON.parse(row.evidence) as EvidenceSpan[],
     signals: JSON.parse(row.signals) as CandidateSource[],
     created_at: row.created_at,

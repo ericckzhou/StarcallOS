@@ -53,4 +53,34 @@ describe('layout typography helpers', () => {
 
     expect(seg.hint).toBe('caption');
   });
+
+  it('detects short isolated ALL-CAPS lines as headings even at body font size', () => {
+    const line = __layoutTest.makeLine([
+      item('PROCESS SCHEDULING', 72, 120, 10, 'Body'),
+    ]);
+    const block = __layoutTest.groupIntoBlocks([line], 10)[0];
+    block.yGapAbove = 18;
+    block.yGapBelow = 16;
+
+    const seg = __layoutTest.classify(block, 10, false, 0, 0, 792);
+
+    expect(seg.hint === 'heading' || seg.hint === 'subheading').toBe(true);
+    expect(seg.signals.isAllCaps).toBe(true);
+    expect(seg.signals.headingConfidence ?? 0).toBeGreaterThan(0.3);
+  });
+
+  it('assigns higher headingConfidence to a strong heading than to body prose', () => {
+    const headLine = __layoutTest.makeLine([item('Backpropagation', 72, 90, 16, 'Heading-Bold')]);
+    const headBlock = __layoutTest.groupIntoBlocks([headLine], 10)[0];
+    headBlock.yGapAbove = 22;
+    const headSeg = __layoutTest.classify(headBlock, 10, false, 0, 0, 792);
+
+    const bodyLine = __layoutTest.makeLine([
+      item('This section explains how the gradient flows backward through each layer in turn.', 72, 360, 10, 'Body'),
+    ]);
+    const bodyBlock = __layoutTest.groupIntoBlocks([bodyLine], 10)[0];
+    const bodySeg = __layoutTest.classify(bodyBlock, 10, false, 0, 0, 792);
+
+    expect(headSeg.signals.headingConfidence ?? 0).toBeGreaterThan(bodySeg.signals.headingConfidence ?? 0);
+  });
 });

@@ -82,12 +82,6 @@ export default function ParseRunsPanel({ sourceId }: Props) {
         <span style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
           Parse Runs — {runs.length}
         </span>
-        <button
-          onClick={refresh}
-          style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid #1f2937', borderRadius: 3, padding: '3px 10px', fontSize: 10, cursor: 'pointer', color: '#9ca3af' }}
-        >
-          Refresh
-        </button>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -168,6 +162,7 @@ export default function ParseRunsPanel({ sourceId }: Props) {
                   <KV label="parser"       value={r.parser_version} mono />
                   <KV label="grammar"      value={r.grammar_version} mono />
                   <KV label="layout"       value={r.layout_version} mono />
+                  <ParserQuality diagnostics={r.diagnostics} blockCount={r.block_count} />
                   {Object.keys(r.diagnostics).length > 0 && (
                     <details style={{ marginTop: 8 }}>
                       <summary style={{ cursor: 'pointer', color: '#6b7280', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
@@ -191,6 +186,39 @@ export default function ParseRunsPanel({ sourceId }: Props) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// First-class parser quality indicators derived from the run diagnostics blob.
+// section-path fidelity is the leverage point for candidate ranking quality.
+function ParserQuality({ diagnostics, blockCount }: { diagnostics: Record<string, unknown>; blockCount: number }) {
+  const num = (v: unknown): number | null => (typeof v === 'number' && !isNaN(v) ? v : null);
+  const cand = (diagnostics.candidate_diagnostics ?? {}) as Record<string, unknown>;
+  const blocksSeen = num(cand.blocks_seen) ?? blockCount;
+  const sectionedBlocks = num(cand.sectioned_blocks);
+  const headingBlocks = num(diagnostics.heading_block_count);
+  const runningHeaderSections = num(diagnostics.running_header_sections);
+  const runningHeaderCandidates = num(cand.running_header_candidates);
+  const mixedCandidates = num(cand.mixed_section_candidates);
+
+  const pct = (n: number | null, d: number | null): string =>
+    n != null && d != null && d > 0 ? `${Math.round((n / d) * 100)}%` : '—';
+
+  // Only render when at least one section/heading metric is present.
+  if (sectionedBlocks == null && headingBlocks == null && runningHeaderSections == null) return null;
+
+  return (
+    <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px dashed #1f2937' }}>
+      <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
+        parser quality
+      </div>
+      <KV label="sectioned_blocks" value={`${pct(sectionedBlocks, blocksSeen)}${sectionedBlocks != null ? ` (${sectionedBlocks}/${blocksSeen})` : ''}`} />
+      <KV label="heading_blocks"  value={`${pct(headingBlocks, blocksSeen)}${headingBlocks != null ? ` (${headingBlocks}/${blocksSeen})` : ''}`} />
+      <KV label="running_header_sections" value={runningHeaderSections != null ? String(runningHeaderSections) : '—'} />
+      {(runningHeaderCandidates != null || mixedCandidates != null) && (
+        <KV label="header→section" value={`${runningHeaderCandidates ?? 0} running · ${mixedCandidates ?? 0} mixed`} />
+      )}
     </div>
   );
 }
