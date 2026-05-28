@@ -364,6 +364,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
               const c = it.concept;
               const stage = it.compression_stage;
               const actionsVisible = activeActionConceptId === c.id;
+              const selected = selectedConcept?.id === c.id;
               return (
                 <div
                   key={c.id}
@@ -379,6 +380,8 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                   style={{
                     padding: '12px 16px 11px 20px',
                     borderBottom: '1px solid #111827',
+                    borderLeft: `2px solid ${selected ? '#818cf8' : 'transparent'}`,
+                    background: selected ? 'rgba(129, 140, 248, 0.14)' : 'transparent',
                     cursor: 'pointer',
                   }}
                 >

@@ -6,6 +6,16 @@ html, body, #root {
   padding: 0;
   color: #e2e8f0;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Render native controls (select popups, scrollbars, etc.) in dark mode so
+     the OS-drawn <select> dropdown is dark instead of default light grey. */
+  color-scheme: dark;
+}
+
+/* Dark option list for native <select> popups. Chromium honors these on the
+   rendered menu items. */
+select option {
+  background-color: #0d0d16;
+  color: #e2e8f0;
 }
 
 html {

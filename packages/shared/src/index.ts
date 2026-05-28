@@ -37,6 +37,7 @@ export const IPC = {
   CONCEPTS_MISCONCEPTIONS: 'concepts:misconceptions',
   CONCEPTS_EQUATIONS:      'concepts:equations',
   CONCEPTS_EQUATION_CREATE: 'concepts:equationCreate',
+  CONCEPTS_EQUATION_UPDATE: 'concepts:equationUpdate',
   CONCEPTS_EQUATION_DELETE: 'concepts:equationDelete',
   CONCEPTS_ENSURE_TASKS:   'concepts:ensureTasks',
   CONCEPTS_REGENERATE_TASKS: 'concepts:regenerateTasks',
@@ -347,6 +348,7 @@ export interface IpcApi {
     misconceptions: (conceptId: number) => Promise<Misconception[]>;
     equations: (conceptId: number) => Promise<StoredEquationCandidate[]>;
     equationCreate: (args: { conceptId: number; latex: string; page?: number; variables?: string[] }) => Promise<StoredEquationCandidate>;
+    equationUpdate: (args: { equationId: number; latex: string; page?: number; variables?: string[] }) => Promise<StoredEquationCandidate>;
     equationDelete: (equationId: number) => Promise<{ ok: true }>;
     ensureTasks: (conceptId: number) => Promise<EvidenceTask[]>;
     regenerateTasks: (conceptId: number) => Promise<EvidenceTask[]>;
