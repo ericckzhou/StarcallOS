@@ -21,13 +21,23 @@ Remember these as the active state of the repo:
   The old `llm_filter_keep_ids_json` column remains as a compatibility mirror.
 - Candidate review filters now operate on `final_score`, parser labels, and
   currently visible rows. Both manual ChatGPT prompts and configured in-app LLM
-  filtering must send only the visible filtered candidates.
+  filtering must send only the visible filtered candidates. The configured API
+  filter uses a compact provider-safe batch, currently 30 visible candidates
+  with short context, to avoid low-tier TPM failures.
 - Source preview is a shared side pane across concept tabs. Preserve logical
   page anchoring when tabs, rails, zoom, or layout width changes.
+- PDF annotations are persisted source records. New manual highlights/sticky
+  notes are concept-scoped by default; source-wide annotations are opt-in via
+  the Source-wide toggle. Highlights are text-anchored and non-draggable;
+  sticky notes are draggable within the source pane.
 - Profile/background/XP are local UI state plus DB-backed study progress; XP is
   awarded only for the highest completed difficulty per concept/task kind.
 - Multi-PDF import returns an array of source rows from `sources.create({})`.
   Single explicit `filePath` calls remain backward compatible.
+- `+ Text` opens a centered workspace-sized glass import overlay. Keep the
+  existing text-source API and do not reintroduce the old sidebar form.
+- Promoted concepts can be manually added/edited/deleted and attached to an
+  existing source. Review queue concepts are grouped by source and collapsible.
 - Star Hubs are planned, not shipped: named/color-coded concept groups that will
   later feed constellation edges.
 - User-facing provider text should say "configured LLM provider" unless a
@@ -41,8 +51,10 @@ Remember these as the active state of the repo:
 ## Current Product Shape
 
 StarcallOS is an Electron desktop app for turning PDFs/text sources into
-evidence-backed ML/AI learning loops. It is not chat-with-PDF and not a generic
-summarizer.
+evidence-backed learning loops. It is domain-agnostic (textbooks, papers,
+lecture notes, legal/clinical/internal docs — any subject), not ML/AI-specific;
+prompts and the README are framed accordingly. It is not chat-with-PDF and not
+a generic summarizer.
 
 The default path is candidate-first:
 
@@ -97,6 +109,7 @@ High-change areas:
 - Review queue: `apps/desktop/src/renderer/src/components/ReviewQueue.tsx`
 - Profile/background/XP display: `apps/desktop/src/renderer/src/components/ProfilePane.tsx`,
   `apps/desktop/src/renderer/src/App.tsx`
+- Candidate CRUD panels: `apps/desktop/src/renderer/src/components/candidates/panels.tsx`
 
 ## Parser Versioning
 
@@ -126,10 +139,71 @@ Candidate rows and parse runs stamp these versions for auditability.
   parser rows.
 - Equation candidates should stay attached to the nearest concept/section path
   whenever possible; unattached equations are a fallback state.
+- Relation, misconception, and equation candidates support add/edit/delete from
+  Candidate Review. Keep these controls renderer-only unless the underlying CRUD
+  contract changes.
+- PDF annotation rows use soft delete/restore semantics for undo where
+  available. Do not hard-delete user annotations unless explicitly requested.
 - User-authored notes and profile data are user-owned. Do not overwrite them
   during extraction, enrichment, or UI refresh.
 - Review queue rows must be refreshed/removed immediately after concept delete
   or evidence-history changes.
+- Deleting an evidence record recomputes derived state for that concept: the
+  XP winner for the affected (concept, task kind) bucket is re-awarded to the
+  next-highest-difficulty surviving attempt, and mastery is recomputed as
+  `MAX(compression_stage)` of remaining records (the mastery row is removed
+  when none remain → Unseen). Never leave XP stranded or mastery frozen on a
+  deleted attempt's value.
+- Concept rename updates `concepts.name` only; never change `slug` (promotion
+  idempotency depends on `(source_id, slug)`).
+- All renderer delete buttons render `×`, never the word "Delete", and carry a
+  descriptive `title`.
+- Background customization accepts video (`mp4`/`webm`) and images; video
+  backgrounds render via `<video autoplay muted loop playsinline>`.
+
+## Current UX Notes
+
+- Candidate Review has bucket/tag/min-score filters, an LLM-kept toggle chip,
+  manual ChatGPT topic filtering, configured API filtering inside the LLM
+  topic-filter modal, and conservative bulk promotion.
+- Relations, Misconceptions, and Equations candidate tabs use shared glass
+  add/edit/delete controls with inline editors.
+- Source preview is available beside all concept tabs (toggled by the Source
+  button; the legacy in-tab Source tab was removed), can be resized/zoomed,
+  has an evidence rail, and must preserve logical page position through tab,
+  rail, and width changes. The viewer renders all pages in one continuous
+  vertical scroll (no Prev/Next paging), fits page width with − / % / + zoom,
+  exposes a selectable/copyable text layer per page, and auto-scrolls to the
+  first evidence page on open.
+- PDF source preview supports concept-scoped highlights and sticky notes.
+  Highlight overlays must not block text selection; sticky note position must
+  persist after drag/remount.
+- The concept title in the DetailPane header is click-to-rename (display name
+  only; slug stays stable so promotion idempotency on `(source_id, slug)`
+  holds). The header also shows evidence-kind chips next to the importance tag.
+- Constellations are cross-source: the Overview typeahead links a concept to
+  any promoted concept across all sources (suggestion rows show the other
+  source's filename). The list is user-curated only — enrich, the ChatGPT
+  paste flow, and the generated prompt never write it.
+- Regenerating Challenge tasks excludes every already-seen prompt (live tasks
+  + every `task_prompt_snapshot`), sends them as an AVOID list with a twist
+  instruction, and post-filters exact normalized duplicates.
+- The grader always returns a non-empty `gaps_detected`, even on `understood`
+  — framed as the next-stage step.
+- The Review Queue header has a sort-cycle button (default → importance →
+  stage, persisted in localStorage); there is no Refresh button (refetch is
+  event-driven via the `starcall:review-queue-stale` window event).
+- The top-level source tab defaults to Candidates on first launch and
+  remembers the last pick.
+- Review queue rows are grouped by source/book with collapsible headers and
+  quiet inline delete/undo behavior.
+- Concept Overview supports manual concept fields, equations, constellations,
+  and user notes. LLM population should not auto-create constellations.
+- Profile owns display name, avatar, XP/challenge stats, difficulty chart,
+  background image/video, and background opacity. App chrome should stay
+  translucent over the configured background where possible.
+- `+ PDF` supports multi-select import. `+ Text` opens a centered large glass
+  overlay for long pasted notes/articles/transcripts.
 
 ## LLM Provider Notes
 
@@ -143,6 +217,9 @@ All provider calls go through `chatJSON(config, request, passName)` in
 - Light passes: `structure`, `graph`
 - Model names are validated against `MODEL_CHOICES[provider]`.
 - Groq `max_tokens` is capped to fit free-tier constraints.
+- The configured candidate topic-fit API path must stay small enough for low
+  Groq TPM tiers. Prefer small batches and compact prompts over sending the full
+  candidate list. The manual ChatGPT prompt remains the large-list fallback.
 - Anthropic JSON mode is emulated by prompt instruction and fence stripping.
 
 ## Skills/Agent Workflow

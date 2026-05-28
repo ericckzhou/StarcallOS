@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export type Source = {
   id: number;
@@ -37,6 +38,30 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
     localStorage.setItem(COLLAPSED_KEY, String(collapsed));
   }, [collapsed]);
 
+  useEffect(() => {
+    if (!textModal) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeTextModal();
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [textModal]);
+
+  const textCharCount = textContent.length;
+  const textWordCount = textContent.trim() ? textContent.trim().split(/\s+/).length : 0;
+
+  function closeTextModal() {
+    setTextModal(false);
+    setTextContent('');
+    setTextTitle('');
+  }
+
+  function handleTextBackdropClick(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.target !== e.currentTarget) return;
+    if (textContent.trim() || textTitle.trim()) return;
+    closeTextModal();
+  }
+
   if (collapsed) {
     return (
       <aside style={{
@@ -69,9 +94,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
     if (!textContent.trim()) return;
     const source = await (window.api.sources as any).createText({ text: textContent.trim(), title: textTitle.trim() || undefined });
     if (source) onSourcesChange([...sources, source as Source]);
-    setTextModal(false);
-    setTextContent('');
-    setTextTitle('');
+    closeTextModal();
   }
 
   async function handleDelete(e: React.MouseEvent, sourceId: number) {
@@ -191,30 +214,142 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
           );
         })}
       </div>
-      {textModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-          <div style={{ background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 8, padding: 20, width: 480, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#a5b4fc' }}>Paste Text Source</div>
+      {textModal && createPortal((
+        <div
+          onMouseDown={handleTextBackdropClick}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(2, 6, 23, 0.68)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+            padding: 24,
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Paste Text Source"
+            style={{
+              width: 'min(1100px, calc(100vw - 72px))',
+              height: 'min(820px, calc(100vh - 72px))',
+              boxSizing: 'border-box',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+              background: 'rgba(8, 13, 30, 0.66)',
+              border: '1px solid rgba(129, 140, 248, 0.28)',
+              borderRadius: 10,
+              padding: 18,
+              boxShadow: '0 24px 80px rgba(0, 0, 0, 0.55)',
+              backdropFilter: 'blur(18px)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: '#dbeafe' }}>Paste Text Source</div>
+                <div style={{ marginTop: 3, fontSize: 11, color: '#64748b' }}>
+                  Paste long text, notes, articles, or transcripts.
+                </div>
+              </div>
+              <button
+                onClick={closeTextModal}
+                title="Close"
+                style={{
+                  width: 26,
+                  height: 26,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'rgba(15, 23, 42, 0.36)',
+                  border: '1px solid rgba(148, 163, 184, 0.22)',
+                  borderRadius: 6,
+                  color: '#94a3b8',
+                  fontSize: 14,
+                  cursor: 'pointer',
+                }}
+              >
+                x
+              </button>
+            </div>
             <input
               placeholder="Title (optional)"
               value={textTitle}
               onChange={e => setTextTitle(e.target.value)}
-              style={{ background: '#111827', border: '1px solid #374151', borderRadius: 4, padding: '6px 10px', color: '#e5e7eb', fontSize: 12, outline: 'none' }}
+              style={{
+                background: 'rgba(15, 23, 42, 0.52)',
+                border: '1px solid rgba(148, 163, 184, 0.22)',
+                borderRadius: 6,
+                padding: '8px 10px',
+                color: '#e5e7eb',
+                fontSize: 12,
+                outline: 'none',
+                fontFamily: 'inherit',
+              }}
             />
             <textarea
-              placeholder="Paste your text here…"
+              placeholder="Paste your text here..."
               value={textContent}
               onChange={e => setTextContent(e.target.value)}
-              rows={10}
-              style={{ background: '#111827', border: '1px solid #374151', borderRadius: 4, padding: '6px 10px', color: '#e5e7eb', fontSize: 12, resize: 'vertical', outline: 'none', fontFamily: 'inherit' }}
+              style={{
+                flex: 1,
+                minHeight: 0,
+                background: 'rgba(15, 23, 42, 0.44)',
+                border: '1px solid rgba(148, 163, 184, 0.22)',
+                borderRadius: 6,
+                padding: '10px 12px',
+                color: '#e5e7eb',
+                fontSize: 12,
+                lineHeight: 1.55,
+                resize: 'none',
+                outline: 'none',
+                fontFamily: 'inherit',
+              }}
             />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button onClick={() => { setTextModal(false); setTextContent(''); setTextTitle(''); }} style={{ background: 'none', border: '1px solid #374151', borderRadius: 4, padding: '5px 14px', color: '#6b7280', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={handleAddText} disabled={!textContent.trim()} style={{ background: '#312e81', border: 'none', borderRadius: 4, padding: '5px 14px', color: '#a5b4fc', fontSize: 12, cursor: 'pointer' }}>Add Source</button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ fontSize: 11, color: '#64748b' }}>
+                {textCharCount.toLocaleString()} chars / {textWordCount.toLocaleString()} words
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button
+                  onClick={closeTextModal}
+                  style={{
+                    background: 'rgba(15, 23, 42, 0.28)',
+                    border: '1px solid rgba(148, 163, 184, 0.24)',
+                    borderRadius: 6,
+                    padding: '6px 14px',
+                    color: '#94a3b8',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddText}
+                  disabled={!textContent.trim()}
+                  style={{
+                    background: textContent.trim() ? 'rgba(79, 70, 229, 0.74)' : 'rgba(30, 41, 59, 0.36)',
+                    border: `1px solid ${textContent.trim() ? 'rgba(129, 140, 248, 0.76)' : 'rgba(71, 85, 105, 0.42)'}`,
+                    borderRadius: 6,
+                    padding: '6px 16px',
+                    color: textContent.trim() ? '#dbeafe' : '#64748b',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: textContent.trim() ? 'pointer' : 'not-allowed',
+                    boxShadow: textContent.trim() ? '0 0 18px rgba(79, 70, 229, 0.18)' : 'none',
+                  }}
+                >
+                  Add Source
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
     </aside>
   );
 }

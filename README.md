@@ -68,14 +68,18 @@ The grader sees the same context. No domain bias, no default associations.
 - **Structural PDF parsing** — headings by typography, spacing, isolation, indentation, section paths, and context; headers/footers/TOC/index/captions are penalized or stripped
 - **Deterministic candidate extraction** — score parts, parser labels, context snippets, and `final_score`, with no LLM in the default ingestion path
 - **Local-first SQLite storage** — your reading, attempts, and notes live on your machine, in one file
-- **Pluggable LLM providers** — Groq and Anthropic, per-pass model selection, configured LLM filtering, and a free "Ask ChatGPT" path if you don't want to pay
+- **Pluggable LLM providers** — Groq and Anthropic, per-pass model selection, compact configured LLM filtering, and a free "Ask ChatGPT" path if you don't want to pay
 - **Source-aware enrichment** — definitions anchored to the page you actually read
 - **Challenge mode with XP** — task difficulty is tracked, history shows task kind/difficulty, and XP only counts the highest completed difficulty per concept/task kind
-- **Side-by-side source preview** — available across concept tabs, resizable, zoomable, and anchored to evidence pages
+- **Side-by-side source preview** — continuous-scroll PDF that fits page width, zooms (− / % / +), lets you select and copy text, auto-jumps to the evidence page, and carries concept-scoped highlights and draggable sticky notes
+- **Cross-source constellations** — link a concept to any other promoted concept across all your sources from the Overview typeahead; the list is yours, never LLM-written
+- **Replayable challenges** — rename concepts inline, regenerate tasks (never re-asking a question you've already answered), and the grader always tells you what would push an answer to the next stage
 - **Equation extraction and display** — formulas render in a lightweight LaTeX-style view and attach to nearby concepts/sections when possible
 - **Profile customization** — local display name, avatar, XP stats, background image/video, and background opacity
 - **User-authored notes** — your own follow-ups attached to a concept, styled with the overview fields and never overwritten by anything else
 - **Multi-PDF import** — add several PDFs from one file-picker action
+- **Large text import overlay** — paste long notes, articles, or transcripts as text sources
+- **Manual CRUD where review needs it** — add/edit/delete promoted concepts, equations, relation candidates, misconception candidates, and equation candidates
 - **Append-only event log** — every state change is auditable
 
 ---
@@ -84,18 +88,21 @@ The grader sees the same context. No domain bias, no default associations.
 
 - Deterministic PDF candidate parsing now uses typography, spacing, isolation,
   indentation, context snippets, score breakdowns, labels, and `final_score`.
-- Candidate review supports bucket/tag/min-score filters, filtered-payload LLM
-  topic filtering through Profile settings, manual ChatGPT filtering, and
-  conservative bulk promotion gates.
+- Candidate review supports bucket/tag/min-score filters, compact configured
+  LLM topic filtering inside the topic-filter modal, manual ChatGPT filtering,
+  conservative bulk promotion gates, and glass inline CRUD for relations,
+  misconceptions, and equations.
 - Equations are attached to nearby concept/section context and rendered with a
   lightweight LaTeX-ish display in concept overview and candidate review.
 - Source preview is available beside all concept tabs, can be resized, remembers
-  the logical page, and re-anchors after tab, rail, zoom, and layout changes.
+  the logical page, re-anchors after tab/rail/zoom/layout changes, and supports
+  concept-scoped PDF highlights plus draggable sticky notes.
 - Profile now includes local avatar/name, XP/challenge stats, difficulty chart,
   background image/video upload, and background opacity.
 - XP awards only the highest completed difficulty per concept/task kind, so the
   same question type cannot be farmed repeatedly.
-- `+ PDF` supports importing multiple PDFs in one file-picker action.
+- `+ PDF` supports importing multiple PDFs in one file-picker action; `+ Text`
+  opens a centered workspace-sized import overlay.
 - Planned next grouping primitive: Star Hubs, named/color-coded concept groups
   that will later feed constellation/graph organization.
 

@@ -9,6 +9,7 @@ import {
   enrichConceptDefinition,
   listTasksByConcept, getMastery, listMisconceptionsByConcept,
   listNotesByConcept, createNote, updateNote, deleteNote, reorderNotes,
+  listPdfAnnotationsBySource, createPdfAnnotation, updatePdfAnnotation, softDeletePdfAnnotation, restorePdfAnnotation,
   createChunk, createConcept, updateCentralityScore, createEdge, createMisconception, createTask,
   upsertMastery, createEvidenceRecord, listRecordsByConcept, deleteEvidenceRecord,
   calculateEligibleXpAward, getStudyProgress,
@@ -43,10 +44,12 @@ import { IPC } from '@starcall/shared';
 import type {
   CandidateLlmFilterArgs,
   CandidateLlmFilterDecision,
+  CreatePdfAnnotationArgs,
   CreateSourceArgs,
   CreateTextSourceArgs,
   ProcessSourceArgs,
   SubmitEvidenceArgs,
+  UpdatePdfAnnotationArgs,
 } from '@starcall/shared';
 
 const CONCEPT_IMPORTANCE_VALUES = new Set(['foundational', 'core', 'supporting', 'peripheral', 'reference_only']);
@@ -65,7 +68,7 @@ function createWindow(): void {
     width: 1400,
     height: 900,
     backgroundColor: '#0a0a0f',
-    title: '',                       // no "StarcallOS" in OS taskbar/title bar
+    title: 'StarcallOS',
     autoHideMenuBar: true,           // no File/Edit/View/Window/Help strip
     show: false,                     // wait until we maximize before showing
     webPreferences: {
@@ -74,8 +77,9 @@ function createWindow(): void {
       nodeIntegration: false,
     },
   });
-  // Belt-and-suspender: prevent the renderer's <title> from leaking back.
-  win.on('page-title-updated', e => e.preventDefault());
+  win.on('page-title-updated', (_e, title) => {
+    if (title !== 'StarcallOS') win.setTitle('StarcallOS');
+  });
   win.setMenuBarVisibility(false);
   win.removeMenu();
   win.maximize();
@@ -117,27 +121,24 @@ function buildCandidateLlmFilterPrompt(sourceTitle: string | undefined, candidat
   const title = sourceTitle || '(unknown source title)';
   const lines = candidates.map(c => JSON.stringify({
     term: c.normalized,
-    display: c.term,
-    mentions: c.mention_count,
-    page: c.first_page,
-    score: c.final_score ?? c.confidence ?? null,
-    signals: c.signals ?? [],
-    labels: c.labels ?? [],
-    context: c.context_snippet ?? '',
+    n: c.mention_count,
+    p: c.first_page,
+    s: Number((c.final_score ?? c.confidence ?? 0).toFixed(2)),
+    tags: [...(c.signals ?? []), ...(c.labels ?? [])].slice(0, 3),
+    ctx: (c.context_snippet ?? '').slice(0, 80),
   })).join('\n');
   return [
-    `You're filtering candidate concepts extracted from a book.`,
+    `Filter candidate concepts extracted from a book.`,
     `Book title: "${title}"`,
     ``,
-    `Decide whether each candidate ACTUALLY belongs to this book's domain.`,
-    `Keep concepts a reader of this book would specifically want to learn.`,
-    `Reject overly broad words, boilerplate headings, captions, fragments, index/table-of-contents leftovers, and terms that are not really about this book's subject.`,
+    `Keep only candidates a reader would specifically study for this book.`,
+    `Reject broad/generic words, boilerplate, captions, fragments, TOC/index leftovers, and off-topic terms.`,
     ``,
-    `Candidates are JSONL below. Use the "term" value exactly in your response:`,
+    `JSONL candidates. Use "term" exactly:`,
     lines,
     ``,
-    `Respond only as JSON with this shape:`,
-    `{"decisions":[{"term":"<term verbatim>","keep":true|false,"reason":"short optional reason"}]}`,
+    `Respond only with compact JSON:`,
+    `{"decisions":[{"term":"<term>","keep":true|false}]}`,
   ].join('\n');
 }
 
@@ -549,6 +550,55 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     return { ok: true as const };
   });
 
+  ipcMain.handle(IPC.PDF_ANNOTATIONS_LIST, (_e, sourceId: number) =>
+    listPdfAnnotationsBySource(db, sourceId));
+  ipcMain.handle(IPC.PDF_ANNOTATIONS_CREATE, (_e, args: CreatePdfAnnotationArgs) => {
+    const created = createPdfAnnotation(db, args);
+    emitEvent(db, 'pdf_annotation.created', {
+      sourceId: created.source_id,
+      conceptId: created.concept_id,
+      type: created.type,
+      page: created.page,
+    }, { entityType: 'pdf_annotation', entityId: created.id });
+    return created;
+  });
+  ipcMain.handle(IPC.PDF_ANNOTATIONS_UPDATE, (_e, args: UpdatePdfAnnotationArgs) => {
+    const updated = updatePdfAnnotation(db, args.id, args);
+    if (updated) {
+      emitEvent(db, 'pdf_annotation.updated', {
+        sourceId: updated.source_id,
+        conceptId: updated.concept_id,
+        type: updated.type,
+        page: updated.page,
+      }, { entityType: 'pdf_annotation', entityId: updated.id });
+    }
+    return updated;
+  });
+  ipcMain.handle(IPC.PDF_ANNOTATIONS_DELETE, (_e, id: number) => {
+    const deleted = softDeletePdfAnnotation(db, id);
+    if (deleted) {
+      emitEvent(db, 'pdf_annotation.deleted', {
+        sourceId: deleted.source_id,
+        conceptId: deleted.concept_id,
+        type: deleted.type,
+        page: deleted.page,
+      }, { entityType: 'pdf_annotation', entityId: deleted.id });
+    }
+    return deleted;
+  });
+  ipcMain.handle(IPC.PDF_ANNOTATIONS_RESTORE, (_e, id: number) => {
+    const restored = restorePdfAnnotation(db, id);
+    if (restored) {
+      emitEvent(db, 'pdf_annotation.restored', {
+        sourceId: restored.source_id,
+        conceptId: restored.concept_id,
+        type: restored.type,
+        page: restored.page,
+      }, { entityType: 'pdf_annotation', entityId: restored.id });
+    }
+    return restored;
+  });
+
   ipcMain.handle(IPC.SOURCES_BYTES, (_e, sourceId: number) => {
     const src = getSourceById(db, sourceId);
     if (!src) throw new Error(`source ${sourceId} not found`);
@@ -689,7 +739,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CANDIDATES_LLM_FILTER, async (_e, args: CandidateLlmFilterArgs) => {
     const source = getSourceById(db, args.sourceId);
     if (!source) throw new Error(`source ${args.sourceId} not found`);
-    const candidates = args.candidates.slice(0, 400);
+    const candidates = args.candidates.slice(0, 30);
     const config = cfgFor('concepts');
     if (candidates.length === 0) {
       return {
@@ -703,7 +753,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const { content } = await chatJSON(config, {
       responseFormat: 'json',
       temperature: 0,
-      maxTokens: 4096,
+      maxTokens: Math.min(600, Math.max(220, candidates.length * 8 + 80)),
       messages: [
         {
           role: 'system',

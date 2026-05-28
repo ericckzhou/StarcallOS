@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as pdfjs from 'pdfjs-dist';
+import 'pdfjs-dist/web/pdf_viewer.css';
+import type { PdfAnnotation, PdfAnnotationRect } from '@starcall/shared';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — vite ?url import returns a string path the worker loader uses
 import workerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
@@ -32,22 +34,173 @@ const KIND_COLOR: Record<string, string> = {
 };
 const EVIDENCE_RAIL_KEY = 'starcall.layout.evidenceRailCollapsed';
 const ZOOM_KEY          = 'starcall.layout.pdfZoom';
+const SHOW_SOURCE_ANNOTATIONS_KEY = 'starcall.pdfAnnotations.showSourceWide';
 const ZOOM_MIN  = 0.5;
 const ZOOM_MAX  = 3.0;
 const ZOOM_STEP = 0.1;
+const GLASS_PANEL_BG = 'rgba(4, 6, 26, 0.34)';
+const GLASS_BORDER = '1px solid rgba(31, 41, 55, 0.72)';
+const GLASS_BLUR = 'blur(14px)';
+const CONCEPT_ANNOTATION_COLORS = [
+  '#facc15',
+  '#38bdf8',
+  '#a78bfa',
+  '#34d399',
+  '#fb7185',
+  '#f97316',
+  '#22d3ee',
+  '#c084fc',
+];
 
 interface SavedPdfViewState {
   page: number;
   scrollTop: number;
 }
 
+interface HighlightAction {
+  page: number;
+  selectedText: string;
+  rects: PdfAnnotationRect[];
+  anchor: { x: number; y: number };
+  pageSize: { width: number; height: number };
+  rotation: number;
+}
+
+interface AnnotationEditor {
+  annotation: PdfAnnotation;
+  anchor: { x: number; y: number };
+}
+
 interface Props {
   conceptId: number;
   conceptName: string;
   stabilityKey?: string;
+  onResizeMouseDown?: (e: React.MouseEvent<HTMLElement>) => void;
 }
 
-export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Props) {
+function normalizeSelectedText(text: string): string {
+  return text.trim().replace(/\s+/g, ' ');
+}
+
+function conceptAnnotationColor(conceptId: number): string {
+  const index = Math.abs(conceptId) % CONCEPT_ANNOTATION_COLORS.length;
+  return CONCEPT_ANNOTATION_COLORS[index];
+}
+
+function rangeIntersectsNode(range: Range, node: Node): boolean {
+  try {
+    return range.intersectsNode(node);
+  } catch {
+    return false;
+  }
+}
+
+function clippedSelectionRange(selectionRange: Range, span: HTMLElement): Range | null {
+  const spanRange = document.createRange();
+  spanRange.selectNodeContents(span);
+  if (!rangeIntersectsNode(selectionRange, span)) {
+    spanRange.detach?.();
+    return null;
+  }
+
+  const clipped = document.createRange();
+  if (selectionRange.compareBoundaryPoints(Range.START_TO_START, spanRange) <= 0) {
+    clipped.setStart(spanRange.startContainer, spanRange.startOffset);
+  } else {
+    clipped.setStart(selectionRange.startContainer, selectionRange.startOffset);
+  }
+  if (selectionRange.compareBoundaryPoints(Range.END_TO_END, spanRange) >= 0) {
+    clipped.setEnd(spanRange.endContainer, spanRange.endOffset);
+  } else {
+    clipped.setEnd(selectionRange.endContainer, selectionRange.endOffset);
+  }
+  spanRange.detach?.();
+
+  if (clipped.collapsed || normalizeSelectedText(clipped.toString()).length === 0) {
+    clipped.detach?.();
+    return null;
+  }
+  return clipped;
+}
+
+function mergeClientRects(rects: DOMRect[]): DOMRect[] {
+  const sorted = [...rects]
+    .filter(r => r.width > 0 && r.height > 0)
+    .sort((a, b) => Math.abs(a.top - b.top) > 3 ? a.top - b.top : a.left - b.left);
+  const merged: DOMRect[] = [];
+  for (const rect of sorted) {
+    const last = merged[merged.length - 1];
+    const rectMid = rect.top + rect.height / 2;
+    const lastMid = last ? last.top + last.height / 2 : 0;
+    const sameLine = last && Math.abs(rectMid - lastMid) <= Math.max(3, Math.min(8, rect.height * 0.45));
+    const closeEnough = last && rect.left - last.right <= Math.max(10, rect.height * 0.8);
+    if (sameLine && closeEnough) {
+      const left = Math.min(last.left, rect.left);
+      const top = Math.min(last.top, rect.top);
+      const right = Math.max(last.right, rect.right);
+      const bottom = Math.max(last.bottom, rect.bottom);
+      merged[merged.length - 1] = DOMRect.fromRect({ x: left, y: top, width: right - left, height: bottom - top });
+    } else {
+      merged.push(rect);
+    }
+  }
+  return merged;
+}
+
+function normalizedSelectionRectsForPage(pageEl: HTMLElement, selectionRange: Range): { rects: PdfAnnotationRect[]; firstRect: DOMRect | null } {
+  const textLayer = pageEl.querySelector<HTMLElement>('.pdf-text-layer');
+  if (!textLayer || !rangeIntersectsNode(selectionRange, textLayer)) {
+    return { rects: [], firstRect: null };
+  }
+
+  const pageRect = pageEl.getBoundingClientRect();
+  const rawRects: DOMRect[] = [];
+  for (const span of Array.from(textLayer.querySelectorAll<HTMLElement>('span'))) {
+    const clipped = clippedSelectionRange(selectionRange, span);
+    if (!clipped) continue;
+    rawRects.push(
+      ...Array.from(clipped.getClientRects())
+        .filter(r => r.width > 0 && r.height > 0),
+    );
+    clipped.detach?.();
+  }
+
+  const mergedRects = mergeClientRects(rawRects);
+  const rects = mergedRects
+    .map(rect => {
+      const left = Math.max(rect.left, pageRect.left);
+      const top = Math.max(rect.top, pageRect.top);
+      const right = Math.min(rect.right, pageRect.right);
+      const bottom = Math.min(rect.bottom, pageRect.bottom);
+      if (right <= left || bottom <= top) return null;
+      return {
+        x: (left - pageRect.left) / pageRect.width,
+        y: (top - pageRect.top) / pageRect.height,
+        width: (right - left) / pageRect.width,
+        height: (bottom - top) / pageRect.height,
+      };
+    })
+    .filter((r): r is PdfAnnotationRect => r != null);
+
+  return { rects, firstRect: mergedRects[0] ?? rawRects[0] ?? null };
+}
+
+function notePositionFromClientPoint(
+  clientX: number,
+  clientY: number,
+  pageRect: DOMRect,
+  containerRect: DOMRect,
+): { x: number; y: number } {
+  const markerSize = 18;
+  const safeX = Math.max(containerRect.left, Math.min(containerRect.right - markerSize, clientX));
+  const safeY = Math.max(containerRect.top, Math.min(containerRect.bottom - markerSize, clientY));
+  return {
+    x: (safeX - pageRect.left) / pageRect.width,
+    y: (safeY - pageRect.top) / pageRect.height,
+  };
+}
+
+export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResizeMouseDown }: Props) {
   const [data, setData] = useState<SourceEvidence | null>(null);
   const [textBody, setTextBody] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -55,7 +208,13 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Prop
   const [page, setPage] = useState(1);
   const [evidenceOnly, setEvidenceOnly] = useState(true);
   const [pdfDoc, setPdfDoc] = useState<pdfjs.PDFDocumentProxy | null>(null);
+  const [annotations, setAnnotations] = useState<PdfAnnotation[]>([]);
+  const [pendingDeletedAnnotations, setPendingDeletedAnnotations] = useState<PdfAnnotation[]>([]);
+  const [highlightAction, setHighlightAction] = useState<HighlightAction | null>(null);
+  const [annotationEditor, setAnnotationEditor] = useState<AnnotationEditor | null>(null);
+  const [noteMode, setNoteMode] = useState(false);
   const [evidenceRailCollapsed, setEvidenceRailCollapsed] = useState(() => localStorage.getItem(EVIDENCE_RAIL_KEY) === 'true');
+  const [showSourceAnnotations, setShowSourceAnnotations] = useState(() => localStorage.getItem(SHOW_SOURCE_ANNOTATIONS_KEY) === 'true');
   const [userZoom, setUserZoom] = useState<number>(() => {
     const stored = Number(localStorage.getItem(ZOOM_KEY));
     return Number.isFinite(stored) && stored >= ZOOM_MIN && stored <= ZOOM_MAX ? stored : 1.0;
@@ -77,6 +236,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Prop
   // the initial-scroll attempt (event-driven, not RAF polling).
   const measuredPagesRef = useRef<Set<number>>(new Set());
   const onPageMeasuredRef = useRef<((pageNum: number) => void) | null>(null);
+  const pendingDeleteTimersRef = useRef<Map<number, number>>(new Map());
 
   useEffect(() => {
     localStorage.setItem(EVIDENCE_RAIL_KEY, String(evidenceRailCollapsed));
@@ -85,6 +245,17 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Prop
   useEffect(() => {
     localStorage.setItem(ZOOM_KEY, String(userZoom));
   }, [userZoom]);
+
+  useEffect(() => {
+    localStorage.setItem(SHOW_SOURCE_ANNOTATIONS_KEY, String(showSourceAnnotations));
+  }, [showSourceAnnotations]);
+
+  useEffect(() => () => {
+    for (const timerId of pendingDeleteTimersRef.current.values()) {
+      window.clearTimeout(timerId);
+    }
+    pendingDeleteTimersRef.current.clear();
+  }, []);
 
   const viewStateKey = useMemo(() => `starcall.pdfView.${conceptId}`, [conceptId]);
 
@@ -102,6 +273,11 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Prop
     setData(null);
     setTextBody(null);
     setPdfDoc(null);
+    setAnnotations([]);
+    setPendingDeletedAnnotations([]);
+    setHighlightAction(null);
+    setAnnotationEditor(null);
+    setNoteMode(false);
     setIntrinsicPageSize(null);
     fitScaleInitializedRef.current = false;
     pageRefs.current.clear();
@@ -151,6 +327,17 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Prop
     })();
     return () => { cancelled = true; };
   }, [conceptId, viewStateKey]);
+
+  useEffect(() => {
+    if (!data?.isPdf) return;
+    let cancelled = false;
+    window.api.sources.annotations.list(data.sourceId).then(rows => {
+      if (!cancelled) setAnnotations(rows);
+    }).catch(e => {
+      console.error('[PdfViewer] annotation load failed', e);
+    });
+    return () => { cancelled = true; };
+  }, [data?.isPdf, data?.sourceId]);
 
   const computeFitScaleFromContainer = useCallback(() => {
     const el = scrollContainerRef.current;
@@ -428,6 +615,18 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Prop
   const visibleEvidenceList = evidenceOnly && evidencePages.length > 0
     ? data.evidence.filter(e => evidencePages.includes(e.page))
     : data.evidence;
+  const visibleAnnotations = annotations.filter(annotation => {
+    if (annotation.scope === 'concept') {
+      return annotation.concept_id === conceptId;
+    }
+    return showSourceAnnotations;
+  });
+  const annotationsByPage = new Map<number, PdfAnnotation[]>();
+  for (const annotation of visibleAnnotations) {
+    const list = annotationsByPage.get(annotation.page) ?? [];
+    list.push(annotation);
+    annotationsByPage.set(annotation.page, list);
+  }
 
   function goPrevEvidence(): void {
     const prior = [...evidencePages].reverse().find(p => p < page);
@@ -447,14 +646,172 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Prop
       console.error('[PdfViewer] deleteEvidenceSpan failed', e);
     }
   }
+
+  function handleSelectionMouseUp(e: React.MouseEvent<HTMLDivElement>): void {
+    if (noteMode) return;
+    if ((e.target as HTMLElement | null)?.closest('[data-pdf-annotation-control="true"]')) return;
+    window.setTimeout(() => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+        setHighlightAction(null);
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      const pageHits = new Map<number, { pageRect: DOMRect; rects: PdfAnnotationRect[]; firstRect: DOMRect }>();
+      for (const [pageNum, pageEl] of pageRefs.current.entries()) {
+        const { rects, firstRect } = normalizedSelectionRectsForPage(pageEl, range);
+        if (!rects.length || !firstRect) continue;
+        pageHits.set(pageNum, {
+          pageRect: pageEl.getBoundingClientRect(),
+          rects,
+          firstRect,
+        });
+      }
+      const first = [...pageHits.entries()].sort((a, b) => a[0] - b[0])[0];
+      if (!first) {
+        setHighlightAction(null);
+        return;
+      }
+      const [targetPage, hit] = first;
+      const selectedText = normalizeSelectedText(selection.toString());
+      if (!selectedText) {
+        setHighlightAction(null);
+        return;
+      }
+      setHighlightAction({
+        page: targetPage,
+        selectedText,
+        rects: hit.rects,
+        anchor: { x: hit.firstRect.left, y: hit.firstRect.top - 36 },
+        pageSize: { width: hit.pageRect.width, height: hit.pageRect.height },
+        rotation: 0,
+      });
+    }, 0);
+  }
+
+  async function createHighlight(): Promise<void> {
+    if (!data || !highlightAction) return;
+    const created = await window.api.sources.annotations.create({
+      sourceId: data.sourceId,
+      conceptId,
+      scope: 'concept',
+      type: 'highlight',
+      createdFrom: 'manual_selection',
+      page: highlightAction.page,
+      color: conceptAnnotationColor(conceptId),
+      selectedText: highlightAction.selectedText,
+      label: '',
+      noteBody: '',
+      rects: highlightAction.rects,
+      pageWidth: highlightAction.pageSize.width,
+      pageHeight: highlightAction.pageSize.height,
+      rotation: highlightAction.rotation,
+    });
+    setAnnotations(prev => [...prev, created]);
+    setHighlightAction(null);
+    window.getSelection()?.removeAllRanges();
+  }
+
+  async function createNote(pageNum: number, rect: PdfAnnotationRect, pageSize: { width: number; height: number }): Promise<void> {
+    if (!data) return;
+    const created = await window.api.sources.annotations.create({
+      sourceId: data.sourceId,
+      conceptId,
+      scope: 'concept',
+      type: 'note',
+      createdFrom: 'manual_note',
+      page: pageNum,
+      color: conceptAnnotationColor(conceptId),
+      noteBody: '',
+      rects: [rect],
+      pageWidth: pageSize.width,
+      pageHeight: pageSize.height,
+      rotation: 0,
+    });
+    setAnnotations(prev => [...prev, created]);
+    const pageEl = pageRefs.current.get(pageNum);
+    const pageRect = pageEl?.getBoundingClientRect();
+    setAnnotationEditor({
+      annotation: created,
+      anchor: pageRect
+        ? { x: pageRect.left + rect.x * pageRect.width + 18, y: pageRect.top + rect.y * pageRect.height }
+        : { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+    });
+    setNoteMode(false);
+  }
+
+  async function saveAnnotation(id: number, patch: { label?: string; noteBody?: string; color?: string; rects?: PdfAnnotationRect[]; pageWidth?: number | null; pageHeight?: number | null; rotation?: number | null }): Promise<void> {
+    const updated = await window.api.sources.annotations.update({ id, ...patch });
+    if (!updated) return;
+    setAnnotations(prev => prev.map(a => a.id === id ? updated : a));
+    setAnnotationEditor({ annotation: updated, anchor: annotationEditor?.anchor ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 } });
+  }
+
+  async function moveAnnotation(id: number, rects: PdfAnnotationRect[], pageSize: { width: number; height: number }): Promise<void> {
+    const updated = await window.api.sources.annotations.update({
+      id,
+      rects,
+      pageWidth: pageSize.width,
+      pageHeight: pageSize.height,
+      rotation: 0,
+    });
+    if (!updated) return;
+    setAnnotations(prev => prev.map(a => a.id === id ? updated : a));
+    setAnnotationEditor(prev => prev?.annotation.id === id ? { ...prev, annotation: updated } : prev);
+  }
+
+  async function deleteAnnotation(annotation: PdfAnnotation): Promise<void> {
+    const deleted = await window.api.sources.annotations.delete(annotation.id);
+    if (!deleted) return;
+    setAnnotations(prev => prev.filter(a => a.id !== annotation.id));
+    setPendingDeletedAnnotations(prev => [...prev.filter(a => a.id !== annotation.id), deleted]);
+    setAnnotationEditor(null);
+    const timerId = window.setTimeout(() => {
+      pendingDeleteTimersRef.current.delete(annotation.id);
+      setPendingDeletedAnnotations(prev => prev.filter(a => a.id !== annotation.id));
+    }, 5_000);
+    pendingDeleteTimersRef.current.set(annotation.id, timerId);
+  }
+
+  async function restoreAnnotation(annotation: PdfAnnotation): Promise<void> {
+    const timerId = pendingDeleteTimersRef.current.get(annotation.id);
+    if (timerId != null) {
+      window.clearTimeout(timerId);
+      pendingDeleteTimersRef.current.delete(annotation.id);
+    }
+    const restored = await window.api.sources.annotations.restore(annotation.id);
+    if (!restored) return;
+    setPendingDeletedAnnotations(prev => prev.filter(a => a.id !== annotation.id));
+    setAnnotations(prev => [...prev.filter(a => a.id !== annotation.id), restored]);
+  }
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
       {/* Side rail of evidence chips */}
       <aside style={{
-        width: evidenceRailCollapsed ? 36 : 260, borderRight: '1px solid #1f2937', background: '#0d0d16',
+        width: evidenceRailCollapsed ? 36 : 260,
+        borderRight: GLASS_BORDER,
+        background: GLASS_PANEL_BG,
+        backdropFilter: GLASS_BLUR,
         display: 'flex', flexDirection: 'column', overflow: 'hidden', alignItems: evidenceRailCollapsed ? 'center' : 'stretch',
         flexShrink: 0,
+        position: 'relative',
       }}>
+        {onResizeMouseDown && (
+          <div
+            onMouseDown={onResizeMouseDown}
+            title="Drag to resize content and source"
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: 0,
+              width: 10,
+              zIndex: 6,
+              cursor: 'col-resize',
+              background: 'transparent',
+            }}
+          />
+        )}
         {evidenceRailCollapsed ? (
           <button
             onClick={() => { captureCurrentAnchor(); setEvidenceRailCollapsed(false); }}
@@ -469,7 +826,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Prop
           </button>
         ) : (
           <>
-            <div style={{ padding: '10px 14px', borderBottom: '1px solid #1f2937' }}>
+            <div style={{ padding: '10px 14px', borderBottom: GLASS_BORDER, background: GLASS_PANEL_BG }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                   Evidence ({data.evidence.length})
@@ -498,9 +855,9 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Prop
                 return (
                   <div key={i} style={{
                     display: 'flex', alignItems: 'stretch',
-                    background: selected ? '#1a1a2e' : 'transparent',
+                    background: selected ? 'rgba(129, 140, 248, 0.12)' : 'transparent',
                     borderLeft: `3px solid ${selected ? color : 'transparent'}`,
-                    borderBottom: '1px solid #111827',
+                    borderBottom: '1px solid rgba(17,24,39,0.72)',
                   }}>
                     <button
                       onClick={() => scrollToPage(e.page)}
@@ -554,6 +911,50 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Prop
               {Math.round(userZoom * 100)}%
             </button>
             <button onClick={zoomIn} title="Zoom in" style={navBtnStyle}>+</button>
+            <button
+              onClick={() => { setNoteMode(v => !v); setHighlightAction(null); }}
+              title="Add sticky note"
+              data-pdf-annotation-control="true"
+              style={noteMode ? activeAnnotBtnStyle : navBtnStyle}
+            >
+              + Note
+            </button>
+            <label
+              title="Show source-wide highlights and notes from this PDF"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                height: 28,
+                padding: '0 10px',
+                borderRadius: 4,
+                border: showSourceAnnotations ? '1px solid #6366f1' : '1px solid #1f2937',
+                background: showSourceAnnotations ? 'rgba(49, 46, 129, 0.52)' : 'rgba(4, 6, 26, 0.28)',
+                color: showSourceAnnotations ? '#e0e7ff' : '#64748b',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                userSelect: 'none',
+              }}
+            >
+              <span style={{
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: showSourceAnnotations ? '#818cf8' : 'transparent',
+                border: showSourceAnnotations ? '1px solid #c7d2fe' : '1px solid #334155',
+                boxShadow: showSourceAnnotations ? '0 0 10px rgba(129, 140, 248, 0.55)' : 'none',
+              }} />
+              <input
+                type="checkbox"
+                checked={showSourceAnnotations}
+                onChange={e => setShowSourceAnnotations(e.target.checked)}
+                data-pdf-annotation-control="true"
+                style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }}
+              />
+              Source-wide
+            </label>
             <span style={{ width: 8 }} />
             <button onClick={goPrevEvidence} title="Previous evidence page" style={navBtnEvidenceStyle}>« Ev</button>
             <span style={{ fontSize: 12, color: '#9ca3af', minWidth: 100, textAlign: 'center' }}>
@@ -565,8 +966,9 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Prop
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
+          onMouseUp={handleSelectionMouseUp}
           style={{
-            flex: 1, overflow: 'auto', background: '#000',
+            flex: 1, overflow: 'auto', background: 'transparent',
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             padding: 0, gap: 8,
           }}
@@ -584,8 +986,43 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Prop
               registerRef={registerPageRef}
               onMeasured={handlePageMeasured}
               scrollContainerRef={scrollContainerRef}
+              annotations={annotationsByPage.get(pageNum) ?? []}
+              noteMode={noteMode}
+              onCreateNote={(rect, pageSize) => void createNote(pageNum, rect, pageSize)}
+              onMoveNote={(id, rects, pageSize) => void moveAnnotation(id, rects, pageSize)}
+              onAnnotationClick={(annotation, anchor) => setAnnotationEditor({ annotation, anchor })}
             />
           ))}
+          {highlightAction && (
+            <div style={{ position: 'fixed', left: highlightAction.anchor.x, top: Math.max(8, highlightAction.anchor.y), zIndex: 50 }}>
+              <button
+                data-pdf-annotation-control="true"
+                onClick={() => void createHighlight()}
+                style={floatingActionStyle}
+              >
+                Highlight
+              </button>
+            </div>
+          )}
+          {annotationEditor && (
+            <AnnotationPopover
+              editor={annotationEditor}
+              conceptName={annotationEditor.annotation.scope === 'concept' ? conceptName : 'Source-wide'}
+              onClose={() => setAnnotationEditor(null)}
+              onSave={patch => void saveAnnotation(annotationEditor.annotation.id, patch)}
+              onDelete={() => void deleteAnnotation(annotationEditor.annotation)}
+            />
+          )}
+          {pendingDeletedAnnotations.length > 0 && (
+            <div style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 60, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {pendingDeletedAnnotations.map(annotation => (
+                <div key={annotation.id} style={undoToastStyle}>
+                  <span>{annotation.type === 'note' ? 'Note' : 'Highlight'} deleted.</span>
+                  <button onClick={() => void restoreAnnotation(annotation)} style={undoBtnStyle}>Undo</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -598,6 +1035,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey }: Prop
 // the scale changes (fit-to-width recompute or user zoom).
 function PdfPage({
   doc, pageNum, scale, fallbackSize, registerRef, onMeasured, scrollContainerRef,
+  annotations, noteMode, onCreateNote, onMoveNote, onAnnotationClick,
 }: {
   doc: pdfjs.PDFDocumentProxy;
   pageNum: number;
@@ -606,15 +1044,25 @@ function PdfPage({
   registerRef: (pageNum: number, el: HTMLDivElement | null) => void;
   onMeasured?: (pageNum: number) => void;
   scrollContainerRef: React.RefObject<HTMLDivElement>;
+  annotations: PdfAnnotation[];
+  noteMode: boolean;
+  onCreateNote: (rect: PdfAnnotationRect, pageSize: { width: number; height: number }) => void;
+  onMoveNote: (id: number, rects: PdfAnnotationRect[], pageSize: { width: number; height: number }) => void;
+  onAnnotationClick: (annotation: PdfAnnotation, anchor: { x: number; y: number }) => void;
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<pdfjs.RenderTask | null>(null);
   const textTaskRef = useRef<{ cancel: () => void } | null>(null);
+  const suppressNoteClickRef = useRef<Set<number>>(new Set());
+  const dragNoteRef = useRef<{ id: number; base: PdfAnnotationRect; pageRect: DOMRect; startX: number; startY: number } | null>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [visible, setVisible] = useState(false);
+  const [draggingNote, setDraggingNote] = useState<{ id: number; x: number; y: number } | null>(null);
   const boxSize = size ?? fallbackSize;
+  const highlightAnnotations = annotations.filter(a => a.type === 'highlight');
+  const noteAnnotations = annotations.filter(a => a.type === 'note');
 
   // Recompute reserved size whenever scale changes.
   useEffect(() => {
@@ -696,19 +1144,19 @@ function PdfPage({
           if (cancelled) return;
           // renderTextLayer signature varies slightly across pdfjs versions;
           // the legacy/build supports { textContentSource, container, viewport }.
-          const textTask = (pdfjs as unknown as {
-            renderTextLayer: (args: {
+          const textTask = new (pdfjs as unknown as {
+            TextLayer: new (args: {
               textContentSource: unknown;
               container: HTMLElement;
               viewport: unknown;
-            }) => { promise: Promise<void>; cancel: () => void };
-          }).renderTextLayer({
+            }) => { render: () => Promise<void>; cancel: () => void };
+          }).TextLayer({
             textContentSource: textContent,
             container: textLayerEl,
             viewport: vp,
           });
           textTaskRef.current = textTask;
-          try { await textTask.promise; } catch { /* cancelled mid-render is fine */ }
+          try { await textTask.render(); } catch { /* cancelled mid-render is fine */ }
         }
       } catch (e) {
         if (!cancelled && (e as { name?: string }).name !== 'RenderingCancelledException') {
@@ -730,28 +1178,179 @@ function PdfPage({
         registerRef(pageNum, el);
       }}
       data-page-num={pageNum}
+      onClick={e => {
+        if (!noteMode) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / rect.width;
+        const y = (e.clientY - rect.top) / rect.height;
+        onCreateNote({ x, y, width: 0.025, height: 0.025 }, { width: rect.width, height: rect.height });
+      }}
       style={{
         width: boxSize.width,
         height: boxSize.height,
         background: '#fff',
         boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
         position: 'relative',
+        overflow: 'visible',
         flexShrink: 0,
       }}
     >
       {visible && size && (
         <>
           <canvas ref={canvasRef} style={{ display: 'block', position: 'absolute', top: 0, left: 0 }} />
+          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1 }}>
+            {highlightAnnotations.flatMap(annotation =>
+              annotation.rects.map((r, idx) => (
+                <div
+                  key={`${annotation.id}-${idx}`}
+                  style={{
+                    position: 'absolute',
+                    left: `${r.x * 100}%`,
+                    top: `${r.y * 100}%`,
+                    width: `${r.width * 100}%`,
+                    height: `${r.height * 100}%`,
+                    background: annotation.color,
+                    opacity: 0.32,
+                    borderRadius: 2,
+                    pointerEvents: 'none',
+                  }}
+                />
+              )),
+            )}
+          </div>
           <div
             ref={textLayerRef}
-            className="pdf-text-layer"
+            className="textLayer pdf-text-layer"
             style={{
               position: 'absolute', top: 0, left: 0,
               overflow: 'hidden', opacity: 0.999,
               lineHeight: 1, color: 'transparent',
               userSelect: 'text', cursor: 'text',
+              zIndex: 2,
             }}
           />
+          <div style={{ position: 'absolute', inset: 0, zIndex: 3, pointerEvents: 'none' }}>
+            {highlightAnnotations.map(annotation => {
+              const first = annotation.rects[0];
+              if (!first) return null;
+              return (
+                <button
+                  key={`hit-${annotation.id}`}
+                  data-pdf-annotation-control="true"
+                  onClick={e => {
+                    e.stopPropagation();
+                    onAnnotationClick(annotation, { x: e.clientX + 8, y: e.clientY + 8 });
+                  }}
+                  title={annotation.label || annotation.selected_text || 'Edit highlight'}
+                  style={{
+                    position: 'absolute',
+                    left: `max(0px, calc(${first.x * 100}% - 18px))`,
+                    top: `${Math.max(0, first.y * 100 - 1.8)}%`,
+                    width: 14,
+                    height: 14,
+                    borderRadius: 999,
+                    border: `1px solid ${annotation.color}`,
+                    background: 'rgba(15, 23, 42, 0.76)',
+                    color: annotation.color,
+                    cursor: 'pointer',
+                    pointerEvents: 'auto',
+                    padding: 0,
+                    fontSize: 9,
+                    lineHeight: 1,
+                  }}
+                >
+                  H
+                </button>
+              );
+            })}
+            {noteAnnotations.map(annotation => {
+              const r = annotation.rects[0];
+              if (!r) return null;
+              const isDragging = draggingNote?.id === annotation.id;
+              const displayX = isDragging ? draggingNote.x : r.x;
+              const displayY = isDragging ? draggingNote.y : r.y;
+              return (
+                <button
+                  key={annotation.id}
+                  data-pdf-annotation-control="true"
+                  onClick={e => {
+                    e.stopPropagation();
+                    if (suppressNoteClickRef.current.has(annotation.id)) {
+                      suppressNoteClickRef.current.delete(annotation.id);
+                      return;
+                    }
+                    onAnnotationClick(annotation, { x: e.clientX + 8, y: e.clientY + 8 });
+                  }}
+                  onPointerDown={e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const pageRect = e.currentTarget.parentElement?.parentElement?.getBoundingClientRect();
+                    const containerRect = scrollContainerRef.current?.getBoundingClientRect();
+                    if (!pageRect || !containerRect) return;
+                    const startX = e.clientX;
+                    const startY = e.clientY;
+                    dragNoteRef.current = { id: annotation.id, base: r, pageRect, startX, startY };
+                    const move = (event: PointerEvent) => {
+                      const drag = dragNoteRef.current;
+                      if (!drag || drag.id !== annotation.id) return;
+                      const hasMoved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 3;
+                      if (!hasMoved) return;
+                      setDraggingNote({
+                        id: annotation.id,
+                        ...notePositionFromClientPoint(event.clientX, event.clientY, pageRect, containerRect),
+                      });
+                    };
+                    const up = (event: PointerEvent) => {
+                      window.removeEventListener('pointermove', move);
+                      window.removeEventListener('pointerup', up);
+                      window.removeEventListener('pointercancel', up);
+                      const drag = dragNoteRef.current;
+                      dragNoteRef.current = null;
+                      setDraggingNote(null);
+                      if (!drag || drag.id !== annotation.id) return;
+                      const moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 3;
+                      if (moved) {
+                        const next = notePositionFromClientPoint(
+                          event.clientX,
+                          event.clientY,
+                          drag.pageRect,
+                          scrollContainerRef.current?.getBoundingClientRect() ?? drag.pageRect,
+                        );
+                        suppressNoteClickRef.current.add(annotation.id);
+                        onMoveNote(annotation.id, [{ ...drag.base, ...next }], { width: drag.pageRect.width, height: drag.pageRect.height });
+                      } else {
+                        onAnnotationClick(annotation, { x: event.clientX + 8, y: event.clientY + 8 });
+                      }
+                    };
+                    window.addEventListener('pointermove', move);
+                    window.addEventListener('pointerup', up, { once: true });
+                    window.addEventListener('pointercancel', up, { once: true });
+                  }}
+                  title={annotation.note_body || 'Edit note'}
+                  style={{
+                    position: 'absolute',
+                    left: `${displayX * 100}%`,
+                    top: `${displayY * 100}%`,
+                    width: 18,
+                    height: 18,
+                    borderRadius: 4,
+                    border: `1px solid ${annotation.color}`,
+                    background: 'rgba(15, 23, 42, 0.86)',
+                    color: annotation.color,
+                    cursor: 'pointer',
+                    pointerEvents: 'auto',
+                    padding: 0,
+                    fontSize: 12,
+                    lineHeight: 1,
+                    boxShadow: '0 2px 10px rgba(0,0,0,0.45)',
+                    zIndex: 4,
+                  }}
+                >
+                  !
+                </button>
+              );
+            })}
+          </div>
         </>
       )}
       {!visible && (
@@ -767,10 +1366,116 @@ function PdfPage({
   );
 }
 
+function AnnotationPopover({
+  editor, conceptName, onClose, onSave, onDelete,
+}: {
+  editor: AnnotationEditor;
+  conceptName: string;
+  onClose: () => void;
+  onSave: (patch: { label?: string; noteBody?: string; color?: string }) => void;
+  onDelete: () => void;
+}) {
+  const { annotation, anchor } = editor;
+  const [label, setLabel] = useState(annotation.label);
+  const [noteBody, setNoteBody] = useState(annotation.note_body);
+  const [color, setColor] = useState(annotation.color);
+
+  useEffect(() => {
+    setLabel(annotation.label);
+    setNoteBody(annotation.note_body);
+    setColor(annotation.color);
+  }, [annotation.id, annotation.label, annotation.note_body, annotation.color]);
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        left: Math.min(anchor.x, window.innerWidth - 300),
+        top: Math.min(anchor.y, window.innerHeight - 250),
+        width: 280,
+        zIndex: 55,
+        background: '#0d0d16',
+        border: '1px solid #312e81',
+        borderRadius: 6,
+        boxShadow: '0 16px 50px rgba(0,0,0,0.55)',
+        padding: 12,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: '#e2e8f0' }}>
+          {annotation.type === 'note' ? 'Sticky note' : 'Highlight'}
+        </div>
+        <span style={{
+          maxWidth: 140,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          border: '1px solid #312e81',
+          borderRadius: 999,
+          color: '#c7d2fe',
+          background: 'rgba(49,46,129,0.28)',
+          fontSize: 10,
+          fontWeight: 700,
+          padding: '2px 7px',
+        }}>
+          {conceptName}
+        </span>
+        <button onClick={onClose} style={popoverIconBtnStyle}>x</button>
+      </div>
+      {annotation.type === 'highlight' && (
+        <>
+          <div style={{ fontSize: 10, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Selected text
+          </div>
+          <div style={{ maxHeight: 80, overflowY: 'auto', color: '#cbd5e1', fontSize: 12, lineHeight: 1.45, marginBottom: 10, padding: 8, background: '#111827', border: '1px solid #1f2937', borderRadius: 4 }}>
+            {annotation.selected_text || '(empty selection)'}
+          </div>
+          <input
+            value={label}
+            onChange={e => setLabel(e.target.value)}
+            placeholder="Optional label"
+            style={popoverInputStyle}
+          />
+        </>
+      )}
+      <textarea
+        value={noteBody}
+        onChange={e => setNoteBody(e.target.value)}
+        placeholder={annotation.type === 'note' ? 'Write a sticky note...' : 'Add a comment...'}
+        style={{ ...popoverInputStyle, minHeight: 78, resize: 'vertical', marginTop: annotation.type === 'highlight' ? 8 : 0 }}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+        <input
+          type="color"
+          value={color}
+          onChange={e => setColor(e.target.value)}
+          title="Annotation color"
+          style={{ width: 30, height: 28, padding: 0, background: 'transparent', border: '1px solid #263244', borderRadius: 4 }}
+        />
+        <button
+          onClick={() => onSave({ label, noteBody, color })}
+          style={popoverPrimaryBtnStyle}
+        >
+          Save
+        </button>
+        <button
+          onClick={onDelete}
+          style={popoverDangerBtnStyle}
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Header({ data, conceptName, extras }: { data: SourceEvidence; conceptName: string; extras: React.ReactNode }) {
   return (
     <div style={{
-      padding: '8px 14px', borderBottom: '1px solid #1f2937', background: '#0d0d16',
+      padding: '8px 14px',
+      borderBottom: GLASS_BORDER,
+      background: GLASS_PANEL_BG,
+      backdropFilter: GLASS_BLUR,
       display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
     }}>
       <span style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0' }}>{conceptName}</span>
@@ -818,6 +1523,101 @@ const navBtnStyle: React.CSSProperties = {
   background: 'transparent', border: '1px solid #1f2937', borderRadius: 3,
   padding: '3px 8px', fontSize: 11, color: '#9ca3af', cursor: 'pointer',
   minWidth: 28, textAlign: 'center',
+};
+
+const activeAnnotBtnStyle: React.CSSProperties = {
+  ...navBtnStyle,
+  background: '#1e1b4b',
+  border: '1px solid #6366f1',
+  color: '#c7d2fe',
+};
+
+const floatingActionStyle: React.CSSProperties = {
+  background: '#1e1b4b',
+  border: '1px solid #6366f1',
+  borderRadius: 4,
+  color: '#e0e7ff',
+  cursor: 'pointer',
+  fontSize: 12,
+  fontWeight: 700,
+  padding: '6px 10px',
+  boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
+};
+
+const popoverInputStyle: React.CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  background: '#111827',
+  border: '1px solid #263244',
+  borderRadius: 4,
+  color: '#e2e8f0',
+  fontFamily: 'inherit',
+  fontSize: 12,
+  outline: 'none',
+  padding: '7px 9px',
+};
+
+const popoverPrimaryBtnStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  background: '#1e1b4b',
+  border: '1px solid #6366f1',
+  borderRadius: 4,
+  color: '#c7d2fe',
+  cursor: 'pointer',
+  fontSize: 11,
+  fontWeight: 700,
+  padding: '6px 12px',
+};
+
+const popoverDangerBtnStyle: React.CSSProperties = {
+  background: 'transparent',
+  border: '1px solid #7f1d1d',
+  borderRadius: 4,
+  color: '#fca5a5',
+  cursor: 'pointer',
+  fontSize: 11,
+  fontWeight: 700,
+  padding: '6px 12px',
+};
+
+const popoverIconBtnStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  width: 22,
+  height: 22,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'transparent',
+  border: '1px solid #263244',
+  borderRadius: 4,
+  color: '#94a3b8',
+  cursor: 'pointer',
+  padding: 0,
+  lineHeight: 1,
+};
+
+const undoToastStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  background: '#111827',
+  border: '1px solid #312e81',
+  borderRadius: 6,
+  color: '#cbd5e1',
+  fontSize: 12,
+  padding: '8px 10px',
+  boxShadow: '0 8px 30px rgba(0,0,0,0.45)',
+};
+
+const undoBtnStyle: React.CSSProperties = {
+  background: '#1e1b4b',
+  border: '1px solid #6366f1',
+  borderRadius: 4,
+  color: '#c7d2fe',
+  cursor: 'pointer',
+  fontSize: 11,
+  fontWeight: 700,
+  padding: '3px 9px',
 };
 
 const panelStyle: React.CSSProperties = {
