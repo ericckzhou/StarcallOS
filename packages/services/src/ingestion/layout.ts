@@ -1,4 +1,5 @@
 import fs from 'fs';
+import type { SectionNode } from '../core/domain/types';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const pdfjs = require('pdfjs-dist/legacy/build/pdf.js') as {
@@ -52,6 +53,10 @@ export interface BlockSignals {
   dominantFont?: string;
   headingDepth?: number;
   pageTopRatio?: number;
+  // 0..1 heading-likeness derived from font ratio + bold + spacing + caps +
+  // isolation. Independent of the final `hint`; used to gate running-header
+  // section injection and as future ranking signal material.
+  headingConfidence?: number;
 }
 
 export interface SegmentedBlock {
@@ -220,30 +225,103 @@ const REPEAT_FRACTION    = 0.40;
 const REPEAT_MIN_PAGES   = 8;
 const REPEAT_MARGIN_FRAC = 0.08;          // top / bottom 8 % of page
 
+interface TopMarginInfo {
+  pages: Set<number>;
+  originals: Map<string, number>;   // original-cased text → frequency
+}
+
 function buildRepeatingMarginSet(
   perPageRaw: Array<{ raw: RawItem[]; pageHeight: number }>,
-): Set<string> {
-  if (perPageRaw.length < REPEAT_MIN_PAGES) return new Set();
+): { repeats: Set<string>; sections: SectionNode[] } {
+  if (perPageRaw.length < REPEAT_MIN_PAGES) return { repeats: new Set(), sections: [] };
   const counts = new Map<string, number>();
-  for (const { raw, pageHeight } of perPageRaw) {
+  // Top-margin text carries the running chapter/section title. We track it
+  // separately (with page numbers + original casing) so confirmed repeats can
+  // be promoted into section breadcrumbs, not just stripped as noise.
+  const topInfo = new Map<string, TopMarginInfo>();
+  for (let i = 0; i < perPageRaw.length; i++) {
+    const { raw, pageHeight } = perPageRaw[i];
     if (!raw.length) continue;
+    const pageNum = i + 1;
     const lines = groupIntoLines(raw);
     const seenOnPage = new Set<string>();
     for (const ln of lines) {
       const relY = ln.y / pageHeight;
-      if (relY > 1 - REPEAT_MARGIN_FRAC || relY < REPEAT_MARGIN_FRAC) {
+      const inTop = relY > 1 - REPEAT_MARGIN_FRAC;
+      const inBottom = relY < REPEAT_MARGIN_FRAC;
+      if (inTop || inBottom) {
         const norm = ln.text.trim().toLowerCase().replace(/\s+/g, ' ').replace(/\d+/g, '#');
-        if (norm.length >= 2 && norm.length < 100) seenOnPage.add(norm);
+        if (norm.length >= 2 && norm.length < 100) {
+          seenOnPage.add(norm);
+          if (inTop) {
+            let info = topInfo.get(norm);
+            if (!info) { info = { pages: new Set(), originals: new Map() }; topInfo.set(norm, info); }
+            info.pages.add(pageNum);
+            const orig = ln.text.trim().replace(/\s+/g, ' ');
+            info.originals.set(orig, (info.originals.get(orig) ?? 0) + 1);
+          }
+        }
       }
     }
     for (const n of seenOnPage) counts.set(n, (counts.get(n) ?? 0) + 1);
   }
   const threshold = Math.max(3, Math.floor(perPageRaw.length * REPEAT_FRACTION));
-  const out = new Set<string>();
+  const repeats = new Set<string>();
   for (const [text, count] of counts) {
-    if (count >= threshold) out.add(text);
+    if (count >= threshold) repeats.add(text);
   }
-  return out;
+
+  // Promote confirmed top-margin repeats into coarse (level-1) section nodes.
+  const byTitle = new Map<string, { page_start: number; page_end: number }>();
+  for (const [norm, info] of topInfo) {
+    if (!repeats.has(norm)) continue;
+    if (info.pages.size < threshold) continue;
+    const bestOriginal = [...info.originals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+    const title = cleanHeaderTitle(bestOriginal);
+    if (!isValidHeaderTitle(title)) continue;
+    const pages = [...info.pages];
+    const lo = Math.min(...pages);
+    const hi = Math.max(...pages);
+    const existing = byTitle.get(title);
+    if (existing) {
+      existing.page_start = Math.min(existing.page_start, lo);
+      existing.page_end = Math.max(existing.page_end, hi);
+    } else {
+      byTitle.set(title, { page_start: lo, page_end: hi });
+    }
+  }
+  const sections: SectionNode[] = [...byTitle.entries()].map(([heading, span]) => ({
+    heading: heading.slice(0, 80),
+    level: 1,
+    page_start: span.page_start,
+    page_end: span.page_end,
+  }));
+  return { repeats, sections };
+}
+
+// Strip page-number runs and decorative separators from a running-header line
+// so what remains is the title text. Handles the common book layout where the
+// page number sits beside the section name, e.g.:
+//   "Page 1  Genesis"      → "Genesis"
+//   "Genesis  Page 2"      → "Genesis"
+//   "2 Samuel  Page 182"   → "2 Samuel"   (leading "2" preserved — it's part of the title)
+function cleanHeaderTitle(raw: string): string {
+  return raw
+    .replace(/\bpage\s+\d+\b/gi, ' ')   // "Page 12" anywhere
+    .replace(/\bp\.?\s*\d+\b/gi, ' ')   // "p. 12" / "p12"
+    .replace(/[•·|]+/g, ' ')            // decorative separators
+    .replace(/^\s*\d+\s*$/, '')         // a line that is only a page number
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isValidHeaderTitle(title: string): boolean {
+  if (title.length < 3 || title.length > 80) return false;
+  if (!/[A-Za-z]/.test(title)) return false;          // must contain letters
+  if (/^\d+$/.test(title)) return false;
+  if (title.split(/\s+/).filter(Boolean).length > 12) return false;
+  if (isTocLine(title)) return false;
+  return true;
 }
 
 function isRepeatingHeader(line: Line, repeats: Set<string>): boolean {
@@ -342,10 +420,27 @@ function classify(
   const captionLike = /^(fig(?:ure)?|table|algorithm|example|ex\.|eq(?:uation)?)[\s.:_-]*\d*/i.test(trimmed);
   const tocLike = isTocLine(trimmed);
   const formulaLike = /[∑∫∂∇≤≥αβγδεζθλμπσφψω]|\\[a-zA-Z]+[{_^]|[a-zA-Z]\s*=\s*[^=]/.test(trimmed);
+  const bigGap = block.yGapAbove > bodyFontSize * 1.1 || block.yGapBelow > bodyFontSize * 1.1;
+  // Short, isolated ALL-CAPS lines are almost always section labels even when
+  // the font is not enlarged (common in technical books that set headings in
+  // small caps at body size). tokenCount guard keeps acronym-laden prose out.
+  const allCapsHeading = isAllCaps && isIsolatedLine && tokenCount <= 8;
   const typographyHeading =
     (ratio >= 1.32 && isIsolatedLine) ||
-    (ratio >= 1.12 && isBold && isIsolatedLine && (block.yGapAbove > bodyFontSize * 1.1 || block.yGapBelow > bodyFontSize * 1.1)) ||
+    (ratio >= 1.12 && isBold && isIsolatedLine && bigGap) ||
+    (allCapsHeading && (bigGap || ratio >= 1.0)) ||
     (hasSectionNumber && isIsolatedLine && (isBold || ratio >= 1.08));
+
+  // headingConfidence: 0..1 heading-likeness, computed regardless of final hint.
+  let headingConfidence = 0;
+  headingConfidence += Math.max(0, Math.min(1, (ratio - 1) / 0.6)) * 0.4;
+  if (isBold)          headingConfidence += 0.20;
+  if (isAllCaps)       headingConfidence += 0.15;
+  if (isIsolatedLine)  headingConfidence += 0.15;
+  if (bigGap)          headingConfidence += 0.10;
+  if (hasSectionNumber) headingConfidence += 0.10;
+  if (sentenceLike || captionLike || tocLike || formulaLike) headingConfidence *= 0.3;
+  headingConfidence = Math.max(0, Math.min(1, headingConfidence));
 
   let hint: BlockHint = 'unknown';
   let hintConfidence: 0 | 1 | 2 = 0;
@@ -358,7 +453,7 @@ function classify(
     hintConfidence = 1;
   } else if (typographyHeading && !sentenceLike) {
     hint = ratio >= 1.45 || headingDepth === 1 ? 'heading' : 'subheading';
-    hintConfidence = ratio >= 1.32 || hasSectionNumber ? 2 : 1;
+    hintConfidence = ratio >= 1.32 || hasSectionNumber || (allCapsHeading && bigGap) ? 2 : 1;
   } else if (ratio < 0.82 && isIsolatedLine) {
     hint = 'caption';
     hintConfidence = 1;
@@ -392,6 +487,7 @@ function classify(
       dominantFont: block.fontName,
       headingDepth,
       pageTopRatio: +pageTopRatio.toFixed(3),
+      headingConfidence: +headingConfidence.toFixed(2),
     },
     hint,
     hintConfidence,
@@ -409,6 +505,7 @@ export interface LayoutDiagnostics {
   two_column_pages: number;
   noise_removed_count: number;     // includes TOC lines (matched by isTocLine inside isNoise)
   repeating_header_stripped: number;
+  running_header_sections: number;
   merged_broken_headings: number;
   index_blocks_stripped: number;
   avg_blocks_per_page: number;
@@ -418,6 +515,7 @@ export async function segmentPdf(filePath: string): Promise<{
   blocks: SegmentedBlock[];
   pageCount: number;
   diagnostics: LayoutDiagnostics;
+  runningHeaderSections: SectionNode[];
 }> {
   const data = fs.readFileSync(filePath);
   const doc = await pdfjs.getDocument({ data: new Uint8Array(data), verbosity: 0 }).promise;
@@ -442,9 +540,12 @@ export async function segmentPdf(filePath: string): Promise<{
     const rawItems = toRawItems(items, pageNum);
     perPageRaw.push({ raw: rawItems, pageHeight });
   }
-  const repeatingHeaders = buildRepeatingMarginSet(perPageRaw);
+  const { repeats: repeatingHeaders, sections: runningHeaderSections } = buildRepeatingMarginSet(perPageRaw);
   if (debug && repeatingHeaders.size > 0) {
     console.log(`[LAYOUT] repeating margin texts detected (${repeatingHeaders.size}): ${[...repeatingHeaders].slice(0, 5).join(' | ')}`);
+  }
+  if (debug && runningHeaderSections.length > 0) {
+    console.log(`[LAYOUT] running-header sections (${runningHeaderSections.length}): ${runningHeaderSections.slice(0, 5).map(s => `${s.heading}[${s.page_start}-${s.page_end}]`).join(' | ')}`);
   }
 
   for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
@@ -520,13 +621,14 @@ export async function segmentPdf(filePath: string): Promise<{
     two_column_pages:    twoColumnPages,
     noise_removed_count: noiseRemovedCount,
     repeating_header_stripped: repeatingHeaderStrippedCount,
+    running_header_sections: runningHeaderSections.length,
     merged_broken_headings: mergedHeadingCount,
     index_blocks_stripped: indexStrippedCount,
     avg_blocks_per_page: pagesWithText === 0 ? 0
                          : +(postIndexBlocks.length / pagesWithText).toFixed(2),
   };
 
-  return { blocks: postIndexBlocks, pageCount, diagnostics };
+  return { blocks: postIndexBlocks, pageCount, diagnostics, runningHeaderSections };
 }
 
 // After-the-fact filter: once we see a heading whose text is exactly "Index"
@@ -619,6 +721,7 @@ export function segmentTextWithDiagnostics(text: string): { blocks: SegmentedBlo
       two_column_pages:    0,
       noise_removed_count: 0,
       repeating_header_stripped: 0,
+      running_header_sections: 0,
       merged_broken_headings: 0,
       index_blocks_stripped: 0,
       avg_blocks_per_page: blocks.length,

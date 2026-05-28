@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from 'react';
 
+// Notes record reserved for the DetailPane "Paper" tab; hidden from this list
+// so the scratchpad and structured notes don't visually collide.
+const PAPER_NOTE_HEADING = '__paper__';
+
 interface Note {
   id: number;
   concept_id: number;
@@ -24,7 +28,7 @@ export default function UserNotesSection({ conceptId }: Props) {
   useEffect(() => {
     setLoading(true);
     window.api.concepts.notes.list(conceptId).then(rows => {
-      setNotes(rows as Note[]);
+      setNotes((rows as Note[]).filter(n => n.heading !== PAPER_NOTE_HEADING));
       setLoading(false);
     });
   }, [conceptId]);

@@ -87,7 +87,7 @@ export async function runEnricher(
   const results: ExtractedChunk[] = [];
 
   // Build section path lookup from geometry headings (no LLM cost)
-  const sectionPath = buildSectionPath(blocks, sections);
+  const { paths: sectionPath } = buildSectionPath(blocks, sections);
 
   for (const batch of buildBatches(blocks)) {
     const offset = results.length;
@@ -159,32 +159,64 @@ export async function runEnricher(
 // Headings detected by the geometry layer give us the section hierarchy for free.
 // This replaces runStructureExtractor entirely for PDFs.
 
+// Where a block's section breadcrumb came from. Useful for parser debugging:
+// 'running_header' paths are coarse fallbacks, 'in_body_heading' are precise,
+// 'mixed' means a running header was layered above a (weak) in-body heading.
+export type SectionSource = 'none' | 'in_body_heading' | 'running_header' | 'mixed';
+
+// headingConfidence at/above this is considered strong enough that a running
+// header should NOT overpower it.
+const STRONG_HEADING = 0.6;
+
+export interface SectionPathResult {
+  paths: Map<number, string[]>;
+  sources: Map<number, SectionSource>;
+}
+
 export function buildSectionPath(
   blocks: SegmentedBlock[],
   extraSections: SectionNode[],
-): Map<number, string[]> {
+): SectionPathResult {
   const pathMap = new Map<number, string[]>();
+  const sourceMap = new Map<number, SectionSource>();
+  // Per-block: was the active in-body heading strong? Drives whether a running
+  // header may be layered on top.
+  const strongMap = new Map<number, boolean>();
   const currentPath: string[] = [];
+  let currentFromBody = false;
+  let currentStrong = false;
 
   for (const b of blocks) {
     if (b.hint === 'heading' && b.hintConfidence >= 1) {
       currentPath.length = 0;
       currentPath.push(b.text.slice(0, 80));
+      currentFromBody = true;
+      currentStrong = (b.signals.headingConfidence ?? 1) >= STRONG_HEADING;
     } else if (b.hint === 'subheading' && b.hintConfidence >= 1) {
       if (currentPath.length > 1) currentPath.pop();
       currentPath.push(b.text.slice(0, 80));
+      currentFromBody = true;
+      currentStrong = (b.signals.headingConfidence ?? 0.5) >= STRONG_HEADING;
     }
     pathMap.set(b.readingOrder, [...currentPath]);
+    sourceMap.set(b.readingOrder, currentFromBody ? 'in_body_heading' : 'none');
+    strongMap.set(b.readingOrder, currentFromBody && currentStrong);
   }
 
+  // Layer running-header (or other extra) sections ONLY onto blocks that lack a
+  // strong in-body section path — otherwise the running header overpowers real
+  // local structure. Blocks with a strong in-body heading are left untouched.
   for (const s of extraSections) {
     for (const [order, path] of pathMap) {
       const b = blocks.find(x => x.readingOrder === order);
-      if (b && b.page >= s.page_start && b.page <= s.page_end && !path.includes(s.heading)) {
-        path.unshift(s.heading);
-      }
+      if (!b || b.page < s.page_start || b.page > s.page_end) continue;
+      if (strongMap.get(order)) continue;          // don't overpower strong local structure
+      if (path.includes(s.heading)) continue;
+      path.unshift(s.heading);
+      const prev = sourceMap.get(order) ?? 'none';
+      sourceMap.set(order, prev === 'in_body_heading' ? 'mixed' : 'running_header');
     }
   }
 
-  return pathMap;
+  return { paths: pathMap, sources: sourceMap };
 }

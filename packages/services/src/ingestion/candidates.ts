@@ -12,6 +12,7 @@ import {
   type RelationKind,
 } from './grammar';
 import { looksLikeEquation, extractEquationsWithSections, type EquationCandidate } from './equations';
+import type { SectionSource } from './enrichment';
 import { isBoilerplateHeading, scoreTopicRelevance, tokenize } from '../core/topic';
 import {
   DOMAIN_TERMS,
@@ -45,6 +46,10 @@ export interface ConceptCandidate {
   confidence: number;     // 0–1
   evidence: EvidenceSpan[];
   section_path: string[];
+  // Provenance of section_path: where the breadcrumb came from. 'mixed' when a
+  // running-header title was layered above a weak in-body heading. Optional so
+  // legacy literals don't need it; extractCandidates always populates it.
+  section_source?: SectionSource;
   first_page: number;
   mention_count: number;
   // Deterministic quality flags + topic fit. Default values mean
@@ -100,6 +105,10 @@ export interface CandidateExtractionResult {
     final_score_high: number;
     final_score_medium: number;
     final_score_low: number;
+    sectioned_blocks: number;
+    sectioned_candidates: number;
+    running_header_candidates: number;
+    mixed_section_candidates: number;
   };
 }
 
@@ -135,7 +144,11 @@ function stemWord(w: string): string {
 }
 
 function normalize(term: string): string {
-  const raw = term.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+  // Strip running-header page markers ("Page 160", "p. 12") so a header that
+  // repeats once per page ("1 Samuel Page 160", "1 Samuel Page 162", …) collapses
+  // to a single keyed candidate ("samuel") instead of one row per page.
+  const deplaged = term.replace(/\bpage\s+\d+\b/gi, ' ').replace(/\bp\.?\s*\d+\b/gi, ' ');
+  const raw = deplaged.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!raw) return '';
   // Phrase-level acronym alias: "RAG" → "retrieval augmented generation"
   if (ACRONYM_TO_EXPANSION[raw]) return ACRONYM_TO_EXPANSION[raw];
@@ -155,6 +168,7 @@ interface CandidateBuilder {
   evidence: EvidenceSpan[];
   pages: Set<number>;
   section_path: string[];
+  section_sources: Set<SectionSource>;
   signal_weights: Map<CandidateSource, number>;
   mention_count: number;
   labels: Set<string>;
@@ -164,7 +178,13 @@ interface CandidateBuilder {
   diagnostics: Record<string, unknown>;
 }
 
-function ensure(map: Map<string, CandidateBuilder>, term: string, sectionPath: string[], page: number): CandidateBuilder {
+function ensure(
+  map: Map<string, CandidateBuilder>,
+  term: string,
+  sectionPath: string[],
+  page: number,
+  sectionSource: SectionSource = 'none',
+): CandidateBuilder {
   const key = normalize(term);
   let b = map.get(key);
   if (!b) {
@@ -174,6 +194,7 @@ function ensure(map: Map<string, CandidateBuilder>, term: string, sectionPath: s
       evidence: [],
       pages: new Set<number>([page]),
       section_path: sectionPath,
+      section_sources: new Set<SectionSource>(),
       signal_weights: new Map(),
       mention_count: 0,
       labels: new Set(),
@@ -186,11 +207,23 @@ function ensure(map: Map<string, CandidateBuilder>, term: string, sectionPath: s
   }
   b.pages.add(page);
   b.pagesForContext.add(page);
+  if (sectionSource !== 'none') b.section_sources.add(sectionSource);
   // Prefer the shortest section_path seen first (likely the defining section)
   if (sectionPath.length < b.section_path.length || b.section_path.length === 0) {
     b.section_path = sectionPath;
   }
   return b;
+}
+
+// Collapse the set of per-block provenances a candidate accumulated into one
+// label. Distinct in_body + running_header contributions become 'mixed'.
+function combineSectionSources(sources: Set<SectionSource>): SectionSource {
+  const distinct = [...sources].filter(s => s !== 'none');
+  if (distinct.length === 0) return 'none';
+  if (distinct.length === 1) return distinct[0];
+  const set = new Set(distinct);
+  if (set.size === 1) return distinct[0];
+  return 'mixed';
 }
 
 function addSignal(b: CandidateBuilder, source: CandidateSource, quote: string, page: number, pattern?: string): void {
@@ -375,6 +408,8 @@ export function extractCandidates(
   blocks: SegmentedBlock[],
   sectionPaths: Map<number, string[]>,
   topicAnchors: string[] = [],
+  sectionSources?: Map<number, SectionSource>,
+  headerSections: Array<{ heading: string; page_start: number }> = [],
 ): CandidateExtractionResult {
   const builders = new Map<string, CandidateBuilder>();
   const relations: RelationCandidate[] = [];
@@ -382,7 +417,7 @@ export function extractCandidates(
 
   let headingsSeen = 0;
   let definitionsFound = 0;
-  const allCapsPhrases = new Map<string, { count: number; firstQuote: string; firstPage: number; firstPath: string[] }>();
+  const allCapsPhrases = new Map<string, { count: number; firstQuote: string; firstPage: number; firstPath: string[]; firstSource: SectionSource }>();
   const blocksByOrder = new Map(blocks.map(b => [b.readingOrder, b]));
   const blocksByPage = new Map<number, SegmentedBlock[]>();
   for (const b of blocks) {
@@ -393,6 +428,7 @@ export function extractCandidates(
 
   for (const b of blocks) {
     const path = sectionPaths.get(b.readingOrder) ?? [];
+    const psrc = sectionSources?.get(b.readingOrder) ?? 'none';
 
     // 1. Heading-derived candidates
     if ((b.hint === 'heading' || b.hint === 'subheading') && b.hintConfidence >= 1) {
@@ -400,13 +436,15 @@ export function extractCandidates(
       const term = b.text
         .replace(/^#+\s*/, '')                  // markdown heading hashes
         .replace(/^\d+(\.\d+)*\.?\s*/, '')      // leading "3.2" numbering
+        .replace(/\bpage\s+\d+\b/gi, ' ')       // running-header page marker ("Genesis Page 2")
         .replace(/[:\s]+$/, '')                 // trailing colon/whitespace
+        .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 80);
       // Reject equation-shaped "headings" — these become equation candidates
       // and would otherwise pollute the concept list with formulas.
       if (term.length >= 2 && term.length <= 80 && !looksLikeEquation(term) && !term.startsWith('`')) {
-        const builder = ensure(builders, term, path, b.page);
+        const builder = ensure(builders, term, path, b.page, psrc);
         addSignal(builder, 'heading', b.text, b.page);
         addBlockSignal(builder, b, b.hint === 'heading' ? 'section_heading' : 'weak_heading');
         if (b.signals.fontSizeRatio >= 1.15) builder.labels.add('large_font');
@@ -416,7 +454,7 @@ export function extractCandidates(
 
     // 2. Bold-block candidates (short isolated bold lines = likely emphasized term)
     if (b.signals.isBold && b.signals.isIsolatedLine && b.text.length <= 80) {
-      const builder = ensure(builders, b.text, path, b.page);
+      const builder = ensure(builders, b.text, path, b.page, psrc);
       addSignal(builder, 'bold_block', b.text, b.page);
       addBlockSignal(builder, b, 'bold_emphasis');
     }
@@ -425,7 +463,7 @@ export function extractCandidates(
     const defs = findDefinitions(b.text);
     definitionsFound += defs.length;
     for (const hit of defs) {
-      const builder = ensure(builders, hit.term, path, b.page);
+      const builder = ensure(builders, hit.term, path, b.page, psrc);
       builder.term = hit.term.trim();
       addSignal(builder, 'definition_pattern', hit.quote, b.page, hit.pattern);
       addBlockSignal(builder, b, 'defined_term');
@@ -453,9 +491,24 @@ export function extractCandidates(
           firstQuote: phrase,
           firstPage: b.page,
           firstPath: path,
+          firstSource: psrc,
         });
       }
     }
+  }
+
+  // Running-header section titles (e.g. the book/chapter name printed in the
+  // page margin — "Genesis", "2 Samuel") are reliable section labels that the
+  // per-page heading classifier often misses or mangles. Emit them as
+  // candidates so they're searchable and promotable as sections.
+  for (const hs of headerSections) {
+    const title = hs.heading.trim().slice(0, 80);
+    if (title.length < 3 || looksLikeEquation(title)) continue;
+    const builder = ensure(builders, title, [], hs.page_start, 'running_header');
+    builder.term = title;
+    addSignal(builder, 'heading', title, hs.page_start);
+    builder.labels.add('section_heading');
+    builder.labels.add('running_header_title');
   }
 
   // Repetition promotion: capitalized phrases above threshold get a candidate
@@ -472,10 +525,11 @@ export function extractCandidates(
       // Always record a low-confidence cap-phrase signal so we can see why
       addSignal(existing, 'capitalized_phrase', info.firstQuote, info.firstPage);
       existing.mention_count = Math.max(existing.mention_count, info.count);
+      if (info.firstSource !== 'none') existing.section_sources.add(info.firstSource);
       continue;
     }
     if (info.count >= REPETITION_THRESHOLD) {
-      const builder = ensure(builders, info.firstQuote, info.firstPath, info.firstPage);
+      const builder = ensure(builders, info.firstQuote, info.firstPath, info.firstPage, info.firstSource);
       addSignal(builder, 'capitalized_phrase', info.firstQuote, info.firstPage);
       addSignal(builder, 'repetition', `appears ${info.count}×`, info.firstPage);
       builder.labels.add('repeated_term');
@@ -533,6 +587,7 @@ export function extractCandidates(
       confidence: +confidence.toFixed(2),
       evidence: b.evidence,
       section_path: b.section_path,
+      section_source: combineSectionSources(b.section_sources),
       first_page: Math.min(...b.pages),
       mention_count: b.mention_count,
       topic_relevance_score: rel.score,
@@ -548,6 +603,7 @@ export function extractCandidates(
         source_count: b.evidence.length,
         reading_orders: [...b.readingOrders].sort((a, b2) => a - b2).slice(0, 8),
         pages: [...b.pages].sort((a, b2) => a - b2).slice(0, 8),
+        section_source: combineSectionSources(b.section_sources),
       },
       reject_reasons,
     };
@@ -591,6 +647,10 @@ export function extractCandidates(
       final_score_high: candidates.filter(c => (c.final_score ?? 0) >= 0.8).length,
       final_score_medium: candidates.filter(c => (c.final_score ?? 0) >= 0.55 && (c.final_score ?? 0) < 0.8).length,
       final_score_low: candidates.filter(c => (c.final_score ?? 0) < 0.55).length,
+      sectioned_blocks: blocks.filter(b => (sectionPaths.get(b.readingOrder) ?? []).length > 0).length,
+      sectioned_candidates: candidates.filter(c => c.section_path.length > 0).length,
+      running_header_candidates: candidates.filter(c => c.section_source === 'running_header').length,
+      mixed_section_candidates: candidates.filter(c => c.section_source === 'mixed').length,
     },
   };
 }

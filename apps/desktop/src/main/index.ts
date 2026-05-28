@@ -117,35 +117,57 @@ function stripJsonFences(raw: string): string {
   return body;
 }
 
+// Max candidates evaluated per LLM topic-fit call. The term-only payload +
+// keep-list response keep this well under the Groq free-tier TPM budget.
+const LLM_API_FILTER_LIMIT = 75;
+
+// Deduplicate candidates by normalized term — the renderer maps kept terms back
+// to every row sharing that term, so sending duplicates only wastes tokens.
+function dedupeByNormalized(candidates: CandidateLlmFilterArgs['candidates']): CandidateLlmFilterArgs['candidates'] {
+  const seen = new Set<string>();
+  const out: CandidateLlmFilterArgs['candidates'] = [];
+  for (const c of candidates) {
+    const key = c.normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
+// Compact prompt: one term per line (no per-candidate JSON, no context snippet —
+// the term + book title is enough signal for topic-fit, and dropping ctx roughly
+// halves input tokens so far more candidates fit per call). Output is a keep-list
+// (just the terms to keep) which is much smaller than a per-candidate decision.
 function buildCandidateLlmFilterPrompt(sourceTitle: string | undefined, candidates: CandidateLlmFilterArgs['candidates']): string {
   const title = sourceTitle || '(unknown source title)';
-  const lines = candidates.map(c => JSON.stringify({
-    term: c.normalized,
-    n: c.mention_count,
-    p: c.first_page,
-    s: Number((c.final_score ?? c.confidence ?? 0).toFixed(2)),
-    tags: [...(c.signals ?? []), ...(c.labels ?? [])].slice(0, 3),
-    ctx: (c.context_snippet ?? '').slice(0, 80),
-  })).join('\n');
+  const lines = candidates.map(c => c.normalized).join('\n');
   return [
     `Filter candidate concepts extracted from a book.`,
     `Book title: "${title}"`,
     ``,
-    `Keep only candidates a reader would specifically study for this book.`,
+    `Keep only terms a reader would specifically study for THIS book's subject.`,
     `Reject broad/generic words, boilerplate, captions, fragments, TOC/index leftovers, and off-topic terms.`,
     ``,
-    `JSONL candidates. Use "term" exactly:`,
+    `Candidate terms (one per line):`,
     lines,
     ``,
-    `Respond only with compact JSON:`,
-    `{"decisions":[{"term":"<term>","keep":true|false}]}`,
+    `Respond ONLY with compact JSON listing the terms to KEEP, copied exactly:`,
+    `{"keep":["<term>", ...]}`,
   ].join('\n');
 }
 
+// Accepts the new keep-list form {"keep":[...]} (preferred) and the legacy
+// per-candidate {"decisions":[{term,keep}]} form (manual ChatGPT paste path).
 function parseCandidateLlmFilterResponse(raw: string): CandidateLlmFilterDecision[] {
-  const parsed = JSON.parse(stripJsonFences(raw)) as { decisions?: unknown };
+  const parsed = JSON.parse(stripJsonFences(raw)) as { keep?: unknown; decisions?: unknown };
+  if (Array.isArray(parsed.keep)) {
+    return parsed.keep
+      .filter((t): t is string => typeof t === 'string')
+      .map(term => ({ term, keep: true }));
+  }
   if (!Array.isArray(parsed.decisions)) {
-    throw new Error('LLM response did not include a decisions array.');
+    throw new Error('LLM response did not include a keep or decisions array.');
   }
   return parsed.decisions
     .map((d): CandidateLlmFilterDecision | null => {
@@ -253,6 +275,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       let rawChunks: Awaited<ReturnType<typeof runEnricher>>;
 
       let blocksForLLM: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
+      let runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'] = [];
       if (source.file_path.endsWith('.txt')) {
         const text = fs.readFileSync(source.file_path, 'utf-8');
         const out = segmentTextWithDiagnostics(text);
@@ -262,8 +285,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         updateSourceStatus(db, sourceId, 'processing', { page_count: pageCount });
         console.log(`[EXTRACT] text blocks: ${blocksForLLM.length}`);
       } else {
-        const { blocks: allBlocks, pageCount: pc, diagnostics: diag } = await segmentPdf(source.file_path);
+        const { blocks: allBlocks, pageCount: pc, diagnostics: diag, runningHeaderSections: rhSections } = await segmentPdf(source.file_path);
         pageCount = pc;
+        runningHeaderSections = rhSections;
         layoutDiagnostics = { ...diag };
         updateSourceStatus(db, sourceId, 'processing', { page_count: pageCount });
         blocksForLLM = allBlocks.filter(b =>
@@ -279,13 +303,13 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       // usable even when the LLM stage is rate-limited or fails.
       let candResult: ReturnType<typeof extractCandidates> | null = null;
       try {
-        const sectionPaths = buildSectionPath(blocksForLLM, []);
+        const { paths: sectionPaths, sources: sectionSources } = buildSectionPath(blocksForLLM, runningHeaderSections);
         // Derive topic anchors from title + heading vocabulary, persist on
         // sources so future passes can reuse without recomputing.
         const anchors = deriveTopicAnchors(blocksForLLM, source.title);
         setTopicAnchors(db, sourceId, anchors);
         layoutDiagnostics = { ...layoutDiagnostics, topic_anchors: anchors };
-        const cand = extractCandidates(blocksForLLM, sectionPaths, anchors);
+        const cand = extractCandidates(blocksForLLM, sectionPaths, anchors, sectionSources, runningHeaderSections);
         persistCandidateExtraction(db, sourceId, cand);
         candResult = cand;
         candidateCount     = cand.candidates.length;
@@ -742,7 +766,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CANDIDATES_LLM_FILTER, async (_e, args: CandidateLlmFilterArgs) => {
     const source = getSourceById(db, args.sourceId);
     if (!source) throw new Error(`source ${args.sourceId} not found`);
-    const candidates = args.candidates.slice(0, 30);
+    // Dedupe first, then cap. The leaner term-only payload + keep-list output
+    // lets us evaluate far more candidates per call than the old 30.
+    const candidates = dedupeByNormalized(args.candidates).slice(0, LLM_API_FILTER_LIMIT);
     const config = cfgFor('concepts');
     if (candidates.length === 0) {
       return {
@@ -756,7 +782,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const { content } = await chatJSON(config, {
       responseFormat: 'json',
       temperature: 0,
-      maxTokens: Math.min(600, Math.max(220, candidates.length * 8 + 80)),
+      // Keep-list output is just the kept terms, so it stays small even at the
+      // higher batch size. ~12 tok/term covers an all-kept worst case.
+      maxTokens: Math.min(1200, Math.max(220, candidates.length * 12 + 120)),
       messages: [
         {
           role: 'system',
@@ -790,6 +818,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       throw new Error(`source file no longer exists: ${source.file_path}`);
     }
     let blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
+    let runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'] = [];
     if (source.file_path.endsWith('.txt')) {
       blocks = segmentText(fs.readFileSync(source.file_path, 'utf-8'));
       console.log(`[CANDIDATES] (manual) text blocks=${blocks.length}`);
@@ -797,16 +826,17 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       try {
         const out = await segmentPdf(source.file_path);
         blocks = out.blocks;
+        runningHeaderSections = out.runningHeaderSections;
         console.log(`[CANDIDATES] (manual) pdf pages=${out.pageCount} blocks=${blocks.length}`);
       } catch (e) {
         console.error('[CANDIDATES] (manual) segmentPdf failed:', e);
         throw e;
       }
     }
-    const sectionPaths = buildSectionPath(blocks, []);
+    const { paths: sectionPaths, sources: sectionSources } = buildSectionPath(blocks, runningHeaderSections);
     const anchors = deriveTopicAnchors(blocks, source.title);
     setTopicAnchors(db, sourceId, anchors);
-    const cand = extractCandidates(blocks, sectionPaths, anchors);
+    const cand = extractCandidates(blocks, sectionPaths, anchors, sectionSources, runningHeaderSections);
     persistCandidateExtraction(db, sourceId, cand);
     console.log(
       `[CANDIDATES] (manual) source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +

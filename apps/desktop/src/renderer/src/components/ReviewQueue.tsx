@@ -76,8 +76,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
 
   // Refetch whenever another part of the app signals that mastery /
   // review-history state changed (evidence submit, history delete, task
-  // regenerate). Avoids the "never reviewed" mismatch where the queue
-  // is stale until manually clicking Refresh.
+  // regenerate). Avoids stale "never reviewed" queue metadata.
   useEffect(() => {
     const onChanged = () => refresh();
     window.addEventListener('starcall:review-queue-stale', onChanged);

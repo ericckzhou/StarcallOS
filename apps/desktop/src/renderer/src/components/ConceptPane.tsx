@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 export type Concept = {
   id: number;
@@ -33,6 +33,8 @@ const COLLAPSED_KEY = 'starcall.layout.conceptsCollapsed';
 export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
   const [masteries, setMasteries] = useState<Map<number, number>>(new Map());
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === 'true');
   const [createOpen, setCreateOpen] = useState(false);
@@ -45,8 +47,24 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   useEffect(() => {
     setConcepts([]);
     setMasteries(new Map());
+    setSearch('');
     window.api.concepts.bySource(sourceId).then(r => setConcepts(r as Concept[]));
   }, [sourceId]);
+
+  // "/" focuses the concept search from anywhere in the pane (unless already
+  // typing in a field); Esc clears + blurs.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const el = e.target as HTMLElement | null;
+      const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+      if (e.key === '/' && !typing) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   useEffect(() => {
     if (concepts.length === 0) return;
@@ -61,7 +79,11 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
     localStorage.setItem(COLLAPSED_KEY, String(collapsed));
   }, [collapsed]);
 
-  const displayed = filter === 'all' ? concepts : concepts.filter(c => c.importance === filter);
+  const query = search.trim().toLowerCase();
+  const displayed = concepts.filter(c =>
+    (filter === 'all' || c.importance === filter) &&
+    (query === '' || c.name.toLowerCase().includes(query)),
+  );
   const masteredCount = [...masteries.values()].filter(s => s >= 3).length;
   const selectedConcept = selectedId != null ? concepts.find(c => c.id === selectedId) : null;
 
@@ -224,6 +246,37 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           </button>
         </div>
       )}
+      <div style={{ padding: '8px 10px 6px', borderBottom: '1px solid #1f2937', position: 'relative' }}>
+        <input
+          ref={searchRef}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              setSearch('');
+              searchRef.current?.blur();
+            }
+          }}
+          placeholder="Search concepts…  ( / )"
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            background: '#111827', border: '1px solid #263244', borderRadius: 4,
+            padding: '6px 26px 6px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none',
+          }}
+        />
+        {search && (
+          <button
+            onClick={() => { setSearch(''); searchRef.current?.focus(); }}
+            title="Clear search"
+            style={{
+              position: 'absolute', right: 16, top: 13,
+              background: 'transparent', border: 'none', color: '#6b7280',
+              fontSize: 14, lineHeight: 1, cursor: 'pointer', padding: 0,
+            }}
+          >×</button>
+        )}
+      </div>
       <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         {['all', ...IMPORTANCE_ORDER].map(imp => (
           <button
@@ -243,7 +296,11 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {displayed.length === 0 && (
           <div style={{ padding: 20, color: '#374151', fontSize: 12, textAlign: 'center' }}>
-            {concepts.length === 0 ? 'Extract concepts to begin.' : 'No concepts in this filter.'}
+            {concepts.length === 0
+              ? 'Extract concepts to begin.'
+              : query
+                ? 'No concepts match your search.'
+                : 'No concepts in this filter.'}
           </div>
         )}
         {displayed.map(c => {
