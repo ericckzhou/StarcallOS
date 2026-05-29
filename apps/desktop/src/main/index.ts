@@ -6,6 +6,7 @@ import {
   listSources, createSource, updateSourceStatus, getSourceById, deleteSource,
   listConceptsBySource, getConceptById, listReviewQueue, searchConceptsByPrefixForConcept, renameConcept,
   buildConstellationGraph,
+  listHubs, createHub, updateHub, deleteHub, addMembers, removeMember, listAllMemberships,
   listConceptSourceEvidence, updateConceptFields, deleteConcept, deleteConceptEvidenceSpan,
   enrichConceptDefinition,
   listTasksByConcept, getMastery, listMisconceptionsByConcept,
@@ -557,6 +558,13 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     return searchConceptsByPrefixForConcept(db, args.conceptId, args.prefix, args.limit ?? 8);
   });
   ipcMain.handle(IPC.CONCEPTS_GRAPH, () => buildConstellationGraph(db));
+  ipcMain.handle(IPC.HUBS_LIST, () => listHubs(db));
+  ipcMain.handle(IPC.HUBS_CREATE, (_e, args: { name: string; color?: string; description?: string; conceptIds?: number[] }) => createHub(db, args));
+  ipcMain.handle(IPC.HUBS_UPDATE, (_e, args: { id: number; name?: string; color?: string; description?: string }) => updateHub(db, args.id, args));
+  ipcMain.handle(IPC.HUBS_DELETE, (_e, id: number) => { deleteHub(db, id); return { ok: true as const }; });
+  ipcMain.handle(IPC.HUBS_ADD_MEMBERS, (_e, args: { hubId: number; conceptIds: number[] }) => { addMembers(db, args.hubId, args.conceptIds); return { ok: true as const }; });
+  ipcMain.handle(IPC.HUBS_REMOVE_MEMBER, (_e, args: { hubId: number; conceptId: number }) => { removeMember(db, args.hubId, args.conceptId); return { ok: true as const }; });
+  ipcMain.handle(IPC.HUBS_MEMBERSHIPS, () => listAllMemberships(db));
   ipcMain.handle(IPC.CONCEPTS_GET, (_e, id: number) => getConceptById(db, id) ?? null);
   ipcMain.handle(IPC.CONCEPTS_RENAME, (_e, args: { conceptId: number; name: string }) => {
     return renameConcept(db, args.conceptId, args.name);

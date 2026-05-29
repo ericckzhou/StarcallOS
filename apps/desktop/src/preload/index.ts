@@ -54,6 +54,15 @@ contextBridge.exposeInMainWorld('api', {
       reorder: (args: { conceptId: number; orderedIds: number[] }) => ipcRenderer.invoke('conceptNotes:reorder', args),
     },
   },
+  hubs: {
+    list: () => ipcRenderer.invoke('hubs:list'),
+    create: (args: { name: string; color?: string; description?: string; conceptIds?: number[] }) => ipcRenderer.invoke('hubs:create', args),
+    update: (args: { id: number; name?: string; color?: string; description?: string }) => ipcRenderer.invoke('hubs:update', args),
+    delete: (id: number) => ipcRenderer.invoke('hubs:delete', id),
+    addMembers: (args: { hubId: number; conceptIds: number[] }) => ipcRenderer.invoke('hubs:addMembers', args),
+    removeMember: (args: { hubId: number; conceptId: number }) => ipcRenderer.invoke('hubs:removeMember', args),
+    memberships: () => ipcRenderer.invoke('hubs:memberships'),
+  },
   evidence: {
     submit: (args: unknown) => ipcRenderer.invoke('evidence:submit', args),
     history: (conceptId: number) => ipcRenderer.invoke('evidence:history', conceptId),

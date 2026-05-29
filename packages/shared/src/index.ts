@@ -54,6 +54,13 @@ export const IPC = {
   CONCEPT_NOTES_UPDATE:   'conceptNotes:update',
   CONCEPT_NOTES_DELETE:   'conceptNotes:delete',
   CONCEPT_NOTES_REORDER:  'conceptNotes:reorder',
+  HUBS_LIST:               'hubs:list',
+  HUBS_CREATE:             'hubs:create',
+  HUBS_UPDATE:             'hubs:update',
+  HUBS_DELETE:             'hubs:delete',
+  HUBS_ADD_MEMBERS:        'hubs:addMembers',
+  HUBS_REMOVE_MEMBER:      'hubs:removeMember',
+  HUBS_MEMBERSHIPS:        'hubs:memberships',
   REVIEW_QUEUE_LIST:       'review:queueList',
   SETTINGS_GET:            'settings:get',
   SETTINGS_SET:            'settings:set',
@@ -312,6 +319,20 @@ export interface LlmFilterSetArgs {
   keepTerms: string[] | null;
 }
 
+export interface StarHub {
+  id: number;
+  name: string;
+  description: string;
+  color: string;
+  type: string;
+  importance: string;
+  parent_hub_id: number | null;
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+export interface HubMembership { hub_id: number; concept_id: number; }
+
 export interface ConstellationGraphNode {
   id: number;
   name: string;
@@ -410,6 +431,15 @@ export interface IpcApi {
       delete:  (id: number) => Promise<{ ok: true }>;
       reorder: (args: { conceptId: number; orderedIds: number[] }) => Promise<ConceptNote[]>;
     };
+  };
+  hubs: {
+    list: () => Promise<StarHub[]>;
+    create: (args: { name: string; color?: string; description?: string; conceptIds?: number[] }) => Promise<StarHub>;
+    update: (args: { id: number; name?: string; color?: string; description?: string }) => Promise<StarHub | null>;
+    delete: (id: number) => Promise<{ ok: true }>;
+    addMembers: (args: { hubId: number; conceptIds: number[] }) => Promise<{ ok: true }>;
+    removeMember: (args: { hubId: number; conceptId: number }) => Promise<{ ok: true }>;
+    memberships: () => Promise<HubMembership[]>;
   };
   evidence: {
     submit: (args: SubmitEvidenceArgs) => Promise<EvidenceRecord>;

@@ -1,4 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+
+type Hub = { id: number; name: string; color: string; member_count: number };
+const HUB_PALETTE = ['#818cf8', '#f472b6', '#34d399', '#fbbf24', '#22d3ee', '#fb7185', '#a78bfa', '#4ade80'];
 
 export type Concept = {
   id: number;
@@ -43,11 +46,37 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   const [createDefinition, setCreateDefinition] = useState('');
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // Star Hubs
+  const [hubs, setHubs] = useState<Hub[]>([]);
+  const [conceptHubs, setConceptHubs] = useState<Map<number, number[]>>(new Map());
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [hubFilter, setHubFilter] = useState<number | null>(null);
+  const [hubModalOpen, setHubModalOpen] = useState(false);
+  const [hubName, setHubName] = useState('');
+  const [hubColor, setHubColor] = useState(HUB_PALETTE[0]);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+
+  const refreshHubs = useCallback(() => {
+    Promise.all([window.api.hubs.list(), window.api.hubs.memberships()]).then(([hs, ms]) => {
+      setHubs(hs as Hub[]);
+      const m = new Map<number, number[]>();
+      for (const { hub_id, concept_id } of ms as Array<{ hub_id: number; concept_id: number }>) {
+        const arr = m.get(concept_id) ?? [];
+        arr.push(hub_id);
+        m.set(concept_id, arr);
+      }
+      setConceptHubs(m);
+    });
+  }, []);
+  useEffect(() => { refreshHubs(); }, [refreshHubs]);
 
   useEffect(() => {
     setConcepts([]);
     setMasteries(new Map());
     setSearch('');
+    setSelectMode(false);
+    setSelectedIds(new Set());
     window.api.concepts.bySource(sourceId).then(r => setConcepts(r as Concept[]));
   }, [sourceId]);
 
@@ -82,8 +111,44 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   const query = search.trim().toLowerCase();
   const displayed = concepts.filter(c =>
     (filter === 'all' || c.importance === filter) &&
-    (query === '' || c.name.toLowerCase().includes(query)),
+    (query === '' || c.name.toLowerCase().includes(query)) &&
+    (hubFilter == null || (conceptHubs.get(c.id) ?? []).includes(hubFilter)),
   );
+
+  function toggleSelected(id: number) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function exitSelect() { setSelectMode(false); setSelectedIds(new Set()); setAddMenuOpen(false); }
+
+  async function createHubFromSelection() {
+    const name = hubName.trim();
+    if (!name || selectedIds.size === 0) return;
+    await window.api.hubs.create({ name, color: hubColor, conceptIds: [...selectedIds] });
+    setHubModalOpen(false); setHubName(''); setHubColor(HUB_PALETTE[0]);
+    exitSelect();
+    refreshHubs();
+  }
+  async function addSelectionToHub(hubId: number) {
+    if (selectedIds.size === 0) return;
+    await window.api.hubs.addMembers({ hubId, conceptIds: [...selectedIds] });
+    setAddMenuOpen(false);
+    exitSelect();
+    refreshHubs();
+  }
+  async function removeFromHub(conceptId: number, hubId: number) {
+    await window.api.hubs.removeMember({ hubId, conceptId });
+    refreshHubs();
+  }
+  async function deleteHub(hubId: number) {
+    if (!window.confirm('Delete this hub? Concepts are kept; only the grouping is removed.')) return;
+    await window.api.hubs.delete(hubId);
+    if (hubFilter === hubId) setHubFilter(null);
+    refreshHubs();
+  }
   const masteredCount = [...masteries.values()].filter(s => s >= 3).length;
   const selectedConcept = selectedId != null ? concepts.find(c => c.id === selectedId) : null;
 
@@ -149,8 +214,17 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           Concepts ({concepts.length})
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {concepts.length > 0 && (
+          {concepts.length > 0 && !selectMode && (
             <span style={{ fontSize: 10, color: '#22c55e' }}>{masteredCount} connected+</span>
+          )}
+          {concepts.length > 0 && (
+            <button
+              onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+              title="Select concepts to group into a Star Hub"
+              style={{ background: selectMode ? '#312e81' : 'transparent', border: `1px solid ${selectMode ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '3px 7px', color: selectMode ? '#e0e7ff' : '#9ca3af', fontSize: 10, cursor: 'pointer', fontWeight: 700 }}
+            >
+              {selectMode ? 'Done' : 'Select'}
+            </button>
           )}
           <button
             onClick={() => setCreateOpen(true)}
@@ -277,6 +351,86 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           >×</button>
         )}
       </div>
+      {selectMode && (
+        <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937', background: 'rgba(30,27,75,0.45)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', position: 'relative' }}>
+          <span style={{ fontSize: 11, color: '#c7d2fe', fontWeight: 700 }}>{selectedIds.size} selected</span>
+          <button
+            onClick={() => { if (selectedIds.size) { setHubName(''); setHubModalOpen(true); } }}
+            disabled={selectedIds.size === 0}
+            style={{ marginLeft: 'auto', background: selectedIds.size ? '#312e81' : '#111827', border: `1px solid ${selectedIds.size ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '3px 8px', color: selectedIds.size ? '#e0e7ff' : '#475569', fontSize: 10, fontWeight: 700, cursor: selectedIds.size ? 'pointer' : 'not-allowed' }}
+          >
+            New hub
+          </button>
+          {hubs.length > 0 && (
+            <button
+              onClick={() => selectedIds.size && setAddMenuOpen(o => !o)}
+              disabled={selectedIds.size === 0}
+              style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '3px 8px', color: selectedIds.size ? '#c7d2fe' : '#475569', fontSize: 10, cursor: selectedIds.size ? 'pointer' : 'not-allowed' }}
+            >
+              Add to ▾
+            </button>
+          )}
+          {addMenuOpen && (
+            <div style={{ position: 'absolute', top: '100%', right: 8, zIndex: 20, marginTop: 2, background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 4, minWidth: 150, maxHeight: 220, overflowY: 'auto', boxShadow: '0 6px 20px rgba(0,0,0,0.45)' }}>
+              {hubs.map(h => (
+                <button key={h.id} onClick={() => void addSelectionToHub(h.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', background: 'transparent', border: 'none', textAlign: 'left', padding: '6px 9px', fontSize: 11, color: '#e2e8f0', cursor: 'pointer' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: h.color, flexShrink: 0 }} />
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
+                  <span style={{ fontSize: 9, color: '#64748b' }}>{h.member_count}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {hubModalOpen && (
+        <div style={{ borderBottom: '1px solid #1f2937', padding: 12, display: 'flex', flexDirection: 'column', gap: 8, background: 'rgba(13,13,22,0.92)' }}>
+          <div style={{ fontSize: 11, color: '#c7d2fe', fontWeight: 800 }}>New hub from {selectedIds.size} concept{selectedIds.size === 1 ? '' : 's'}</div>
+          <input
+            autoFocus value={hubName}
+            onChange={e => setHubName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void createHubFromSelection(); } else if (e.key === 'Escape') setHubModalOpen(false); }}
+            placeholder="Hub name"
+            style={{ background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '7px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+          />
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {HUB_PALETTE.map(c => (
+              <button key={c} onClick={() => setHubColor(c)} aria-label={`Color ${c}`}
+                style={{ width: 20, height: 20, borderRadius: '50%', background: c, border: hubColor === c ? '2px solid #e2e8f0' : '2px solid transparent', cursor: 'pointer', padding: 0 }} />
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => void createHubFromSelection()} disabled={!hubName.trim()}
+              style={{ background: hubName.trim() ? '#312e81' : '#111827', border: `1px solid ${hubName.trim() ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '6px 12px', color: hubName.trim() ? '#e0e7ff' : '#475569', fontSize: 12, fontWeight: 700, cursor: hubName.trim() ? 'pointer' : 'not-allowed' }}>
+              Create
+            </button>
+            <button onClick={() => setHubModalOpen(false)} style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '6px 12px', color: '#94a3b8', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {!selectMode && hubs.length > 0 && (
+        <div style={{ padding: '6px 10px', borderBottom: '1px solid #1f2937', display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 2 }}>hubs</span>
+          {hubs.map(h => {
+            const on = hubFilter === h.id;
+            return (
+              <span key={h.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: on ? 'rgba(129,140,248,0.12)' : 'transparent', border: `1px solid ${on ? h.color : '#1f2937'}`, borderRadius: 12, padding: '1px 3px 1px 7px' }}>
+                <button onClick={() => setHubFilter(on ? null : h.id)} title={`${h.member_count} concepts`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'transparent', border: 'none', color: on ? '#e2e8f0' : '#94a3b8', fontSize: 10, cursor: 'pointer', padding: 0 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: h.color }} />
+                  {h.name}
+                </button>
+                <button onClick={() => void deleteHub(h.id)} title="Delete hub" aria-label={`Delete hub ${h.name}`}
+                  style={{ background: 'transparent', border: 'none', color: '#475569', fontSize: 12, lineHeight: 1, cursor: 'pointer', padding: '0 2px' }}>×</button>
+              </span>
+            );
+          })}
+          {hubFilter != null && (
+            <button onClick={() => setHubFilter(null)} style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 3, padding: '1px 6px', fontSize: 10, color: '#9ca3af', cursor: 'pointer' }}>clear</button>
+          )}
+        </div>
+      )}
       <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         {['all', ...IMPORTANCE_ORDER].map(imp => (
           <button
@@ -305,23 +459,46 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
         )}
         {displayed.map(c => {
           const stage = masteries.get(c.id) ?? 0;
+          const checked = selectedIds.has(c.id);
+          const memberHubIds = conceptHubs.get(c.id) ?? [];
           return (
             <div
               key={c.id}
-              onClick={() => onSelect(c)}
+              onClick={() => (selectMode ? toggleSelected(c.id) : onSelect(c))}
               style={{
                 padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #111827',
-                background: selectedId === c.id ? '#1a1a2e' : 'transparent',
-                borderLeft: `2px solid ${selectedId === c.id ? (IMP_COLOR[c.importance] ?? '#374151') : 'transparent'}`,
+                background: selectMode ? (checked ? '#272263' : 'transparent') : (selectedId === c.id ? '#1a1a2e' : 'transparent'),
+                borderLeft: `2px solid ${(selectMode ? checked : selectedId === c.id) ? (IMP_COLOR[c.importance] ?? '#374151') : 'transparent'}`,
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                {selectMode && (
+                  <span style={{ width: 13, height: 13, borderRadius: 3, flexShrink: 0, border: `1px solid ${checked ? '#818cf8' : '#475569'}`, background: checked ? '#6366f1' : 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, lineHeight: 1 }}>
+                    {checked ? '✓' : ''}
+                  </span>
+                )}
                 <div style={{ width: 7, height: 7, borderRadius: '50%', background: STAGE_COLORS[stage], flexShrink: 0 }} />
-                <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{c.name}</div>
+                {memberHubIds.length > 0 && (
+                  <span style={{ display: 'inline-flex', gap: 2, flexShrink: 0 }} title="In hubs">
+                    {memberHubIds.slice(0, 4).map(hid => {
+                      const h = hubs.find(x => x.id === hid);
+                      return <span key={hid} style={{ width: 6, height: 6, borderRadius: '50%', background: h?.color ?? '#6b7280' }} />;
+                    })}
+                  </span>
+                )}
               </div>
-              <div style={{ paddingLeft: 15, display: 'flex', justifyContent: 'space-between' }}>
+              <div style={{ paddingLeft: selectMode ? 36 : 15, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 10, color: IMP_COLOR[c.importance] ?? '#6b7280' }}>{c.importance}</span>
-                {stage > 0 && <span style={{ fontSize: 10, color: STAGE_COLORS[stage] }}>Stage {stage}</span>}
+                {hubFilter != null && !selectMode ? (
+                  <button
+                    onClick={e => { e.stopPropagation(); void removeFromHub(c.id, hubFilter); }}
+                    title="Remove from this hub"
+                    style={{ background: 'transparent', border: '1px solid #3f1515', borderRadius: 3, padding: '0 6px', fontSize: 10, color: '#fca5a5', cursor: 'pointer' }}
+                  >− hub</button>
+                ) : stage > 0 ? (
+                  <span style={{ fontSize: 10, color: STAGE_COLORS[stage] }}>Stage {stage}</span>
+                ) : null}
               </div>
             </div>
           );
