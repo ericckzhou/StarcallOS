@@ -130,6 +130,81 @@ body::after {
   cursor: text;
 }
 
+/* ── Constellation Map stars ─────────────────────────────────────────────── */
+.cm-graph { animation: cm-fadein 650ms ease both; }
+@keyframes cm-fadein { from { opacity: 0; } to { opacity: 1; } }
+
+/* Smooth hover scale around each star's own centre. */
+.cm-node-inner {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 170ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 220ms ease;
+}
+
+/* Twinkling core + breathing halo, staggered per node via animation-delay. */
+.cm-spark { animation: cm-twinkle 3.2s ease-in-out infinite; }
+.cm-halo  { animation: cm-breathe 4.6s ease-in-out infinite; }
+@keyframes cm-twinkle { 0%, 100% { opacity: 0.95; } 50% { opacity: 0.35; } }
+@keyframes cm-breathe { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.95; } }
+
+/* Relation edges show a flowing dash (system-derived link). */
+.cm-relation-edge { animation: cm-flow 1.1s linear infinite; }
+@keyframes cm-flow { to { stroke-dashoffset: -14; } }
+
+/* Honor reduced-motion: kill the map's ambient animations + transitions. The
+   force simulation also settles synchronously (no rAF) in this mode. */
+@media (prefers-reduced-motion: reduce) {
+  .cm-graph, .cm-spark, .cm-halo, .cm-relation-edge, .cm-node-inner {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Keyboard focus ring for the SVG star nodes. */
+.cm-node:focus { outline: none; }
+.cm-node:focus-visible .cm-focus-ring { opacity: 1; }
+
+/* Constellation link cards (concept Overview). */
+.cm-link-card {
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+.cm-link-card:hover { background: #272263; border-color: #4f46e5; }
+.cm-link-card:focus-within { border-color: #6366f1; }
+.cm-link-edit { opacity: 0; transition: opacity 140ms ease; }
+.cm-link-card:hover .cm-link-edit,
+.cm-link-card:focus-within .cm-link-edit { opacity: 1; }
+.cm-link-del { transition: background-color 140ms ease, color 140ms ease; }
+.cm-link-del:hover { background: #3f1d1d; color: #fecaca; }
+
+/* Star Hub filter chips: keep the chip clean (color + name = filter); reveal
+   edit/delete only on hover or keyboard focus, with color feedback. */
+.cm-hub-action { opacity: 0; transition: opacity 130ms ease, color 130ms ease; }
+.cm-hub-chip:hover .cm-hub-action,
+.cm-hub-chip:focus-within .cm-hub-action { opacity: 1; }
+.cm-hub-action:hover { color: #e2e8f0; }
+.cm-hub-del:hover { color: #fecaca; }
+
+/* Concept list scroll wheel: thinner, quieter than the global 10px bar so the
+   dense concept rails (Map + Sources) read as a clean list, not a chrome. */
+.concept-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.concept-scroll::-webkit-scrollbar-track { background: transparent; border: none; }
+.concept-scroll::-webkit-scrollbar-thumb {
+  background: #232a3a;
+  border: none;
+  border-radius: 3px;
+}
+.concept-scroll::-webkit-scrollbar-thumb:hover { background: #312e81; }
+.concept-scroll { scrollbar-width: thin; scrollbar-color: #232a3a transparent; }
+
+/* Concept importance filter chips: base + hover (active state set inline). */
+.cp-filter {
+  border: 1px solid #1f2937;
+  background: transparent;
+  color: #64748b;
+  transition: background-color 130ms ease, border-color 130ms ease, color 130ms ease;
+}
+.cp-filter:hover { border-color: #475569; color: #cbd5e1; }
+
 /* Default focus ring tamed for the dark theme. */
 :focus-visible {
   outline: 1px solid #818cf8;

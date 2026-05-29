@@ -288,16 +288,29 @@ importance tag.
 
 ## Star Hubs / Constellations Roadmap
 
-**Shipped so far:** per-concept cross-source constellation links via the
+**Shipped — flat constellation links:** per-concept cross-source links via the
 Overview typeahead (stored in `concepts.where_reappears`; user-curated, never
-LLM-written). This is the lightweight, flat version of concept linking.
+LLM-written). Each link now carries a required **reason** — stored as
+`{ name, reason }` (legacy bare strings still load). Links are directional in the
+data (A lists B); a mutual link is when both list each other.
 
-**Still planned — Star Hubs** are the grouping primitive on top of those links. The
-first useful version should support click-hold multi-select on concept rows,
-creating a named/color-coded hub from selected concepts, adding/removing
-concepts from existing hubs, and showing hub chips/filters in concept lists.
-Future constellation work can then treat hubs as graph containers with internal
-concept links and cross-hub concept links.
+**Shipped — Constellation Map** (top-level "Map" tab): a dependency-free
+force-directed SVG graph of promoted concepts. Built from `concepts.graph()`
+(`buildConstellationGraph`): nodes = promoted concepts, edges = constellation
+links + validated `concept_edges`, with graph stats and a 150-node/300-edge cap.
+Single-source focus (selected source + concepts linked to it from other
+sources); per-source node color, mastery ring, directional (one-way →) vs mutual
+(↔) arrows, same-source solid vs cross-source dashed edges; reduced-motion aware;
+node click opens DetailPane beside the graph.
+
+**Shipped — Star Hubs (v1):** named, color-coded groups of concepts
+(cross-source). Tables `star_hubs` + `star_hub_members` (migration 0019;
+`parent_hub_id` reserved for future nesting). Created via Select-mode
+multi-select in `ConceptPane` → New hub (name + color) or Add-to existing; hub
+filter chips + per-row hub dots; user-curated, never LLM-written.
+
+**Still planned:** hubs as graph containers in the Map (clusters + cross-hub
+edges), member roles (`core`/`supporting`/`prerequisite`/…), and hub nesting.
 
 Potential data model:
 
@@ -335,6 +348,6 @@ Uses Node.js 22 built-in `node:sqlite` (experimental). No native compilation req
 
 ## Current State (snapshot)
 
-Shipped: richer deterministic candidate parser, equations, relations, misconception phrases; deterministic mode (default); candidate_gated mode (LLM-cheap); full mode (legacy); per-provider settings (Groq + Anthropic); per-source topic anchors; bucket/tag/min-score + filtered LLM filters with persistence and compact API batching (min-score now applies to the suspicious bucket too); bulk-promote w/ safe-default gate; lazy task gen; lazy concept enrichment; ChatGPT prompt round-trip; continuous-scroll side-by-side PDF viewer with fit-to-width, − / % / + zoom, a selectable/copyable text layer, evidence rail, auto-scroll to the first evidence page, concept-scoped highlights, and draggable sticky notes; click-to-rename concept titles; evidence-kind chips on the concept header; cross-source constellations via Overview typeahead; Challenge-task regeneration that excludes already-answered prompts and adds a twist; grader that always surfaces next-stage gaps; History-delete that recomputes XP winner and mastery stage; Review Queue sort-cycle (default/importance/stage); source tab defaulting to Candidates; user-authored concept notes; profile/avatar/XP/background customization with image **and video** backgrounds; multi-PDF import; centered text-source import overlay; manual concept/equation/candidate CRUD; parse_runs audit; Re-extract preserving user data.
+Shipped: richer deterministic candidate parser, equations, relations, misconception phrases; deterministic mode (default); candidate_gated mode (LLM-cheap); full mode (legacy); per-provider settings (Groq + Anthropic); per-source topic anchors; bucket/tag/min-score + filtered LLM filters with persistence and compact API batching (min-score now applies to the suspicious bucket too); bulk-promote w/ safe-default gate; lazy task gen; lazy concept enrichment; ChatGPT prompt round-trip; continuous-scroll side-by-side PDF viewer with fit-to-width, − / % / + zoom, a selectable/copyable text layer, evidence rail, auto-scroll to the first evidence page, concept-scoped highlights, and draggable sticky notes; click-to-rename concept titles; evidence-kind chips on the concept header; cross-source constellations via Overview typeahead; Challenge-task regeneration that excludes already-answered prompts and adds a twist; grader that always surfaces next-stage gaps; History-delete that recomputes XP winner and mastery stage; Review Queue sort-cycle (default/importance/stage); source tab defaulting to Candidates; user-authored concept notes; profile/avatar/XP/background customization with image **and video** backgrounds; multi-PDF import; centered text-source import overlay; manual concept/equation/candidate CRUD; parse_runs audit; Re-extract preserving user data; running-header section detection (deterministic) with `section_source` provenance; concept search (ConceptPane + Candidate Review, `/` focus); Paper tab (low-chrome autosave scratchpad per concept); constellation links with required reasons; **global Constellation Map** (force-directed SVG, source-focused, directional/cross-source edges, reduced-motion aware); **Star Hubs v1** (named/color-coded cross-source concept groups via Select-mode, hub chips/filter).
 
-Queued (not blocking): Star Hubs grouping model and UI; constellation graph edges across/within hubs; refactor `CandidateReview.tsx` into per-panel files; per-pass model override UI; CSS design tokens; more tests for `promotion`, `cleanup`, `enrich_concept`, annotations, candidate CRUD, LLM topic filtering, and source-preview page anchoring.
+Queued (not blocking): hubs as Map clusters + cross-hub edges; hub member roles + nesting; full-coverage LLM topic filter (paced multi-batch + 429 backoff, currently 75/call); ID-based constellation links (vs name-based); refactor `CandidateReview.tsx` into per-panel files; per-pass model override UI; CSS design tokens; more tests for `promotion`, `cleanup`, `enrich_concept`, annotations, candidate CRUD, LLM topic filtering, source-preview page anchoring, and `buildConstellationGraph`.

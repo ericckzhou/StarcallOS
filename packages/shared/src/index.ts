@@ -44,6 +44,8 @@ export const IPC = {
   CONCEPTS_ENRICH:         'concepts:enrich',
   CONCEPTS_UPDATE_FIELDS:  'concepts:updateFields',
   CONCEPTS_SEARCH_BY_PREFIX: 'concepts:searchByPrefix',
+  CONCEPTS_GRAPH:            'concepts:graph',
+  CONCEPTS_GET:             'concepts:get',
   CONCEPTS_RENAME:           'concepts:rename',
   CONCEPTS_DELETE:         'concepts:delete',
   CONCEPTS_DELETE_EVIDENCE_SPAN: 'concepts:deleteEvidenceSpan',
@@ -52,6 +54,13 @@ export const IPC = {
   CONCEPT_NOTES_UPDATE:   'conceptNotes:update',
   CONCEPT_NOTES_DELETE:   'conceptNotes:delete',
   CONCEPT_NOTES_REORDER:  'conceptNotes:reorder',
+  HUBS_LIST:               'hubs:list',
+  HUBS_CREATE:             'hubs:create',
+  HUBS_UPDATE:             'hubs:update',
+  HUBS_DELETE:             'hubs:delete',
+  HUBS_ADD_MEMBERS:        'hubs:addMembers',
+  HUBS_REMOVE_MEMBER:      'hubs:removeMember',
+  HUBS_MEMBERSHIPS:        'hubs:memberships',
   REVIEW_QUEUE_LIST:       'review:queueList',
   SETTINGS_GET:            'settings:get',
   SETTINGS_SET:            'settings:set',
@@ -183,12 +192,19 @@ export interface UpdatePdfAnnotationArgs {
   rotation?: number | null;
 }
 
+// A constellation link: the linked concept name plus the user's reason for the
+// link. Legacy data may still contain bare strings (no reason captured yet).
+export interface ConstellationLink {
+  name: string;
+  reason: string;
+}
+
 export interface UpdateConceptFieldsArgs {
   conceptId: number;
   definition_text?: string;
   why_exists?: string;
   what_breaks?: string;
-  where_reappears?: string[];
+  where_reappears?: Array<string | ConstellationLink>;
 }
 
 export interface EnrichedConcept {
@@ -244,6 +260,8 @@ export interface CandidateLlmFilterResult {
   sent: number;
   keepTerms: string[];
   decisions: CandidateLlmFilterDecision[];
+  batches?: number;
+  providers?: string[];
 }
 
 export interface ProcessSourceResult {
@@ -303,6 +321,53 @@ export interface LlmFilterSetArgs {
   keepTerms: string[] | null;
 }
 
+export interface StarHub {
+  id: number;
+  name: string;
+  description: string;
+  color: string;
+  type: string;
+  importance: string;
+  parent_hub_id: number | null;
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+export interface HubMembership { hub_id: number; concept_id: number; }
+
+export interface ConstellationGraphNode {
+  id: number;
+  name: string;
+  slug: string;
+  source_id: number;
+  source_filename?: string;
+  importance: string;
+  mastery_stage: number;
+  degree: number;
+}
+
+export interface ConstellationGraphEdge {
+  a: number;
+  b: number;
+  kind: 'constellation' | 'relation';
+  label?: string;
+  // true = one-way (a → b); false = mutual / bidirectional (a ↔ b).
+  directed?: boolean;
+}
+
+export interface ConstellationGraph {
+  nodes: ConstellationGraphNode[];
+  edges: ConstellationGraphEdge[];
+  stats: {
+    nodeCount: number;
+    edgeCount: number;
+    danglingConstellations: number;
+    unresolvedRelations: number;
+    duplicateEdges: number;
+    capped: boolean;
+  };
+}
+
 export interface StudyProgress {
   total_xp: number;
   level: number;
@@ -358,6 +423,8 @@ export interface IpcApi {
     delete: (conceptId: number) => Promise<{ ok: true }>;
     deleteEvidenceSpan: (args: { conceptId: number; page: number; kind: string; quote: string }) => Promise<ConceptSourceEvidence | null>;
     searchByPrefix: (args: { conceptId: number; prefix: string; limit?: number }) => Promise<Array<{ id: number; name: string; importance: string }>>;
+    graph: () => Promise<ConstellationGraph>;
+    get: (conceptId: number) => Promise<Concept | null>;
     rename: (args: { conceptId: number; name: string }) => Promise<Concept | null>;
     notes: {
       list:    (conceptId: number) => Promise<ConceptNote[]>;
@@ -366,6 +433,15 @@ export interface IpcApi {
       delete:  (id: number) => Promise<{ ok: true }>;
       reorder: (args: { conceptId: number; orderedIds: number[] }) => Promise<ConceptNote[]>;
     };
+  };
+  hubs: {
+    list: () => Promise<StarHub[]>;
+    create: (args: { name: string; color?: string; description?: string; conceptIds?: number[] }) => Promise<StarHub>;
+    update: (args: { id: number; name?: string; color?: string; description?: string }) => Promise<StarHub | null>;
+    delete: (id: number) => Promise<{ ok: true }>;
+    addMembers: (args: { hubId: number; conceptIds: number[] }) => Promise<{ ok: true }>;
+    removeMember: (args: { hubId: number; conceptId: number }) => Promise<{ ok: true }>;
+    memberships: () => Promise<HubMembership[]>;
   };
   evidence: {
     submit: (args: SubmitEvidenceArgs) => Promise<EvidenceRecord>;

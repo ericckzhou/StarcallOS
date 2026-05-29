@@ -38,8 +38,15 @@ Remember these as the active state of the repo:
   existing text-source API and do not reintroduce the old sidebar form.
 - Promoted concepts can be manually added/edited/deleted and attached to an
   existing source. Review queue concepts are grouped by source and collapsible.
-- Star Hubs are planned, not shipped: named/color-coded concept groups that will
-  later feed constellation edges.
+- Star Hubs are shipped (v1): named/color-coded cross-source concept groups
+  (`star_hubs` + `star_hub_members`, migration 0019), created via Select-mode
+  multi-select in `ConceptPane`, with hub chips/filter. Still planned: hubs as
+  Map clusters, member roles, nesting.
+- The Constellation Map is a shipped top-level "Map" tab (force-directed SVG over
+  `concepts.graph()`, source-focused, directional/cross-source edges,
+  reduced-motion aware). Constellation links (`where_reappears`) now store
+  `{ name, reason }` (legacy bare strings still load); the reason is required on
+  add and shows as the Map edge label.
 - User-facing provider text should say "configured LLM provider" unless a
   feature is truly Groq-specific.
 - `ARCHITECTURE.md` may be untracked in this workspace; do not remove or overwrite it.

@@ -25,8 +25,6 @@ import {
   RelationsPanel as CandidateRelationsPanel,
 } from './candidates/panels';
 
-const LLM_API_FILTER_LIMIT = 75;
-
 interface Props {
   sourceId: number;
   sourceTitle?: string;
@@ -191,16 +189,15 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
     }
     setLlmApiBusy(true);
     setBulkMsg(null);
-    const apiCandidates = filtered.slice(0, LLM_API_FILTER_LIMIT);
     setLlmFilterMsg(
-      `Sending ${apiCandidates.length} of ${filtered.length} visible candidate${filtered.length === 1 ? '' : 's'} to your configured LLM. ` +
-      `The API path uses a compact batch to stay under provider token limits.`,
+      `Filtering ${filtered.length} visible candidate${filtered.length === 1 ? '' : 's'} with your configured LLM(s) — ` +
+      `batched and paced to respect provider rate limits. This may take a moment…`,
     );
     try {
       const result = await window.api.candidates.llmFilter({
         sourceId,
         sourceTitle,
-        candidates: apiCandidates.map(c => ({
+        candidates: filtered.map(c => ({
           id: c.id,
           normalized: c.normalized,
           term: c.term,
@@ -213,9 +210,11 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
         })),
       });
       applyTopicFitFilter(JSON.stringify({ decisions: result.decisions }));
+      const provLabel = result.providers && result.providers.length > 0 ? result.providers.join(' + ') : result.provider;
       setBulkMsg(
-        `LLM filter (${result.provider}/${result.model}) kept ${result.keepTerms.length} of ${result.sent} sent candidates. ` +
-        (result.sent < filtered.length ? `${filtered.length - result.sent} visible candidates were not sent to avoid provider rate limits.` : ''),
+        `LLM filter (${provLabel}) kept ${result.keepTerms.length} of ${result.sent} candidates` +
+        `${result.batches ? ` across ${result.batches} batch${result.batches === 1 ? '' : 'es'}` : ''}. ` +
+        (result.sent < filtered.length ? `${filtered.length - result.sent} beyond the per-run cap were left for a later pass.` : ''),
       );
     } catch (e) {
       const msg = `LLM filter failed: ${e instanceof Error ? e.message : String(e)}`;
@@ -444,7 +443,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, lineHeight: 1.5 }}>
                 Source: <span style={{ color: '#9ca3af' }}>{sourceTitle || '(no title set)'}</span>
                 <br />
-                API sends {Math.min(filtered.length, LLM_API_FILTER_LIMIT)} of {filtered.length} visible candidates per compact batch.
+                Filters all {filtered.length} visible candidate{filtered.length === 1 ? '' : 's'} in paced batches across your configured provider(s).
               </div>
             </div>
 
@@ -472,7 +471,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                     background: 'rgba(37, 99, 235, 0.12)',
                     whiteSpace: 'nowrap',
                   }}>
-                    {Math.min(filtered.length, LLM_API_FILTER_LIMIT)} / {filtered.length} visible
+                    {filtered.length} visible
                   </span>
                 </div>
                 <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.45, marginTop: 4 }}>

@@ -138,7 +138,7 @@ export function updateConceptFields(
     definition_text?: string;
     why_exists?: string;
     what_breaks?: string;
-    where_reappears?: string[];
+    where_reappears?: Array<string | { name: string; reason?: string }>;
   },
 ): Concept | null {
   const current = getConceptById(db, id);
@@ -322,6 +322,221 @@ export function listEdgesForConcept(db: DatabaseSync, conceptId: number): Concep
       .prepare('SELECT * FROM concept_edges WHERE from_id = ? OR to_id = ?')
       .all(conceptId, conceptId) as unknown as EdgeRow[]
   ).map(rowToEdge);
+}
+
+// ─── Constellation graph ──────────────────────────────────────────────────────
+// Read-only global graph for the Map view. Nodes are promoted concepts across
+// all sources; edges come from two sources:
+//   - constellation: user-curated `where_reappears` links (stored as names,
+//     resolved to concept ids; unresolved names are counted as dangling).
+//   - relation: validated `concept_edges` (typed; edge_type is the label).
+// Capped for v1 performance/clarity; over the cap we keep the highest
+// degree+importance nodes.
+
+export interface ConstellationGraphNode {
+  id: number;
+  name: string;
+  slug: string;
+  source_id: number;
+  source_filename?: string;
+  importance: string;
+  mastery_stage: number;
+  degree: number;
+}
+
+export interface ConstellationGraphEdge {
+  a: number;
+  b: number;
+  kind: 'constellation' | 'relation';
+  label?: string;
+  // true = one-way (a → b); false = mutual / bidirectional (a ↔ b).
+  directed?: boolean;
+}
+
+export interface ConstellationGraph {
+  nodes: ConstellationGraphNode[];
+  edges: ConstellationGraphEdge[];
+  stats: {
+    nodeCount: number;
+    edgeCount: number;
+    danglingConstellations: number;
+    unresolvedRelations: number;
+    duplicateEdges: number;
+    capped: boolean;
+  };
+}
+
+const GRAPH_MAX_NODES = 150;
+const GRAPH_MAX_EDGES = 300;
+const IMPORTANCE_WEIGHT: Record<string, number> = {
+  foundational: 4, core: 3, supporting: 2, peripheral: 1, reference_only: 0,
+};
+
+function normalizeConceptName(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+export function buildConstellationGraph(db: DatabaseSync): ConstellationGraph {
+  const conceptRows = db
+    .prepare(
+      `SELECT c.id, c.name, c.slug, c.source_id, c.importance, c.where_reappears,
+              s.filename AS source_filename
+         FROM concepts c
+         LEFT JOIN sources s ON s.id = c.source_id`,
+    )
+    .all() as Array<{
+      id: number | bigint; name: string; slug: string; source_id: number | bigint;
+      importance: string; where_reappears: string; source_filename: string | null;
+    }>;
+
+  const masteryRows = db
+    .prepare('SELECT concept_id, compression_stage FROM mastery')
+    .all() as Array<{ concept_id: number | bigint; compression_stage: number }>;
+  const masteryByConcept = new Map<number, number>();
+  for (const m of masteryRows) masteryByConcept.set(Number(m.concept_id), m.compression_stage);
+
+  // Index promoted concepts by id and by normalized name (names can collide
+  // across sources, so map to a list).
+  const byId = new Map<number, ConstellationGraphNode>();
+  const idsByName = new Map<string, number[]>();
+  for (const r of conceptRows) {
+    const id = Number(r.id);
+    byId.set(id, {
+      id,
+      name: r.name,
+      slug: r.slug,
+      source_id: Number(r.source_id),
+      source_filename: r.source_filename ?? undefined,
+      importance: r.importance,
+      mastery_stage: masteryByConcept.get(id) ?? 0,
+      degree: 0,
+    });
+    const key = normalizeConceptName(r.name);
+    const list = idsByName.get(key) ?? [];
+    list.push(id);
+    idsByName.set(key, list);
+  }
+
+  let danglingConstellations = 0;
+  let unresolvedRelations = 0;
+  let duplicateEdges = 0;
+
+  function pairKey(a: number, b: number): string {
+    return a < b ? `${a}-${b}` : `${b}-${a}`;
+  }
+
+  // Constellation links are directional in the data (concept A lists B in its
+  // where_reappears). Track each unordered pair's two directions so we can tell
+  // a one-way link (A→B) apart from a mutual one (A↔B).
+  const constByPair = new Map<string, { lo: number; hi: number; loToHi: boolean; hiToLo: boolean; loReason?: string; hiReason?: string }>();
+  for (const r of conceptRows) {
+    const fromId = Number(r.id);
+    let links: Array<unknown> = [];
+    try { links = JSON.parse(r.where_reappears) as Array<unknown>; } catch { links = []; }
+    for (const raw of links) {
+      // Links are either a bare name (legacy) or { name, reason }.
+      const name = typeof raw === 'string' ? raw : (raw as { name?: string })?.name ?? '';
+      const reason = typeof raw === 'string' ? '' : ((raw as { reason?: string })?.reason ?? '');
+      if (!name) continue;
+      const targets = idsByName.get(normalizeConceptName(name));
+      if (!targets || targets.length === 0) { danglingConstellations += 1; continue; }
+      for (const toId of targets) {
+        if (toId === fromId) continue;
+        const lo = Math.min(fromId, toId), hi = Math.max(fromId, toId);
+        const key = pairKey(fromId, toId);
+        let rec = constByPair.get(key);
+        if (!rec) { rec = { lo, hi, loToHi: false, hiToLo: false }; constByPair.set(key, rec); }
+        if (fromId === lo) { rec.loToHi = true; if (reason) rec.loReason = reason; }
+        else { rec.hiToLo = true; if (reason) rec.hiReason = reason; }
+      }
+    }
+  }
+
+  // Relation edges from validated concept_edges (directional: from → to).
+  const relByPair = new Map<string, { a: number; b: number; label?: string }>();
+  const edgeRows = db
+    .prepare('SELECT from_id, to_id, edge_type FROM concept_edges')
+    .all() as Array<{ from_id: number | bigint; to_id: number | bigint; edge_type: string }>;
+  for (const e of edgeRows) {
+    const a = Number(e.from_id);
+    const b = Number(e.to_id);
+    if (!byId.has(a) || !byId.has(b) || a === b) { unresolvedRelations += 1; continue; }
+    const key = pairKey(a, b);
+    if (relByPair.has(key)) { duplicateEdges += 1; continue; }
+    relByPair.set(key, { a, b, label: e.edge_type });
+  }
+
+  // Assemble final edges. Relations own a pair (richer/typed); a constellation
+  // on the same pair is dropped as a duplicate. Constellation edges are marked
+  // directed (one-way) or bidirectional (mutual), with a→b = source→target for
+  // directed ones.
+  const edgeByPair = new Map<string, ConstellationGraphEdge>();
+  for (const [key, rel] of relByPair) {
+    edgeByPair.set(key, { a: rel.a, b: rel.b, kind: 'relation', label: rel.label, directed: true });
+  }
+  for (const [key, rec] of constByPair) {
+    if (edgeByPair.has(key)) { duplicateEdges += 1; continue; }
+    const mutual = rec.loToHi && rec.hiToLo;
+    if (mutual) {
+      const reason = [rec.loReason, rec.hiReason].filter(Boolean).join('  ·  ') || undefined;
+      edgeByPair.set(key, { a: rec.lo, b: rec.hi, kind: 'constellation', directed: false, label: reason });
+    } else {
+      const from = rec.loToHi ? rec.lo : rec.hi;
+      const to = rec.loToHi ? rec.hi : rec.lo;
+      const reason = (rec.loToHi ? rec.loReason : rec.hiReason) || undefined;
+      edgeByPair.set(key, { a: from, b: to, kind: 'constellation', directed: true, label: reason });
+    }
+  }
+
+  let edges = [...edgeByPair.values()];
+
+  // Degree (pre-cap) for node ranking + sizing.
+  const degree = new Map<number, number>();
+  for (const e of edges) {
+    degree.set(e.a, (degree.get(e.a) ?? 0) + 1);
+    degree.set(e.b, (degree.get(e.b) ?? 0) + 1);
+  }
+
+  let nodes = [...byId.values()].map(n => ({ ...n, degree: degree.get(n.id) ?? 0 }));
+
+  let capped = false;
+  if (nodes.length > GRAPH_MAX_NODES) {
+    capped = true;
+    nodes = [...nodes]
+      .sort((x, y) =>
+        (y.degree + (IMPORTANCE_WEIGHT[y.importance] ?? 0)) -
+        (x.degree + (IMPORTANCE_WEIGHT[x.importance] ?? 0)) ||
+        y.degree - x.degree)
+      .slice(0, GRAPH_MAX_NODES);
+    const kept = new Set(nodes.map(n => n.id));
+    edges = edges.filter(e => kept.has(e.a) && kept.has(e.b));
+  }
+  if (edges.length > GRAPH_MAX_EDGES) {
+    capped = true;
+    const deg = new Map<number, number>();
+    for (const n of nodes) deg.set(n.id, n.degree);
+    edges = [...edges]
+      .sort((x, y) => {
+        // Prefer relation edges, then edges between higher-degree endpoints.
+        const rk = (e: ConstellationGraphEdge) => (e.kind === 'relation' ? 1 : 0);
+        return rk(y) - rk(x) ||
+          ((deg.get(y.a) ?? 0) + (deg.get(y.b) ?? 0)) - ((deg.get(x.a) ?? 0) + (deg.get(x.b) ?? 0));
+      })
+      .slice(0, GRAPH_MAX_EDGES);
+  }
+
+  return {
+    nodes,
+    edges,
+    stats: {
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      danglingConstellations,
+      unresolvedRelations,
+      duplicateEdges,
+      capped,
+    },
+  };
 }
 
 export interface ReviewQueueItem {

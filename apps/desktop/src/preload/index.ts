@@ -38,10 +38,12 @@ contextBridge.exposeInMainWorld('api', {
     deleteEvidenceSpan: (args: { conceptId: number; page: number; kind: string; quote: string }) =>
       ipcRenderer.invoke('concepts:deleteEvidenceSpan', args),
     enrich: (conceptId: number) => ipcRenderer.invoke('concepts:enrich', conceptId),
-    updateFields: (args: { conceptId: number; definition_text?: string; why_exists?: string; what_breaks?: string; where_reappears?: string[] }) =>
+    updateFields: (args: { conceptId: number; definition_text?: string; why_exists?: string; what_breaks?: string; where_reappears?: Array<string | { name: string; reason: string }> }) =>
       ipcRenderer.invoke('concepts:updateFields', args),
     searchByPrefix: (args: { conceptId: number; prefix: string; limit?: number }) =>
       ipcRenderer.invoke('concepts:searchByPrefix', args),
+    graph: () => ipcRenderer.invoke('concepts:graph'),
+    get: (conceptId: number) => ipcRenderer.invoke('concepts:get', conceptId),
     rename: (args: { conceptId: number; name: string }) =>
       ipcRenderer.invoke('concepts:rename', args),
     notes: {
@@ -51,6 +53,15 @@ contextBridge.exposeInMainWorld('api', {
       delete:  (id: number) => ipcRenderer.invoke('conceptNotes:delete', id),
       reorder: (args: { conceptId: number; orderedIds: number[] }) => ipcRenderer.invoke('conceptNotes:reorder', args),
     },
+  },
+  hubs: {
+    list: () => ipcRenderer.invoke('hubs:list'),
+    create: (args: { name: string; color?: string; description?: string; conceptIds?: number[] }) => ipcRenderer.invoke('hubs:create', args),
+    update: (args: { id: number; name?: string; color?: string; description?: string }) => ipcRenderer.invoke('hubs:update', args),
+    delete: (id: number) => ipcRenderer.invoke('hubs:delete', id),
+    addMembers: (args: { hubId: number; conceptIds: number[] }) => ipcRenderer.invoke('hubs:addMembers', args),
+    removeMember: (args: { hubId: number; conceptId: number }) => ipcRenderer.invoke('hubs:removeMember', args),
+    memberships: () => ipcRenderer.invoke('hubs:memberships'),
   },
   evidence: {
     submit: (args: unknown) => ipcRenderer.invoke('evidence:submit', args),
