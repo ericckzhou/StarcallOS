@@ -47,6 +47,7 @@ interface SourceMeta {
   filename: string;
   color: string;
 }
+interface HubLite { id: number; name: string; color: string; }
 
 // ─── Design constants ──────────────────────────────────────────────────────────
 
@@ -91,6 +92,21 @@ function useConstellationGraph() {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedSource, setSelectedSource] = useState<number | null>(null);
+  const [hubs, setHubs] = useState<HubLite[]>([]);
+  const [conceptHubs, setConceptHubs] = useState<Map<number, number[]>>(new Map());
+
+  useEffect(() => {
+    Promise.all([window.api.hubs.list(), window.api.hubs.memberships()]).then(([hs, ms]) => {
+      setHubs((hs as Array<{ id: number; name: string; color: string }>).map(h => ({ id: h.id, name: h.name, color: h.color })));
+      const m = new Map<number, number[]>();
+      for (const { hub_id, concept_id } of ms as Array<{ hub_id: number; concept_id: number }>) {
+        const arr = m.get(concept_id) ?? [];
+        arr.push(hub_id);
+        m.set(concept_id, arr);
+      }
+      setConceptHubs(m);
+    });
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -133,7 +149,7 @@ function useConstellationGraph() {
     };
   }, [graph, selectedSource]);
 
-  return { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view };
+  return { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view, hubs, conceptHubs };
 }
 
 interface ForceLayout {
@@ -150,7 +166,7 @@ interface ForceLayout {
 
 // Owns the force simulation + pan/zoom/drag. Settles synchronously when the
 // user prefers reduced motion (no per-frame animation).
-function useForceLayout(view: { nodes: GraphNode[]; edges: GraphEdge[] }, reducedMotion: boolean): ForceLayout {
+function useForceLayout(view: { nodes: GraphNode[]; edges: GraphEdge[] }, reducedMotion: boolean, conceptHubs: Map<number, number[]>): ForceLayout {
   const simRef = useRef<SimNode[]>([]);
   const rafRef = useRef<number | null>(null);
   const tickRef = useRef(0);
@@ -177,9 +193,32 @@ function useForceLayout(view: { nodes: GraphNode[]; edges: GraphEdge[] }, reduce
       .filter((l): l is { s: number; t: number } => l.s != null && l.t != null);
 
     const REPULSION = 1400, SPRING = 0.02, REST = 90, CENTER = 0.006, DAMP = 0.86, MAX_TICKS = 320;
+    const HUB_PULL = 0.012;
+    // Which hubs each visible node belongs to (precomputed once per layout).
+    const nodeHubs = simRef.current.map(s => conceptHubs.get(s.id) ?? []);
+    const anyHubs = nodeHubs.some(h => h.length > 0);
 
     function tickOnce() {
       const nodes = simRef.current;
+      // Gentle clustering: pull each node toward the centroid of its hub's
+      // members so hubs visibly coalesce (without overpowering link springs).
+      if (anyHubs) {
+        const cen = new Map<number, { x: number; y: number; n: number }>();
+        for (let i = 0; i < nodes.length; i++) {
+          for (const h of nodeHubs[i]) {
+            const c = cen.get(h) ?? { x: 0, y: 0, n: 0 };
+            c.x += nodes[i].x; c.y += nodes[i].y; c.n += 1;
+            cen.set(h, c);
+          }
+        }
+        for (let i = 0; i < nodes.length; i++) {
+          const hs = nodeHubs[i];
+          if (hs.length === 0 || nodes[i].fixed) continue;
+          let tx = 0, ty = 0, k = 0;
+          for (const h of hs) { const c = cen.get(h)!; if (c.n > 1) { tx += c.x / c.n; ty += c.y / c.n; k += 1; } }
+          if (k > 0) { nodes[i].vx += (tx / k - nodes[i].x) * HUB_PULL; nodes[i].vy += (ty / k - nodes[i].y) * HUB_PULL; }
+        }
+      }
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
           let dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
@@ -221,7 +260,7 @@ function useForceLayout(view: { nodes: GraphNode[]; edges: GraphEdge[] }, reduce
     stepRef.current = step;
     rafRef.current = requestAnimationFrame(step);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [view, reducedMotion, repaint]);
+  }, [view, reducedMotion, repaint, conceptHubs]);
 
   const resume = useCallback(() => {
     if (reducedMotion) { repaint(); return; }
@@ -295,9 +334,46 @@ function useForceLayout(view: { nodes: GraphNode[]; edges: GraphEdge[] }, reduce
 
 // ─── Presentational subcomponents ────────────────────────────────────────────
 
-const MapDefs = React.memo(function MapDefs({ sources }: { sources: SourceMeta[] }) {
+interface Cluster {
+  id: number; name: string; color: string;
+  cx: number; cy: number; radius: number;
+  points: Array<{ x: number; y: number; r: number }>;
+}
+
+// Soft hub "nebula": a centroid wash plus a feathered glow per member star,
+// all using the hub's radial gradient (no blur filter → cheap per frame). The
+// overlapping low-opacity gradients accumulate into a cloud hugging the cluster.
+function NebulaLayer({ clusters }: { clusters: Cluster[] }) {
+  return (
+    <g style={{ pointerEvents: 'none' }} aria-hidden="true">
+      {clusters.map(c => (
+        <g key={c.id}>
+          <circle cx={c.cx} cy={c.cy} r={c.radius} fill={`url(#cm-nebula-${c.id})`} />
+          {c.points.map((p, i) => (
+            <circle key={i} cx={p.x} cy={p.y} r={Math.max(26, p.r * 4.5)} fill={`url(#cm-nebula-${c.id})`} />
+          ))}
+          <text
+            x={c.cx} y={c.cy - c.radius + 13} fontSize={11} textAnchor="middle" fill={c.color}
+            style={{ paintOrder: 'stroke', stroke: 'rgba(2,6,23,0.85)', strokeWidth: 3, strokeLinejoin: 'round', fontWeight: 700, letterSpacing: '0.04em', opacity: 0.85 }}
+          >
+            {c.name}
+          </text>
+        </g>
+      ))}
+    </g>
+  );
+}
+
+const MapDefs = React.memo(function MapDefs({ sources, hubs }: { sources: SourceMeta[]; hubs: HubLite[] }) {
   return (
     <defs>
+      {hubs.map(h => (
+        <radialGradient key={`neb-${h.id}`} id={`cm-nebula-${h.id}`}>
+          <stop offset="0%" stopColor={h.color} stopOpacity={0.22} />
+          <stop offset="45%" stopColor={h.color} stopOpacity={0.10} />
+          <stop offset="100%" stopColor={h.color} stopOpacity={0} />
+        </radialGradient>
+      ))}
       {sources.map(s => (
         <React.Fragment key={s.id}>
           <radialGradient id={`cm-core-${s.id}`}>
@@ -443,6 +519,10 @@ function MapLegend() {
         <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'radial-gradient(circle, #fff 30%, #60a5fa 100%)', display: 'inline-block' }} />
         color = source
       </span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'radial-gradient(circle, rgba(129,140,248,0.5), rgba(129,140,248,0))', display: 'inline-block' }} />
+        hub nebula
+      </span>
     </div>
   );
 }
@@ -494,12 +574,13 @@ interface Props {
 
 export default function ConstellationMap({ profile, onConceptChanged }: Props) {
   const reducedMotion = usePrefersReducedMotion();
-  const { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view } = useConstellationGraph();
-  const layout = useForceLayout(view, reducedMotion);
+  const { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view, hubs, conceptHubs } = useConstellationGraph();
+  const layout = useForceLayout(view, reducedMotion, conceptHubs);
 
   const [selected, setSelected] = useState<Concept | null>(null);
   const [hoverNode, setHoverNode] = useState<number | null>(null);
   const [hoverEdge, setHoverEdge] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [showHubs, setShowHubs] = useState(true);
 
   const openNode = useCallback(async (id: number) => {
     const c = await window.api.concepts.get(id);
@@ -522,6 +603,26 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
   const posById = useMemo(() => new Map(sim.map(s => [s.id, s])), [sim]);
   const showGraph = !loading && graph != null && view.nodes.length > 0;
 
+  // Hub nebulae — recomputed each render so the clouds track the live layout.
+  const clusters: Cluster[] = [];
+  if (showHubs && hubs.length > 0) {
+    const byHub = new Map<number, Array<{ x: number; y: number; r: number }>>();
+    for (const node of sim) {
+      const hs = conceptHubs.get(node.id);
+      if (!hs) continue;
+      const pt = { x: node.x, y: node.y, r: nodeRadius(node) };
+      for (const h of hs) { const a = byHub.get(h) ?? []; a.push(pt); byHub.set(h, a); }
+    }
+    for (const h of hubs) {
+      const pts = byHub.get(h.id);
+      if (!pts || pts.length === 0) continue;
+      const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+      const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+      const radius = Math.max(...pts.map(p => Math.hypot(p.x - cx, p.y - cy) + p.r)) + 36;
+      clusters.push({ id: h.id, name: h.name, color: h.color, cx, cy, radius, points: pts });
+    }
+  }
+
   return (
     <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative', zIndex: Z.graph }}>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
@@ -537,6 +638,16 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
             onChange={setSelectedSource}
           />
           <span style={{ fontSize: 11, color: '#6b7280' }}>drag · scroll to zoom · drag bg to pan</span>
+          {hubs.length > 0 && (
+            <button
+              onClick={() => setShowHubs(v => !v)}
+              title={showHubs ? 'Hide hub nebulae' : 'Show hub nebulae'}
+              aria-pressed={showHubs}
+              style={{ background: showHubs ? '#1e1b4b' : 'transparent', border: `1px solid ${showHubs ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '3px 9px', color: showHubs ? '#c7d2fe' : '#6b7280', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}
+            >
+              Hubs
+            </button>
+          )}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, color: '#94a3b8' }}>
             <MapLegend />
           </div>
@@ -569,8 +680,9 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
               onWheel={layout.onWheel}
               style={{ display: 'block', cursor: layout.panning ? 'grabbing' : 'default' }}
             >
-              <MapDefs sources={sources} />
+              <MapDefs sources={sources} hubs={hubs} />
               <g className="cm-graph" transform={`translate(${layout.tx},${layout.ty}) scale(${layout.scale})`}>
+                {showHubs && clusters.length > 0 && <NebulaLayer clusters={clusters} />}
                 {view.edges.map((e, i) => {
                   const a = posById.get(e.a), b = posById.get(e.b);
                   if (!a || !b) return null;
