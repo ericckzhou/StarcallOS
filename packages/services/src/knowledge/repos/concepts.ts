@@ -612,7 +612,7 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
          FROM evidence_records
          GROUP BY concept_id
        ) r ON r.concept_id = c.id
-       WHERE COALESCE(m.compression_stage, 0) < 5
+       WHERE c.reviewed_at IS NULL
        ORDER BY
          CASE WHEN r.last_reviewed_at IS NULL THEN 0 ELSE 1 END,
          c.centrality_score DESC,
@@ -636,6 +636,13 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
     last_reviewed_at: row.last_reviewed_at,
     attempts: row.attempts ?? 0,
   }));
+}
+
+// Mark a concept as reviewed (removes it from the review queue) or clear the
+// flag (restores it). Idempotent.
+export function setConceptReviewed(db: DatabaseSync, conceptId: number, reviewed: boolean): void {
+  db.prepare('UPDATE concepts SET reviewed_at = ? WHERE id = ?')
+    .run(reviewed ? new Date().toISOString() : null, conceptId);
 }
 
 // ─── Evidence aggregator (for source-viewer pane) ────────────────────────────

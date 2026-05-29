@@ -160,6 +160,16 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
     pendingConceptDeleteTimers.current.set(item.concept.id, timerId);
   }
 
+  // Mark reviewed: optimistically drop from the queue, then persist. Unlike
+  // delete this is a soft, reversible flag (no data loss), so it commits
+  // immediately rather than via an undo window.
+  function markReviewedFromQueue(item: QueueItem): void {
+    setItems(prev => prev.filter(entry => entry.concept.id !== item.concept.id));
+    void window.api.concepts.setReviewed({ conceptId: item.concept.id, reviewed: true })
+      .then(() => window.dispatchEvent(new Event('starcall:review-queue-stale')))
+      .catch(() => setItems(prev => prev.some(e => e.concept.id === item.concept.id) ? prev : [item, ...prev]));
+  }
+
   function undoDeleteConcept(item: QueueItem): void {
     const timerId = pendingConceptDeleteTimers.current.get(item.concept.id);
     if (timerId != null) {
@@ -401,34 +411,58 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                     cursor: 'pointer',
                   }}
                 >
-                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 22px', alignItems: 'center', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'center', gap: 8 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {c.name}
                     </div>
-                    <button
-                      onClick={e => {
-                        e.stopPropagation();
-                        deleteConceptFromQueue(it);
-                      }}
-                      title="Delete this concept"
-                      aria-label={`Delete ${c.name}`}
-                      style={{
-                        width: 20, height: 20,
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        background: actionsVisible ? 'rgba(248, 113, 113, 0.10)' : 'transparent',
-                        border: actionsVisible ? '1px solid rgba(248, 113, 113, 0.45)' : '1px solid transparent',
-                        borderRadius: 4,
-                        color: '#f87171',
-                        fontSize: 13,
-                        lineHeight: 1,
-                        cursor: 'pointer',
-                        flexShrink: 0,
-                        opacity: actionsVisible ? 1 : 0.25,
-                        transition: 'opacity 120ms ease, background 120ms ease, border-color 120ms ease',
-                      }}
-                    >
-                      x
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          markReviewedFromQueue(it);
+                        }}
+                        title="Mark reviewed (remove from queue)"
+                        aria-label={`Mark ${c.name} reviewed`}
+                        style={{
+                          height: 20, padding: '0 8px',
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                          background: actionsVisible ? 'rgba(34, 197, 94, 0.12)' : 'transparent',
+                          border: actionsVisible ? '1px solid rgba(34, 197, 94, 0.5)' : '1px solid transparent',
+                          borderRadius: 4,
+                          color: '#22c55e',
+                          fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
+                          lineHeight: 1, cursor: 'pointer',
+                          opacity: actionsVisible ? 1 : 0.25,
+                          transition: 'opacity 120ms ease, background 120ms ease, border-color 120ms ease',
+                        }}
+                      >
+                        ✓ Done
+                      </button>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          deleteConceptFromQueue(it);
+                        }}
+                        title="Delete this concept"
+                        aria-label={`Delete ${c.name}`}
+                        style={{
+                          width: 20, height: 20,
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          background: actionsVisible ? 'rgba(248, 113, 113, 0.10)' : 'transparent',
+                          border: actionsVisible ? '1px solid rgba(248, 113, 113, 0.45)' : '1px solid transparent',
+                          borderRadius: 4,
+                          color: '#f87171',
+                          fontSize: 13,
+                          lineHeight: 1,
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                          opacity: actionsVisible ? 1 : 0.25,
+                          transition: 'opacity 120ms ease, background 120ms ease, border-color 120ms ease',
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
                   <div style={{ paddingRight: 32, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#6b7280' }}>
                     <span style={{

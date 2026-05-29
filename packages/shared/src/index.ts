@@ -48,6 +48,7 @@ export const IPC = {
   CONCEPTS_GET:             'concepts:get',
   CONCEPTS_RENAME:           'concepts:rename',
   CONCEPTS_DELETE:         'concepts:delete',
+  CONCEPTS_SET_REVIEWED:   'concepts:setReviewed',
   CONCEPTS_DELETE_EVIDENCE_SPAN: 'concepts:deleteEvidenceSpan',
   CONCEPT_NOTES_LIST:     'conceptNotes:list',
   CONCEPT_NOTES_CREATE:   'conceptNotes:create',
@@ -383,6 +384,12 @@ export interface SourceChallengeCount {
   count: number;
 }
 
+export interface DailyActivity {
+  date: string; // YYYY-MM-DD
+  count: number;
+  sources: { source_title: string; count: number }[];
+}
+
 export interface StudyProgress {
   total_xp: number;
   level: number;
@@ -392,6 +399,7 @@ export interface StudyProgress {
   challenges_completed: number;
   difficulty_counts: Record<1 | 2 | 3 | 4 | 5, number>;
   source_counts: SourceChallengeCount[];
+  daily_activity: DailyActivity[];
 }
 
 // ─── The renderer-facing API contract ────────────────────────────────────────
@@ -437,6 +445,7 @@ export interface IpcApi {
     updateFields: (args: UpdateConceptFieldsArgs) => Promise<EnrichedConcept | null>;
     sourceEvidence: (conceptId: number) => Promise<ConceptSourceEvidence | null>;
     delete: (conceptId: number) => Promise<{ ok: true }>;
+    setReviewed: (args: { conceptId: number; reviewed: boolean }) => Promise<{ ok: true }>;
     deleteEvidenceSpan: (args: { conceptId: number; page: number; kind: string; quote: string }) => Promise<ConceptSourceEvidence | null>;
     searchByPrefix: (args: { conceptId: number; prefix: string; limit?: number }) => Promise<Array<{ id: number; name: string; importance: string }>>;
     graph: () => Promise<ConstellationGraph>;

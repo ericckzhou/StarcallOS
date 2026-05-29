@@ -5,6 +5,18 @@ export interface Profile {
   backgroundOpacity: number;
 }
 
+export interface SourceChallengeCount {
+  source_id: number;
+  source_title: string;
+  count: number;
+}
+
+export interface DailyActivity {
+  date: string; // YYYY-MM-DD
+  count: number;
+  sources: { source_title: string; count: number }[];
+}
+
 export interface StudyProgress {
   total_xp: number;
   level: number;
@@ -13,6 +25,8 @@ export interface StudyProgress {
   progress_ratio: number;
   challenges_completed: number;
   difficulty_counts: Record<1 | 2 | 3 | 4 | 5, number>;
+  source_counts: SourceChallengeCount[];
+  daily_activity: DailyActivity[];
 }
 
 const PROFILE_KEY = 'starcall.profile';

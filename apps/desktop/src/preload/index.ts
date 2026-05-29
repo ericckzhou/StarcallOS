@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('api', {
     regenerateTasks: (conceptId: number) => ipcRenderer.invoke('concepts:regenerateTasks', conceptId),
     sourceEvidence: (conceptId: number) => ipcRenderer.invoke('concepts:sourceEvidence', conceptId),
     delete: (conceptId: number) => ipcRenderer.invoke('concepts:delete', conceptId),
+    setReviewed: (args: { conceptId: number; reviewed: boolean }) =>
+      ipcRenderer.invoke('concepts:setReviewed', args),
     deleteEvidenceSpan: (args: { conceptId: number; page: number; kind: string; quote: string }) =>
       ipcRenderer.invoke('concepts:deleteEvidenceSpan', args),
     enrich: (conceptId: number) => ipcRenderer.invoke('concepts:enrich', conceptId),

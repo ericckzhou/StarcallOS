@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import SettingsPane from './SettingsPane';
-import { saveProfile, xpToNext, type Profile, type StudyProgress } from './profile';
+import { saveProfile, xpToNext, type Profile, type StudyProgress, type DailyActivity } from './profile';
 
 interface Props {
   profile: Profile;
@@ -173,13 +173,14 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                       <span style={{ fontSize: 11, color: '#c7d2fe', fontVariantNumeric: 'tabular-nums' }}>{Math.round(backgroundOpacity * 100)}%</span>
                     </div>
                     <input
+                      className="glass-range"
                       type="range"
                       min={0}
                       max={1}
                       step={0.01}
                       value={backgroundOpacity}
                       onChange={e => updateBackgroundOpacity(Number(e.target.value))}
-                      style={{ width: '100%' }}
+                      style={{ width: '100%', ['--fill' as string]: `${backgroundOpacity * 100}%` } as React.CSSProperties}
                     />
                   </div>
                 </div>
@@ -218,10 +219,10 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
               <>
                 <section style={panel}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <div style={eyebrow}>Challenge Difficulty Completed</div>
-                    <div style={{ fontSize: 11, color: '#64748b' }}>{progress.challenges_completed} total</div>
+                    <div style={eyebrow}>Challenge Activity</div>
+                    <div style={{ fontSize: 11, color: '#64748b' }}>{progress.challenges_completed} in the last year</div>
                   </div>
-                  <DifficultyChart counts={progress.difficulty_counts} />
+                  <ActivityHeatmap activity={progress.daily_activity} />
                 </section>
                 <section style={panel}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
@@ -232,16 +233,6 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                 </section>
               </>
             )}
-
-            <section style={panel}>
-              <div style={eyebrow}>User Info</div>
-              <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, fontSize: 12 }}>
-                <InfoTile label="Name" value={profile.name} />
-                <InfoTile label="Avatar" value={profile.avatarDataUrl ? 'Custom image' : 'Initials icon'} />
-                <InfoTile label="Background" value={profile.backgroundDataUrl ? `${Math.round(profile.backgroundOpacity * 100)}% opacity` : 'Default'} />
-                <InfoTile label="Storage" value="Local app profile" muted />
-              </div>
-            </section>
           </div>
         </main>
       )}
@@ -269,22 +260,129 @@ export function Avatar({ profile, size }: { profile: Pick<Profile, 'name' | 'ava
   );
 }
 
-function DifficultyChart({ counts }: { counts: Record<1 | 2 | 3 | 4 | 5, number> }) {
-  const max = Math.max(1, ...Object.values(counts));
+// GitHub-style contribution heatmap of challenges completed, themed to the app's
+// indigo palette. 53 weeks ending today; intensity buckets by daily count.
+const HEAT_LEVELS = ['rgba(40, 46, 70, 0.5)', '#3b3573', '#5b50c4', '#818cf8', '#c4b5fd'];
+const HEAT_CELL = 11;
+const HEAT_GAP = 3;
+const WEEKDAY_LABELS = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function heatLevel(count: number): number {
+  if (count <= 0) return 0;
+  if (count <= 2) return 1;
+  if (count <= 5) return 2;
+  if (count <= 9) return 3;
+  return 4;
+}
+
+function toLocalISO(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+type HeatCell = { date: string; count: number; future: boolean; month: number; sources: { source_title: string; count: number }[] };
+
+function ActivityHeatmap({ activity }: { activity: DailyActivity[] }) {
+  const [tip, setTip] = useState<{ x: number; y: number; cell: HeatCell } | null>(null);
+  const byDate = new Map(activity.map(a => [a.date, a]));
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+  // Walk back to the Sunday that starts the 53-week window.
+  const start = new Date(end);
+  start.setDate(start.getDate() - (52 * 7 + end.getDay()));
+
+  const weeks: HeatCell[][] = [];
+  const cur = new Date(start);
+  while (cur <= end) {
+    const week: HeatCell[] = [];
+    for (let d = 0; d < 7; d++) {
+      const iso = toLocalISO(cur);
+      const rec = byDate.get(iso);
+      week.push({ date: iso, count: rec?.count ?? 0, future: cur > end, month: cur.getMonth(), sources: rec?.sources ?? [] });
+      cur.setDate(cur.getDate() + 1);
+    }
+    weeks.push(week);
+  }
+
+  // Month labels: mark the first week whose first cell lands in a new month.
+  const monthLabels = weeks.map((w, i) => {
+    const m = w[0].month;
+    const prev = i > 0 ? weeks[i - 1][0].month : -1;
+    return m !== prev ? MONTH_NAMES[m] : '';
+  });
+
   return (
-    <div style={{ marginTop: 14, display: 'flex', alignItems: 'end', gap: 12, height: 150 }}>
-      {([1, 2, 3, 4, 5] as const).map(d => (
-        <div key={d} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-          <div style={{
-            width: '100%', maxWidth: 64,
-            height: `${Math.max(6, (counts[d] / max) * 120)}px`,
-            background: d >= 4 ? '#7c3aed' : d === 3 ? '#4f46e5' : '#2563eb',
-            borderRadius: '4px 4px 2px 2px',
-          }} />
-          <div style={{ fontSize: 11, color: '#cbd5e1' }}>{counts[d]}</div>
-          <div style={{ fontSize: 10, color: '#64748b' }}>D{d}</div>
+    <div style={{ marginTop: 14, overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {/* Weekday labels */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: HEAT_GAP, paddingTop: 16, flexShrink: 0 }}>
+          {WEEKDAY_LABELS.map((lbl, i) => (
+            <div key={i} style={{ height: HEAT_CELL, fontSize: 9, color: '#64748b', lineHeight: `${HEAT_CELL}px`, width: 24, textAlign: 'right' }}>{lbl}</div>
+          ))}
         </div>
-      ))}
+        {/* Month labels + grid */}
+        <div>
+          <div style={{ display: 'flex', gap: HEAT_GAP, height: 16 }}>
+            {monthLabels.map((lbl, i) => (
+              <div key={i} style={{ width: HEAT_CELL, fontSize: 9, color: '#64748b', whiteSpace: 'nowrap', overflow: 'visible' }}>{lbl}</div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: HEAT_GAP }}>
+            {weeks.map((week, wi) => (
+              <div key={wi} style={{ display: 'flex', flexDirection: 'column', gap: HEAT_GAP }}>
+                {week.map((cell, di) => (
+                  <div
+                    key={di}
+                    onMouseEnter={e => { if (!cell.future) setTip({ x: e.clientX, y: e.clientY, cell }); }}
+                    onMouseMove={e => { if (!cell.future) setTip({ x: e.clientX, y: e.clientY, cell }); }}
+                    onMouseLeave={() => setTip(null)}
+                    style={{
+                      width: HEAT_CELL, height: HEAT_CELL, borderRadius: 2,
+                      background: cell.future ? 'transparent' : HEAT_LEVELS[heatLevel(cell.count)],
+                      outline: cell.count > 0 ? '1px solid rgba(196,181,253,0.15)' : 'none',
+                    }}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      {/* Legend */}
+      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, fontSize: 10, color: '#64748b' }}>
+        <span>Less</span>
+        {HEAT_LEVELS.map((c, i) => (
+          <span key={i} style={{ width: HEAT_CELL, height: HEAT_CELL, borderRadius: 2, background: c, display: 'inline-block' }} />
+        ))}
+        <span>More</span>
+      </div>
+      {/* Themed tooltip: count + per-source breakdown for the hovered day. */}
+      {tip && (
+        <div style={{
+          position: 'fixed', left: tip.x + 12, top: tip.y + 14, zIndex: 9999, pointerEvents: 'none',
+          background: 'rgba(13, 13, 22, 0.96)', border: '1px solid #312e81', borderRadius: 6,
+          padding: '7px 9px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', maxWidth: 240,
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#e2e8f0' }}>
+            {tip.cell.count} challenge{tip.cell.count === 1 ? '' : 's'}
+          </div>
+          <div style={{ fontSize: 10, color: '#64748b', marginTop: 1 }}>{tip.cell.date}</div>
+          {tip.cell.sources.length > 0 && (
+            <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {tip.cell.sources.map((s, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: '#cbd5e1' }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: SOURCE_PALETTE[i % SOURCE_PALETTE.length], flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.source_title}</span>
+                  <span style={{ color: '#94a3b8', fontVariantNumeric: 'tabular-nums' }}>{s.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -322,7 +420,7 @@ function SourceChallengeChart({ counts }: { counts: { source_id: number; source_
 
 function ProgressBar({ progress }: { progress: number }) {
   return (
-    <div style={{ height: 6, background: '#1f2937', borderRadius: 999, overflow: 'hidden' }}>
+    <div style={{ height: 6, background: 'rgba(31, 41, 55, 0.35)', borderRadius: 999, overflow: 'hidden' }}>
       <div style={{ width: `${Math.max(0, Math.min(1, progress)) * 100}%`, height: '100%', background: '#818cf8' }} />
     </div>
   );
@@ -333,17 +431,6 @@ function MiniStat({ label, value }: { label: string; value: string }) {
     <div style={{ background: 'rgba(11, 18, 32, 0.4)', border: '1px solid #1f2937', borderRadius: 8, padding: '12px 10px' }}>
       <div style={eyebrow}>{label}</div>
       <div style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: '#e2e8f0' }}>{value}</div>
-    </div>
-  );
-}
-
-function InfoTile({ label, value, muted = false }: { label: string; value: string; muted?: boolean }) {
-  return (
-    <div style={{ background: 'rgba(11, 18, 32, 0.4)', border: '1px solid #1f2937', borderRadius: 6, padding: 12, minWidth: 0 }}>
-      <div style={eyebrow}>{label}</div>
-      <div style={{ marginTop: 7, color: muted ? '#94a3b8' : '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {value}
-      </div>
     </div>
   );
 }

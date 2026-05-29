@@ -191,7 +191,7 @@ export default function App() {
                   Lv {progress.level} · {progress.total_xp} XP
                 </span>
               </div>
-              <div style={{ marginTop: 4, height: 4, borderRadius: 2, background: '#1f2937', overflow: 'hidden' }} title={`${xpToNext(progress)} XP to next milestone`}>
+              <div style={{ marginTop: 4, height: 4, borderRadius: 2, background: 'rgba(31, 41, 55, 0.35)', overflow: 'hidden' }} title={`${xpToNext(progress)} XP to next milestone`}>
                 <div style={{ height: '100%', width: `${Math.max(0, Math.min(1, progress.progress_ratio)) * 100}%`, background: '#818cf8' }} />
               </div>
             </div>
@@ -312,18 +312,30 @@ function LevelUpOverlay({ level, onDone }: { level: number; onDone: () => void }
       }}
     >
       <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-        {!reduced && <div className="lvlup-glow" />}
-        {!reduced && <div className="lvlup-ring" />}
+        {!reduced && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <div className="lvlup-rays" />
+            <div className="lvlup-core" />
+            <div className="lvlup-ring" />
+            <div className="lvlup-ring lvlup-ring-2" />
+            {Array.from({ length: 14 }).map((_, i) => (
+              <span key={i} className="lvlup-spark" style={{ transform: `rotate(${i * (360 / 14)}deg)` }}>
+                <span className="lvlup-spark-dot" />
+              </span>
+            ))}
+          </div>
+        )}
         <div className={reduced ? undefined : 'lvlup-badge'} style={{
+          position: 'relative',
           padding: '14px 30px', borderRadius: 14,
           background: 'linear-gradient(135deg, #312e81, #6d28d9)',
           border: '1px solid #a78bfa', color: '#ede9fe',
           fontWeight: 900, fontSize: 30, letterSpacing: '0.04em',
-          boxShadow: '0 0 32px rgba(167,139,250,0.55)', textAlign: 'center',
+          boxShadow: '0 0 38px rgba(167,139,250,0.65)', textAlign: 'center',
         }}>
           LEVEL {level}
         </div>
-        <div className={reduced ? undefined : 'lvlup-sub'} style={{ fontSize: 13, color: '#c7d2fe', fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' }}>
+        <div className={reduced ? undefined : 'lvlup-sub'} style={{ position: 'relative', fontSize: 13, color: '#c7d2fe', fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' }}>
           Level Up
         </div>
       </div>

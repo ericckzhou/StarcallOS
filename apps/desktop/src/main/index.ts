@@ -8,6 +8,7 @@ import {
   buildConstellationGraph,
   listHubs, createHub, updateHub, deleteHub, addMembers, removeMember, listAllMemberships,
   listConceptSourceEvidence, updateConceptFields, deleteConcept, deleteConceptEvidenceSpan,
+  setConceptReviewed,
   enrichConceptDefinition,
   listTasksByConcept, getMastery, listMisconceptionsByConcept,
   listNotesByConcept, createNote, updateNote, deleteNote, reorderNotes,
@@ -122,9 +123,6 @@ function stripJsonFences(raw: string): string {
 // Max candidates evaluated per LLM topic-fit call. The term-only payload +
 // keep-list response keep this well under the Groq free-tier TPM budget.
 const LLM_API_FILTER_LIMIT = 75;
-// Overall cap across all batches/providers in one filter run — bounds cost/time
-// on very large sources; anything beyond is left for a later pass.
-const LLM_API_FILTER_MAX_TOTAL = 300;
 
 // Deduplicate candidates by normalized term — the renderer maps kept terms back
 // to every row sharing that term, so sending duplicates only wastes tokens.
@@ -412,7 +410,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         const saved = createConcept(db, {
           source_id: sourceId, name: rc.name, slug: rc.slug, importance: rc.importance,
           definition_text: rc.definition_text, why_exists: rc.why_exists,
-          what_breaks: rc.what_breaks, where_reappears: rc.where_reappears, chunk_ids: chunkIds,
+          what_breaks: rc.what_breaks, where_reappears: [], chunk_ids: chunkIds,
           section_path: rc.section_path, exam_value: rc.exam_value,
           misconception_risk: rc.misconception_risk, centrality_score: 0,
         });
@@ -555,6 +553,10 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   });
   ipcMain.handle(IPC.CONCEPTS_DELETE, (_e, conceptId: number) => {
     deleteConcept(db, conceptId);
+    return { ok: true as const };
+  });
+  ipcMain.handle(IPC.CONCEPTS_SET_REVIEWED, (_e, args: { conceptId: number; reviewed: boolean }) => {
+    setConceptReviewed(db, args.conceptId, args.reviewed);
     return { ok: true as const };
   });
   ipcMain.handle(IPC.CONCEPTS_SEARCH_BY_PREFIX, (_e, args: { conceptId: number; prefix: string; limit?: number }) => {
@@ -781,65 +783,37 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const source = getSourceById(db, args.sourceId);
     if (!source) throw new Error(`source ${args.sourceId} not found`);
 
-    // Use whichever provider keys are configured: one key → that provider; both
-    // keys → split the work across both providers in parallel and union the
-    // kept terms. Each provider builds a config with its own default model.
-    const settings = applyEnvFallbacks(loadSettings(app.getPath('userData')), envFallbacks());
-    const providerConfigs: ReturnType<typeof resolveProviderConfig>[] = [];
-    if (settings.groqApiKey)      providerConfigs.push(resolveProviderConfig({ ...settings, provider: 'groq' }, 'concepts'));
-    if (settings.anthropicApiKey) providerConfigs.push(resolveProviderConfig({ ...settings, provider: 'anthropic' }, 'concepts'));
-    if (providerConfigs.length === 0) cfgFor('concepts'); // throws the helpful "no key" error
-
-    // Evaluate ALL visible candidates: dedupe, then chunk into batches. An
-    // overall cap bounds cost/time on huge sources.
-    const deduped = dedupeByNormalized(args.candidates);
-    const pool = deduped.slice(0, LLM_API_FILTER_MAX_TOTAL);
-    if (pool.length === 0) {
-      const c0 = providerConfigs[0];
-      return { provider: c0.provider, model: c0.model, sent: 0, keepTerms: [], decisions: [], batches: 0, providers: [] };
+    // One compact call against the configured provider. Deterministic extraction
+    // already narrowed the list; a single 75-candidate batch keeps this fast and
+    // well under low Groq TPM tiers (the manual ChatGPT prompt is the large-list
+    // fallback for full coverage).
+    const config = cfgFor('concepts');
+    const candidates = dedupeByNormalized(args.candidates).slice(0, LLM_API_FILTER_LIMIT);
+    if (candidates.length === 0) {
+      return { provider: config.provider, model: config.model, sent: 0, keepTerms: [], decisions: [] };
     }
     const title = args.sourceTitle ?? source.title ?? source.filename;
-    const batchList: CandidateLlmFilterArgs['candidates'][] = [];
-    for (let i = 0; i < pool.length; i += LLM_API_FILTER_LIMIT) batchList.push(pool.slice(i, i + LLM_API_FILTER_LIMIT));
-
-    const keepTerms = new Set<string>();
-    const decisions: ReturnType<typeof parseCandidateLlmFilterResponse> = [];
-    let batches = 0;
-
-    // Each provider is a lane that processes its assigned batches sequentially
-    // (paced, with the Groq path retrying on 429); lanes run concurrently.
-    await Promise.all(providerConfigs.map(async (cfg, lane) => {
-      let laneBatches = 0;
-      for (let b = lane; b < batchList.length; b += providerConfigs.length) {
-        const batch = batchList[b];
-        if (laneBatches > 0) await new Promise(r => setTimeout(r, 350)); // pace within a lane
-        const { content } = await chatJSON(cfg, {
-          responseFormat: 'json',
-          temperature: 0,
-          maxTokens: Math.min(1200, Math.max(220, batch.length * 12 + 120)),
-          messages: [
-            { role: 'system', content: 'You are a precise textbook concept filter. Return valid JSON only.' },
-            { role: 'user', content: buildCandidateLlmFilterPrompt(title, batch) },
-          ],
-        }, 'concepts');
-        const batchTerms = new Set(batch.map(c => c.normalized.toLowerCase()));
-        for (const d of parseCandidateLlmFilterResponse(content)) {
-          decisions.push(d);
-          if (d.keep && batchTerms.has(d.term.toLowerCase())) keepTerms.add(d.term.toLowerCase());
-        }
-        laneBatches += 1;
-        batches += 1;
-      }
-    }));
+    const { content } = await chatJSON(config, {
+      responseFormat: 'json',
+      temperature: 0,
+      maxTokens: Math.min(1200, Math.max(220, candidates.length * 12 + 120)),
+      messages: [
+        { role: 'system', content: 'You are a precise textbook concept filter. Return valid JSON only.' },
+        { role: 'user', content: buildCandidateLlmFilterPrompt(title, candidates) },
+      ],
+    }, 'concepts');
+    const decisions = parseCandidateLlmFilterResponse(content);
+    const candidateTerms = new Set(candidates.map(c => c.normalized.toLowerCase()));
+    const keepTerms = decisions
+      .filter(d => d.keep && candidateTerms.has(d.term.toLowerCase()))
+      .map(d => d.term.toLowerCase());
 
     return {
-      provider: providerConfigs[0].provider,
-      model: providerConfigs.map(c => c.model).join(' + '),
-      sent: pool.length,
-      keepTerms: [...keepTerms],
+      provider: config.provider,
+      model: config.model,
+      sent: candidates.length,
+      keepTerms,
       decisions,
-      batches,
-      providers: providerConfigs.map(c => c.provider),
     };
   });
   ipcMain.handle(IPC.CANDIDATES_EXTRACT, async (_e, sourceId: number) => {

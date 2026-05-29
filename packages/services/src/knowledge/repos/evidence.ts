@@ -483,6 +483,12 @@ export interface SourceChallengeCount {
   count: number;
 }
 
+export interface DailyActivity {
+  date: string; // YYYY-MM-DD
+  count: number;
+  sources: { source_title: string; count: number }[];
+}
+
 export interface StudyProgress {
   total_xp: number;
   level: number;
@@ -492,6 +498,7 @@ export interface StudyProgress {
   challenges_completed: number;
   difficulty_counts: Record<1 | 2 | 3 | 4 | 5, number>;
   source_counts: SourceChallengeCount[];
+  daily_activity: DailyActivity[];
 }
 
 export function progressFromXp(
@@ -499,6 +506,7 @@ export function progressFromXp(
   challengesCompleted = 0,
   difficultyCounts: Record<1 | 2 | 3 | 4 | 5, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
   sourceCounts: SourceChallengeCount[] = [],
+  dailyActivity: DailyActivity[] = [],
 ): StudyProgress {
   const level = Math.floor(Math.sqrt(Math.max(0, totalXp) / 100)) + 1;
   const currentLevelXp = (level - 1) * (level - 1) * 100;
@@ -514,6 +522,7 @@ export function progressFromXp(
     challenges_completed: challengesCompleted,
     difficulty_counts: difficultyCounts,
     source_counts: sourceCounts,
+    daily_activity: dailyActivity,
   };
 }
 
@@ -558,5 +567,29 @@ export function getStudyProgress(db: DatabaseSync): StudyProgress {
     source_title: row.source_title,
     count: Number(row.total),
   }));
-  return progressFromXp(Number(xpRow?.total_xp ?? 0), Number(challengeRow?.total ?? 0), difficultyCounts, sourceCounts);
+  const activityRows = db
+    .prepare(
+      `SELECT date(r.created_at) AS day,
+              COALESCE(s.title, s.filename) AS source_title,
+              COUNT(*) AS total
+         FROM evidence_records r
+         JOIN concepts c ON c.id = r.concept_id
+         JOIN sources s ON s.id = c.source_id
+        WHERE r.created_at IS NOT NULL
+        GROUP BY day, source_title
+        ORDER BY day, total DESC`,
+    )
+    .all() as unknown as Array<{ day: string | null; source_title: string; total: number | bigint }>;
+  const activityByDay = new Map<string, DailyActivity>();
+  for (const row of activityRows) {
+    if (!row.day) continue;
+    const day = String(row.day);
+    const rec = activityByDay.get(day) ?? { date: day, count: 0, sources: [] };
+    const n = Number(row.total);
+    rec.count += n;
+    rec.sources.push({ source_title: row.source_title, count: n });
+    activityByDay.set(day, rec);
+  }
+  const dailyActivity: DailyActivity[] = [...activityByDay.values()];
+  return progressFromXp(Number(xpRow?.total_xp ?? 0), Number(challengeRow?.total ?? 0), difficultyCounts, sourceCounts, dailyActivity);
 }

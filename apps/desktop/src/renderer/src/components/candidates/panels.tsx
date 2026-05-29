@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import LatexMath from '../LatexMath';
-import { InlineEditor, type FieldSpec } from './editing';
+import { InlineEditor, EditorModal, type FieldSpec } from './editing';
 import {
   BUCKET_COLOR,
   RELATION_COLOR,
@@ -264,13 +264,15 @@ export function RelationsPanel({ relations, knownTerms, onCreate, onUpdate, onDe
     <>
       <CrudHeader title="Relations" adding={adding} setAdding={setAdding} />
       {adding && (
-        <RelationEditor
-          draft={draft}
-          setDraft={setDraft}
-          busy={busyId === 'new'}
-          onSave={() => void saveNew()}
-          onCancel={() => setAdding(false)}
-        />
+        <EditorModal title="Add relation" onClose={() => setAdding(false)}>
+          <RelationEditor
+            draft={draft}
+            setDraft={setDraft}
+            busy={busyId === 'new'}
+            onSave={() => void saveNew()}
+            onCancel={() => setAdding(false)}
+          />
+        </EditorModal>
       )}
       {err && <ErrorLine message={err} />}
       {relations.length === 0 && !adding && <EmptyState>No relation candidates.</EmptyState>}
@@ -444,13 +446,15 @@ export function MisconceptionsPanel({ misconceptions, onCreate, onUpdate, onDele
     <>
       <CrudHeader title="Misconceptions" adding={adding} setAdding={setAdding} />
       {adding && (
-        <MisconceptionEditor
-          draft={draft}
-          setDraft={setDraft}
-          busy={busyId === 'new'}
-          onSave={() => void saveNew()}
-          onCancel={() => setAdding(false)}
-        />
+        <EditorModal title="Add misconception" onClose={() => setAdding(false)}>
+          <MisconceptionEditor
+            draft={draft}
+            setDraft={setDraft}
+            busy={busyId === 'new'}
+            onSave={() => void saveNew()}
+            onCancel={() => setAdding(false)}
+          />
+        </EditorModal>
       )}
       {err && <ErrorLine message={err} />}
       {misconceptions.length === 0 && !adding && <EmptyState>No misconception phrases detected.</EmptyState>}
@@ -608,13 +612,15 @@ export function EquationsPanel({ equations, unattached, byTerm, onCreate, onUpda
     <>
       <CrudHeader title="Equations" adding={adding} setAdding={setAdding} />
       {adding && (
-        <EquationEditor
-          draft={draft}
-          setDraft={setDraft}
-          busy={busyId === 'new'}
-          onSave={() => void saveNew()}
-          onCancel={() => setAdding(false)}
-        />
+        <EditorModal title="Add equation" onClose={() => setAdding(false)}>
+          <EquationEditor
+            draft={draft}
+            setDraft={setDraft}
+            busy={busyId === 'new'}
+            onSave={() => void saveNew()}
+            onCancel={() => setAdding(false)}
+          />
+        </EditorModal>
       )}
       {err && <ErrorLine message={err} />}
       {equations.length === 0 && !adding && <EmptyState>No equation candidates.</EmptyState>}
@@ -839,6 +845,31 @@ function RowButton({
       shadow: 'none',
     },
   }[variant];
+  // Destructive actions render as a compact × button (matches the app-wide
+  // delete affordance), not the word "Delete".
+  if (variant === 'danger') {
+    return (
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        title={label}
+        aria-label={label}
+        style={{
+          width: 22, height: 22, flexShrink: 0,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          background: palette.background,
+          border: `1px solid ${palette.border}`,
+          borderRadius: 5,
+          color: palette.color,
+          fontSize: 14, lineHeight: 1,
+          cursor: disabled ? 'wait' : 'pointer',
+          opacity: disabled ? 0.5 : 1,
+        }}
+      >
+        ×
+      </button>
+    );
+  }
   return (
     <button
       onClick={onClick}

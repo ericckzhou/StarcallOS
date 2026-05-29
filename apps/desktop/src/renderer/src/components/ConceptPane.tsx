@@ -238,23 +238,32 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
         </div>
       </div>
       {createOpen && (
-        <div style={{
-          borderBottom: '1px solid #1f2937',
-          padding: 12,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-          background: 'rgba(13, 13, 22, 0.86)',
-        }}>
+        <div
+          onClick={() => { if (!createBusy) { setCreateOpen(false); setCreateError(null); } }}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(2, 4, 14, 0.55)', backdropFilter: 'blur(3px)',
+          }}
+        >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            width: 380, maxWidth: '90vw',
+            display: 'flex', flexDirection: 'column', gap: 8, padding: 16,
+            borderRadius: 12, background: 'rgba(13, 13, 22, 0.97)',
+            border: '1px solid #312e81', boxShadow: '0 24px 64px rgba(0, 0, 0, 0.6)',
+          }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ fontSize: 11, color: '#c7d2fe', fontWeight: 800 }}>Add concept</div>
+            <div style={{ fontSize: 12, color: '#c7d2fe', fontWeight: 800 }}>Add concept</div>
             <button
               onClick={() => { setCreateOpen(false); setCreateError(null); }}
               disabled={createBusy}
               title="Cancel"
-              style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, color: '#94a3b8', cursor: createBusy ? 'wait' : 'pointer', fontSize: 12, padding: '1px 7px' }}
+              aria-label="Cancel"
+              style={{ marginLeft: 'auto', width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, color: '#94a3b8', cursor: createBusy ? 'wait' : 'pointer', fontSize: 14, lineHeight: 1 }}
             >
-              x
+              ×
             </button>
           </div>
           <input
@@ -313,6 +322,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           >
             {createBusy ? 'Creating...' : 'Create and open'}
           </button>
+        </div>
         </div>
       )}
       <div style={{ padding: '8px 10px 6px', borderBottom: '1px solid #1f2937', position: 'relative' }}>
@@ -412,7 +422,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
               style={{ background: hubName.trim() ? '#312e81' : '#111827', border: `1px solid ${hubName.trim() ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '6px 12px', color: hubName.trim() ? '#e0e7ff' : '#475569', fontSize: 12, fontWeight: 700, cursor: hubName.trim() ? 'pointer' : 'not-allowed' }}>
               Create
             </button>
-            <button onClick={() => setHubModalOpen(false)} style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '6px 12px', color: '#94a3b8', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={() => setHubModalOpen(false)} title="Cancel" aria-label="Cancel" style={{ width: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '6px 0', color: '#94a3b8', fontSize: 15, lineHeight: 1, cursor: 'pointer' }}>×</button>
           </div>
         </div>
       )}
@@ -425,7 +435,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             <button
               key={imp}
               className="cp-filter"
-              onClick={() => setFilter(imp)}
+              onClick={() => setFilter(active && imp !== 'all' ? 'all' : imp)}
               aria-pressed={active}
               title={`${IMP_LABEL[imp]} (${count})`}
               style={{

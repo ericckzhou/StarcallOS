@@ -46,23 +46,20 @@ Output:
 {
   "definition_text": "Backpropagation is the algorithm for computing the gradient of a scalar loss with respect to each weight in a neural network by applying the chain rule backward through the computation graph, reusing intermediate activations stored during the forward pass.",
   "why_exists": "It lets gradient-based optimizers train deep networks in time proportional to the forward pass, rather than the exponential cost of naive per-weight derivatives.",
-  "what_breaks": "Without it, training reduces to expensive numerical differentiation or finite differences; with stale or missing forward activations, gradients become wrong and learning silently diverges.",
-  "where_reappears": ["Gradient Descent", "Chain Rule", "Computation Graph", "Vanishing Gradient", "Automatic Differentiation"]
+  "what_breaks": "Without it, training reduces to expensive numerical differentiation or finite differences; with stale or missing forward activations, gradients become wrong and learning silently diverges."
 }
 
 Respond ONLY with JSON in this exact shape:
 {
   "definition_text": "1–3 sentences. The precise meaning AS USED IN THIS SOURCE.",
   "why_exists": "1–2 sentences. The problem this concept solves in its domain.",
-  "what_breaks": "1–2 sentences. What goes wrong when this is missing or misapplied.",
-  "where_reappears": ["other concept names from the SAME domain where this matters", "max 5"]
+  "what_breaks": "1–2 sentences. What goes wrong when this is missing or misapplied."
 }`;
 
 interface EnrichedFields {
   definition_text: string;
   why_exists: string;
   what_breaks: string;
-  where_reappears: string[];
 }
 
 export async function enrichConceptDefinition(
@@ -126,19 +123,17 @@ export async function enrichConceptDefinition(
   const definition_text = (parsed.definition_text ?? '').trim();
   const why_exists      = (parsed.why_exists      ?? '').trim();
   const what_breaks     = (parsed.what_breaks     ?? '').trim();
-  const where_reappears = Array.isArray(parsed.where_reappears)
-    ? parsed.where_reappears.slice(0, 5).map(s => String(s).trim()).filter(Boolean)
-    : [];
 
+  // Constellations (where_reappears) are user-curated only — never written by
+  // enrichment. Leave the existing value untouched.
   db.prepare(
     `UPDATE concepts
-     SET definition_text = ?, why_exists = ?, what_breaks = ?, where_reappears = ?
+     SET definition_text = ?, why_exists = ?, what_breaks = ?
      WHERE id = ?`,
   ).run(
     definition_text,
     why_exists,
     what_breaks,
-    JSON.stringify(where_reappears),
     conceptId,
   );
 

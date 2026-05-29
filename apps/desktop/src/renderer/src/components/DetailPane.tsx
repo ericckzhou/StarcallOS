@@ -991,7 +991,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                     <button onClick={() => void saveEditEquation(eq)} disabled={equationBusy} style={btnSecondary(equationBusy)}>
                       {equationBusy ? 'Saving…' : 'Save'}
                     </button>
-                    <button onClick={cancelEditEquation} disabled={equationBusy} style={btnTiny(equationBusy)}>Cancel</button>
+                    <button onClick={cancelEditEquation} disabled={equationBusy} title="Cancel" aria-label="Cancel" style={{ ...btnTiny(equationBusy), width: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, lineHeight: 1 }}>×</button>
                   </div>
                 </div>
               ) : (
@@ -1349,17 +1349,23 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
         <button
           onClick={onRegenerateTasks}
           disabled={generatingTasks}
-          title="Replace all 5 tasks with newly generated ones"
+          title={generatingTasks ? 'Regenerating…' : 'Regenerate all 5 challenge tasks'}
+          aria-label="Regenerate challenge tasks"
           style={{
             marginLeft: 'auto',
+            width: 28, height: 28, flexShrink: 0,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             background: 'transparent',
             border: '1px solid #1f2937',
-            borderRadius: 4, padding: '4px 10px', fontSize: 11,
+            borderRadius: 6,
             color: generatingTasks ? '#4b5563' : '#9ca3af',
             cursor: generatingTasks ? 'wait' : 'pointer',
           }}
         >
-          {generatingTasks ? 'Regenerating…' : 'Regenerate'}
+          <svg className={generatingTasks ? 'spin' : undefined} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
         </button>
       </div>
       {taskGenError && (

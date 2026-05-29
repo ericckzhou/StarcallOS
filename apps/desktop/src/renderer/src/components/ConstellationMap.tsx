@@ -745,7 +745,7 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button onClick={() => void saveHubEdit()} disabled={!editHub.name.trim()}
                       style={{ flex: 1, background: editHub.name.trim() ? '#312e81' : '#111827', border: `1px solid ${editHub.name.trim() ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: 5, color: editHub.name.trim() ? '#e0e7ff' : '#475569', fontSize: 11, fontWeight: 700, cursor: editHub.name.trim() ? 'pointer' : 'not-allowed' }}>Save</button>
-                    <button onClick={() => setEditHub(null)} style={{ flex: 1, background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: 5, color: '#94a3b8', fontSize: 11, cursor: 'pointer' }}>Cancel</button>
+                    <button onClick={() => setEditHub(null)} title="Cancel" aria-label="Cancel" style={{ width: 30, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: 5, color: '#94a3b8', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}>×</button>
                   </div>
                 </div>
               )}

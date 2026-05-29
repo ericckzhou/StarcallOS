@@ -110,9 +110,57 @@ export function InlineEditor({
       <button onClick={onSave} disabled={busy} style={glassButton('primary', busy)}>
         {busy ? 'Saving…' : 'Save'}
       </button>
-      <button onClick={onCancel} disabled={busy} style={glassButton('secondary', busy)}>
-        Cancel
+      <button
+        onClick={onCancel}
+        disabled={busy}
+        title="Cancel"
+        aria-label="Cancel"
+        style={{ ...glassButton('secondary', busy), width: 30, padding: 0, fontSize: 15, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+      >
+        ×
       </button>
+    </div>
+  );
+}
+
+// Centered glass modal used to host the add-form for candidate panels, so
+// adding a relation/misconception/equation pops out instead of expanding inline.
+export function EditorModal({ title, onClose, children }: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(2, 4, 14, 0.55)', backdropFilter: 'blur(3px)',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 620, maxWidth: '92vw',
+          padding: 16, borderRadius: 12,
+          background: 'rgba(13, 13, 22, 0.97)', border: '1px solid #312e81',
+          boxShadow: '0 24px 64px rgba(0, 0, 0, 0.6)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#c7d2fe', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</div>
+          <button
+            onClick={onClose}
+            title="Cancel"
+            aria-label="Cancel"
+            style={{ marginLeft: 'auto', width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, color: '#94a3b8', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}
+          >
+            ×
+          </button>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }
