@@ -56,6 +56,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   const [hubName, setHubName] = useState('');
   const [hubColor, setHubColor] = useState(HUB_PALETTE[0]);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [editHub, setEditHub] = useState<{ id: number; name: string; color: string } | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
 
@@ -162,6 +163,14 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
     if (!window.confirm('Delete this hub? Concepts are kept; only the grouping is removed.')) return;
     await window.api.hubs.delete(hubId);
     if (hubFilter === hubId) setHubFilter(null);
+    refreshHubs();
+  }
+  async function saveHubEdit() {
+    if (!editHub) return;
+    const name = editHub.name.trim();
+    if (!name) return;
+    await window.api.hubs.update({ id: editHub.id, name, color: editHub.color });
+    setEditHub(null);
     refreshHubs();
   }
   const masteredCount = [...masteries.values()].filter(s => s >= 3).length;
@@ -432,6 +441,12 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: h.color }} />
                   {h.name}
                 </button>
+                <button onClick={() => setEditHub({ id: h.id, name: h.name, color: h.color })} title="Edit hub" aria-label={`Edit hub ${h.name}`}
+                  style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: 9, lineHeight: 1, cursor: 'pointer', padding: '0 1px', display: 'inline-flex' }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
+                </button>
                 <button onClick={() => void deleteHub(h.id)} title="Delete hub" aria-label={`Delete hub ${h.name}`}
                   style={{ background: 'transparent', border: 'none', color: '#475569', fontSize: 12, lineHeight: 1, cursor: 'pointer', padding: '0 2px' }}>×</button>
               </span>
@@ -440,6 +455,31 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           {hubFilter != null && (
             <button onClick={() => setHubFilter(null)} style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 3, padding: '1px 6px', fontSize: 10, color: '#9ca3af', cursor: 'pointer' }}>clear</button>
           )}
+        </div>
+      )}
+      {editHub && (
+        <div style={{ borderBottom: '1px solid #1f2937', padding: 12, display: 'flex', flexDirection: 'column', gap: 8, background: 'rgba(13,13,22,0.92)' }}>
+          <div style={{ fontSize: 11, color: '#c7d2fe', fontWeight: 800 }}>Edit hub</div>
+          <input
+            autoFocus value={editHub.name}
+            onChange={e => setEditHub(h => (h ? { ...h, name: e.target.value } : h))}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void saveHubEdit(); } else if (e.key === 'Escape') setEditHub(null); }}
+            placeholder="Hub name"
+            style={{ background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '7px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+          />
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {HUB_PALETTE.map(c => (
+              <button key={c} onClick={() => setEditHub(h => (h ? { ...h, color: c } : h))} aria-label={`Color ${c}`}
+                style={{ width: 20, height: 20, borderRadius: '50%', background: c, border: editHub.color === c ? '2px solid #e2e8f0' : '2px solid transparent', cursor: 'pointer', padding: 0 }} />
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => void saveHubEdit()} disabled={!editHub.name.trim()}
+              style={{ background: editHub.name.trim() ? '#312e81' : '#111827', border: `1px solid ${editHub.name.trim() ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '6px 12px', color: editHub.name.trim() ? '#e0e7ff' : '#475569', fontSize: 12, fontWeight: 700, cursor: editHub.name.trim() ? 'pointer' : 'not-allowed' }}>
+              Save
+            </button>
+            <button onClick={() => setEditHub(null)} style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '6px 12px', color: '#94a3b8', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+          </div>
         </div>
       )}
       <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
