@@ -144,7 +144,7 @@ export function EditorModal({ title, onClose, children }: {
         style={{
           width: 620, maxWidth: '92vw',
           padding: 16, borderRadius: 12,
-          background: 'rgba(13, 13, 22, 0.97)', border: '1px solid #312e81',
+          background: 'rgba(13, 13, 22, 0.6)', backdropFilter: 'blur(14px)', border: '1px solid #312e81',
           boxShadow: '0 24px 64px rgba(0, 0, 0, 0.6)',
         }}
       >

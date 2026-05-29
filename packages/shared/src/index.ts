@@ -87,6 +87,7 @@ export const IPC = {
   CANDIDATES_PROMOTE:      'candidates:promote',
   CANDIDATES_PROMOTE_BULK: 'candidates:promoteBulk',
   CANDIDATES_REJECT:       'candidates:reject',
+  CANDIDATES_REJECT_BULK:  'candidates:rejectBulk',
   CANDIDATES_EXTRACT:      'candidates:extract',
   CANDIDATES_LLM_FILTER:   'candidates:llmFilter',
   CANDIDATES_RELATION_CREATE: 'candidates:relationCreate',
@@ -209,6 +210,7 @@ export interface UpdateConceptFieldsArgs {
   why_exists?: string;
   what_breaks?: string;
   where_reappears?: Array<string | ConstellationLink>;
+  importance?: string;
 }
 
 export interface EnrichedConcept {
@@ -489,6 +491,7 @@ export interface IpcApi {
     promote: (candidateId: number) => Promise<Concept>;
     promoteBulk: (candidateIds: number[]) => Promise<PromoteBulkResult>;
     reject: (candidateId: number) => Promise<{ ok: true }>;
+    rejectBulk: (candidateIds: number[]) => Promise<{ rejected: number }>;
     extract: (sourceId: number) => Promise<ExtractCandidatesResult>;
     llmFilter: (args: CandidateLlmFilterArgs) => Promise<CandidateLlmFilterResult>;
     relationCreate: (args: { sourceId: number; from: string; to: string; kind: string; quote?: string; page?: number }) => Promise<StoredRelationCandidate>;

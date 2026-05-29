@@ -573,8 +573,15 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
     const el = pageRefs.current.get(targetPage);
     if (el) {
       const container = scrollContainerRef.current;
-      if (container) container.scrollTop = el.offsetTop;
-      else el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      if (container) {
+        // Align the target page's top to the container top using a rect delta —
+        // robust to wrapper nesting (offsetTop is relative to offsetParent, which
+        // isn't always the scroll container and can land a page early).
+        const delta = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
+        container.scrollTop += delta;
+      } else {
+        el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }
       setPage(targetPage);
       currentPageRef.current = targetPage;
       currentPageOffsetRef.current = 0;

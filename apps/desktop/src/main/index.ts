@@ -30,7 +30,7 @@ import {
   createEquationCandidateForSource, updateEquationCandidate,
   ensureTasksForConcept,
   regenerateTasksForConcept,
-  promoteCandidate, rejectCandidate, createManualConcept,
+  promoteCandidate, rejectCandidate, rejectCandidatesBulk, createManualConcept,
   getLlmFilter, setLlmFilter,
   segmentTextWithDiagnostics,
   clearDerivedDataForSource, recoverInterruptedSources,
@@ -549,6 +549,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     why_exists?: string;
     what_breaks?: string;
     where_reappears?: string[];
+    importance?: string;
   }) => {
     return updateConceptFields(db, args.conceptId, args);
   });
@@ -723,6 +724,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     rejectCandidate(db, candidateId);
     return { ok: true };
   });
+  ipcMain.handle(IPC.CANDIDATES_REJECT_BULK, (_e, candidateIds: number[]) => rejectCandidatesBulk(db, candidateIds));
   ipcMain.handle(IPC.CANDIDATES_RELATION_CREATE, (_e, args: {
     sourceId: number; from: string; to: string; kind?: string; quote?: string; page?: number;
   }) => createRelationCandidate(db, args.sourceId, {

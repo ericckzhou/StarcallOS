@@ -497,14 +497,6 @@ const StarNode = React.memo(function StarNode(p: StarProps) {
           {p.name.length > 28 ? p.name.slice(0, 27) + '…' : p.name}
         </text>
       )}
-      {(p.isHover || p.isSel) && (
-        <text
-          x={p.r + 6} y={18} fontSize={9.5} fill={p.sourceColor}
-          style={{ pointerEvents: 'none', userSelect: 'none', paintOrder: 'stroke', stroke: 'rgba(2,6,23,0.92)', strokeWidth: 3, strokeLinejoin: 'round' }}
-        >
-          {p.sourceName.length > 32 ? p.sourceName.slice(0, 31) + '…' : p.sourceName}
-        </text>
-      )}
     </g>
   );
 });
@@ -804,6 +796,19 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
               Select a source above to view its constellation.
             </div>
           )}
+          {showGraph && (() => {
+            const ids = [...new Set(view.nodes.map(n => n.source_id))];
+            return (
+              <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 3, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end', pointerEvents: 'none', maxWidth: 260 }}>
+                {ids.map(id => (
+                  <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(4,6,26,0.5)', border: '1px solid #1f2937', borderRadius: 6, padding: '3px 8px', fontSize: 10, color: '#cbd5e1', backdropFilter: 'blur(6px)' }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: sourceColor.get(id) ?? '#6b7280', flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sourceName.get(id) ?? `Source ${id}`}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
           {showGraph && (
             <svg
               ref={layout.svgRef}

@@ -276,6 +276,13 @@ function heatLevel(count: number): number {
   return 4;
 }
 
+// "2026-05-29" -> "May 29 2026"
+function formatHeatDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  return `${MONTH_NAMES[m - 1]} ${d} ${y}`;
+}
+
 function toLocalISO(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -379,7 +386,7 @@ function ActivityHeatmap({ activity }: { activity: DailyActivity[] }) {
           <div style={{ fontSize: 11, fontWeight: 800, color: '#e2e8f0' }}>
             {tip.cell.count} challenge{tip.cell.count === 1 ? '' : 's'}
           </div>
-          <div style={{ fontSize: 10, color: '#64748b', marginTop: 1 }}>{tip.cell.date}</div>
+          <div style={{ fontSize: 10, color: '#64748b', marginTop: 1 }}>{formatHeatDate(tip.cell.date)}</div>
           {tip.cell.sources.length > 0 && (
             <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
               {tip.cell.sources.map((s, i) => (

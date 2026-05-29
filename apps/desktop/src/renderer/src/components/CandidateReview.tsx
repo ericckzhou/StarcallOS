@@ -2,6 +2,7 @@
 import {
   BUCKET_COLOR,
   BUCKET_LABEL,
+  BUCKET_HINT,
   CANDIDATE_FILTER_CHIPS,
   RELATION_COLOR,
   SIGNAL_COLOR,
@@ -47,6 +48,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState<'visible' | 'eligible'>('visible');
+  const [rejectConfirming, setRejectConfirming] = useState(false);
   // LLM topic-fit filter â€” soft filter on top of the bucket/signal pass.
   const [llmFilterOpen, setLlmFilterOpen]   = useState(false);
   const [llmKeepIds, setLlmKeepIds]         = useState<Set<number> | null>(null);
@@ -249,6 +251,23 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
     }
   }
 
+  async function rejectAllFiltered(ids: number[]) {
+    setBulkBusy(true);
+    setBulkMsg(null);
+    try {
+      const r = await window.api.candidates.rejectBulk(ids);
+      const idSet = new Set(ids);
+      setBundle(b => ({ ...b, concepts: b.concepts.filter(c => !idSet.has(c.id)) }));
+      setBulkMsg(`Rejected ${r.rejected} candidate${r.rejected === 1 ? '' : 's'}`);
+      onPromoted?.();
+    } catch (e) {
+      setBulkMsg(`Bulk reject failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBulkBusy(false);
+      setRejectConfirming(false);
+    }
+  }
+
   async function act(id: number, fn: () => Promise<unknown>) {
     setBusy(s => new Set(s).add(id));
     try {
@@ -413,6 +432,44 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           </div>
         );
       })()}
+
+      {rejectConfirming && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 50,
+          background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 8,
+            padding: 20, width: 440, display: 'flex', flexDirection: 'column', gap: 12,
+          }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#fca5a5' }}>
+              Reject {filtered.length} candidate{filtered.length === 1 ? '' : 's'}?
+            </div>
+            <div style={{ fontSize: 12, color: '#9ca3af', lineHeight: 1.6 }}>
+              Rejects every visible candidate (bucket "{BUCKET_LABEL[bucket]}", signal "{signalFilter}", min score {minConf.toFixed(2)}). This deletes the candidate rows; it does not touch already-promoted concepts. Re-extract can regenerate candidates.
+              <div style={{ marginTop: 8, color: '#6b7280', fontSize: 11 }}>
+                Top of list: {filtered.slice(0, 3).map(c => c.term).join(' · ')}{filtered.length > 3 ? ` … +${filtered.length - 3} more` : ''}
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+              <button
+                onClick={() => setRejectConfirming(false)}
+                disabled={bulkBusy}
+                style={{ background: 'transparent', border: '1px solid #374151', borderRadius: 4, padding: '5px 14px', color: '#9ca3af', fontSize: 12, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => rejectAllFiltered(filtered.map(c => c.id))}
+                disabled={bulkBusy}
+                style={{ background: '#3f1d1d', border: '1px solid #ef4444', borderRadius: 4, padding: '5px 14px', color: '#fecaca', fontSize: 12, cursor: bulkBusy ? 'wait' : 'pointer', fontWeight: 600 }}
+              >
+                {bulkBusy ? 'Rejecting…' : `Reject ${filtered.length}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {bulkMsg && (
         <div style={{
@@ -606,10 +663,13 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           const count = bucketCounts[b];
           const selected = bucket === b;
           const color = BUCKET_COLOR[b];
+          // Hide empty buckets (keep "all" and whatever is currently selected).
+          if (count === 0 && b !== 'all' && !selected) return null;
           return (
             <button
               key={b}
               onClick={() => setBucket(b)}
+              title={BUCKET_HINT[b]}
               style={{
                 background: selected ? 'rgba(129, 140, 248, 0.10)' : 'transparent',
                 border: `1px solid ${selected ? color : '#1f2937'}`,
@@ -676,6 +736,20 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                     }}
                   >
                     {bulkBusy ? 'Promoting…' : `Promote ${filtered.length} visible`}
+                  </button>
+                )}
+                {filtered.length > 0 && (
+                  <button
+                    onClick={() => setRejectConfirming(true)}
+                    disabled={bulkBusy}
+                    title={`Reject every concept currently visible (respects bucket + signal + slider). Deletes the candidate rows; promoted concepts are untouched.`}
+                    style={{
+                      background: '#3f1d1d', border: '1px solid #ef4444', borderRadius: 3,
+                      padding: '3px 10px', fontSize: 10, cursor: bulkBusy ? 'wait' : 'pointer',
+                      color: '#fecaca', opacity: bulkBusy ? 0.5 : 1, fontWeight: 600,
+                    }}
+                  >
+                    {bulkBusy ? 'Rejecting…' : `Reject ${filtered.length} visible`}
                   </button>
                 )}
                 <button

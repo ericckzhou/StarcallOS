@@ -40,13 +40,29 @@ export const BUCKET_COLOR: Record<Bucket, string> = {
 
 export const BUCKET_LABEL: Record<Bucket, string> = {
   all:         'All',
-  high:        'High (>=0.80)',
-  medium:      'Medium (0.55-0.79)',
-  low:         'Low (<0.55)',
+  high:        'High',
+  medium:      'Medium',
+  low:         'Low',
   suspicious:  'Suspicious',
   off_topic:   'Off-topic',
   boilerplate: 'Boilerplate',
   broad:       'Too broad',
+};
+
+// Buckets are a funnel: a candidate falls into the FIRST category it matches
+// (boilerplate → too broad → suspicious → high/medium/low → off-topic). So the
+// score tiers only hold candidates NOT already flagged — e.g. a 0.25 item that
+// is suspicious lands in Suspicious, never in Low. Tooltips spell this out so
+// the score ranges don't read as pure filters.
+export const BUCKET_HINT: Record<Bucket, string> = {
+  all:         'Every candidate, regardless of bucket.',
+  high:        'Score ≥ 0.80 and not flagged as suspicious, too broad, or boilerplate.',
+  medium:      'Score 0.55–0.79 and not flagged as suspicious, too broad, or boilerplate.',
+  low:         'Score < 0.55 and not flagged. Flagged low-score items appear under Suspicious / Too broad / Boilerplate instead, which take precedence over score.',
+  suspicious:  'Flagged as likely non-concept (sentence fragment, all-caps, no quote, symbols…). Takes precedence over the score tier, at any score.',
+  off_topic:   'Topic-relevance below 0.15 — almost certainly outside this source\'s subject.',
+  boilerplate: 'Front/back-matter or template text (copyright, TOC, headers).',
+  broad:       'Too broad to be a single concept (e.g. a whole chapter title).',
 };
 
 export const SIGNAL_COLOR: Record<string, string> = {

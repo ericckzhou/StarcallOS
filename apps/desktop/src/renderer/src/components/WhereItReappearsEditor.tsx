@@ -23,6 +23,12 @@ const IMP_COLOR: Record<string, string> = {
   peripheral: '#6b7280', reference_only: '#374151',
 };
 
+// Quick-pick relationship phrasings — click one to seed the reason, then edit.
+const RELATION_OPTIONS = [
+  'Builds on', 'Depends on', 'Contrasts with', 'Generalizes',
+  'Specializes', 'Enables', 'Part of', 'Causes', 'Analogous to',
+];
+
 // Typeahead concept linker. Selecting a concept does NOT immediately add it —
 // the user must first state WHY the two concepts relate; that reason is stored
 // alongside the link and surfaced on the Constellation Map.
@@ -34,6 +40,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
   // A link awaiting its reason. editIndex = index in `value` being edited, or
   // null when it's a brand-new link.
   const [pending, setPending] = useState<{ name: string; reason: string; editIndex: number | null } | null>(null);
+  const [relOpen, setRelOpen] = useState(false);
   const queryIdRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
@@ -104,6 +111,55 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
       <div style={{ border: '1px solid #4338ca', borderRadius: 8, padding: 10, background: 'rgba(13,13,22,0.86)', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ fontSize: 12, color: '#c7d2fe' }}>
           Why does this relate to <span style={{ fontWeight: 800 }}>{pending.name}</span>?
+        </div>
+        <div style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setRelOpen(o => !o)}
+            onBlur={() => setTimeout(() => setRelOpen(false), 120)}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: 'transparent', border: '1px solid #263244', borderRadius: 4,
+              padding: '5px 8px', color: '#c7d2fe', fontSize: 11, cursor: 'pointer',
+            }}
+          >
+            <span>Relationship type…</span>
+            <span style={{ color: '#6b7280' }}>▾</span>
+          </button>
+          {relOpen && (
+            <div
+              role="listbox"
+              style={{
+                position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 2, zIndex: 20,
+                background: 'rgba(13,13,22,0.6)', backdropFilter: 'blur(12px)', border: '1px solid #312e81', borderRadius: 6,
+                maxHeight: 240, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+              }}
+            >
+              {RELATION_OPTIONS.map(opt => (
+                <button
+                  key={opt}
+                  type="button"
+                  className="rel-opt"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => {
+                    setPending(p => {
+                      if (!p) return p;
+                      const base = p.reason.trim();
+                      return { ...p, reason: base ? `${opt} ${base}` : `${opt} ` };
+                    });
+                    setRelOpen(false);
+                    setTimeout(() => reasonRef.current?.focus(), 0);
+                  }}
+                  style={{
+                    display: 'block', width: '100%', textAlign: 'left', background: 'transparent',
+                    border: 'none', padding: '6px 10px', fontSize: 11, color: '#e2e8f0', cursor: 'pointer',
+                  }}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <textarea
           ref={reasonRef}

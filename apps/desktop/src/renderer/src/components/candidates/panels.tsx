@@ -234,6 +234,23 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
 
 const RELATION_KINDS = ['requires', 'causes', 'enables', 'contrasts_with', 'example_of'];
 
+function CandidateSearch({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <div style={{ padding: '8px 16px', borderBottom: '1px solid rgba(31,41,55,0.6)' }}>
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #263244', borderRadius: 4,
+          padding: '6px 9px', color: '#e2e8f0', fontSize: 12, outline: 'none',
+        }}
+      />
+    </div>
+  );
+}
+
 export function RelationsPanel({ relations, knownTerms, onCreate, onUpdate, onDelete }: {
   relations: RelationCandidate[];
   knownTerms: Set<string>;
@@ -244,7 +261,12 @@ export function RelationsPanel({ relations, knownTerms, onCreate, onUpdate, onDe
   const [adding, setAdding] = useState(false);
   const [busyId, setBusyId] = useState<number | 'new' | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [q, setQ] = useState('');
   const [draft, setDraft] = useState({ from: '', to: '', kind: 'requires', quote: '', page: '' });
+  const query = q.trim().toLowerCase();
+  const shown = query
+    ? relations.filter(r => r.from.toLowerCase().includes(query) || r.to.toLowerCase().includes(query) || r.kind.toLowerCase().includes(query) || (r.quote ?? '').toLowerCase().includes(query))
+    : relations;
   function norm(s: string): string {
     return s.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9\s-]/g, '').trim();
   }
@@ -263,6 +285,7 @@ export function RelationsPanel({ relations, knownTerms, onCreate, onUpdate, onDe
   return (
     <>
       <CrudHeader title="Relations" adding={adding} setAdding={setAdding} />
+      <CandidateSearch value={q} onChange={setQ} placeholder="Search relations…" />
       {adding && (
         <EditorModal title="Add relation" onClose={() => setAdding(false)}>
           <RelationEditor
@@ -275,8 +298,8 @@ export function RelationsPanel({ relations, knownTerms, onCreate, onUpdate, onDe
         </EditorModal>
       )}
       {err && <ErrorLine message={err} />}
-      {relations.length === 0 && !adding && <EmptyState>No relation candidates.</EmptyState>}
-      {relations.map(r => {
+      {shown.length === 0 && !adding && <EmptyState>{query ? 'No matching relations.' : 'No relation candidates.'}</EmptyState>}
+      {shown.map(r => {
         const fromKnown = knownTerms.has(norm(r.from));
         const toKnown = knownTerms.has(norm(r.to));
         const color = RELATION_COLOR[r.kind] ?? '#6b7280';
@@ -429,7 +452,10 @@ export function MisconceptionsPanel({ misconceptions, onCreate, onUpdate, onDele
   const [adding, setAdding] = useState(false);
   const [busyId, setBusyId] = useState<number | 'new' | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [q, setQ] = useState('');
   const [draft, setDraft] = useState({ quote: '', page: '', section_path: '' });
+  const query = q.trim().toLowerCase();
+  const shown = query ? misconceptions.filter(m => m.quote.toLowerCase().includes(query) || m.section_path.join(' ').toLowerCase().includes(query)) : misconceptions;
   async function saveNew(): Promise<void> {
     setBusyId('new'); setErr(null);
     try {
@@ -445,6 +471,7 @@ export function MisconceptionsPanel({ misconceptions, onCreate, onUpdate, onDele
   return (
     <>
       <CrudHeader title="Misconceptions" adding={adding} setAdding={setAdding} />
+      <CandidateSearch value={q} onChange={setQ} placeholder="Search misconceptions…" />
       {adding && (
         <EditorModal title="Add misconception" onClose={() => setAdding(false)}>
           <MisconceptionEditor
@@ -457,8 +484,8 @@ export function MisconceptionsPanel({ misconceptions, onCreate, onUpdate, onDele
         </EditorModal>
       )}
       {err && <ErrorLine message={err} />}
-      {misconceptions.length === 0 && !adding && <EmptyState>No misconception phrases detected.</EmptyState>}
-      {misconceptions.map(m => (
+      {shown.length === 0 && !adding && <EmptyState>{query ? 'No matching misconceptions.' : 'No misconception phrases detected.'}</EmptyState>}
+      {shown.map(m => (
         <MisconceptionRow
           key={m.id}
           item={m}
@@ -588,7 +615,10 @@ export function EquationsPanel({ equations, unattached, byTerm, onCreate, onUpda
   const [adding, setAdding] = useState(false);
   const [busyId, setBusyId] = useState<number | 'new' | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [q, setQ] = useState('');
   const [draft, setDraft] = useState({ latex: '', page: '', variables: '', attached_term: '', section_path: '' });
+  const query = q.trim().toLowerCase();
+  const match = (eq: EquationCandidate) => !query || eq.latex.toLowerCase().includes(query) || (eq.attached_term ?? '').toLowerCase().includes(query) || (eq.variables ?? []).join(' ').toLowerCase().includes(query);
   async function saveNew(): Promise<void> {
     setBusyId('new'); setErr(null);
     try {
@@ -607,10 +637,16 @@ export function EquationsPanel({ equations, unattached, byTerm, onCreate, onUpda
       setBusyId(null);
     }
   }
-  const attached = [...byTerm.entries()].sort((a, b) => b[1].length - a[1].length);
+  const attached = [...byTerm.entries()]
+    .map(([term, eqs]) => [term, eqs.filter(match)] as [string, EquationCandidate[]])
+    .filter(([, eqs]) => eqs.length > 0)
+    .sort((a, b) => b[1].length - a[1].length);
+  const shownUnattached = unattached.filter(match);
+  const noneShown = attached.length === 0 && shownUnattached.length === 0;
   return (
     <>
       <CrudHeader title="Equations" adding={adding} setAdding={setAdding} />
+      <CandidateSearch value={q} onChange={setQ} placeholder="Search equations…" />
       {adding && (
         <EditorModal title="Add equation" onClose={() => setAdding(false)}>
           <EquationEditor
@@ -623,7 +659,7 @@ export function EquationsPanel({ equations, unattached, byTerm, onCreate, onUpda
         </EditorModal>
       )}
       {err && <ErrorLine message={err} />}
-      {equations.length === 0 && !adding && <EmptyState>No equation candidates.</EmptyState>}
+      {noneShown && !adding && <EmptyState>{query ? 'No matching equations.' : 'No equation candidates.'}</EmptyState>}
       {attached.map(([term, eqs]) => (
         <div key={term} style={{ borderBottom: '1px solid #111827', padding: '10px 16px' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: '#c7d2fe', marginBottom: 6 }}>
@@ -635,12 +671,12 @@ export function EquationsPanel({ equations, unattached, byTerm, onCreate, onUpda
           ))}
         </div>
       ))}
-      {unattached.length > 0 && (
+      {shownUnattached.length > 0 && (
         <div style={{ borderTop: '1px solid #1f2937', padding: '12px 16px' }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
-            Unattached ({unattached.length})
+            Unattached ({shownUnattached.length})
           </div>
-          {unattached.map(eq => <EquationRow key={eq.id} eq={eq} busy={busyId === eq.id} setBusy={setBusyId} setErr={setErr} onUpdate={onUpdate} onDelete={onDelete} />)}
+          {shownUnattached.map(eq => <EquationRow key={eq.id} eq={eq} busy={busyId === eq.id} setBusy={setBusyId} setErr={setErr} onUpdate={onUpdate} onDelete={onDelete} />)}
         </div>
       )}
     </>

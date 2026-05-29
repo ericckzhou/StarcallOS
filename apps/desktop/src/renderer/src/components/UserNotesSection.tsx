@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 // Notes record reserved for the DetailPane "Paper" tab; hidden from this list
 // so the scratchpad and structured notes don't visually collide.
@@ -24,6 +24,9 @@ export default function UserNotesSection({ conceptId }: Props) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<number | null>(null);
+  // Soft-delete with a 5s undo window instead of a confirm popup.
+  const [pendingDeletes, setPendingDeletes] = useState<Note[]>([]);
+  const deleteTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
     setLoading(true);
@@ -54,12 +57,28 @@ export default function UserNotesSection({ conceptId }: Props) {
     }
   }
 
-  async function removeNote(id: number) {
-    const ok = window.confirm('Delete this note? This cannot be undone.');
-    if (!ok) return;
-    await window.api.concepts.notes.delete(id);
+  function removeNote(id: number) {
+    if (deleteTimers.current.has(id)) return;
+    const note = notes.find(n => n.id === id);
+    if (!note) return;
     setNotes(prev => prev.filter(n => n.id !== id));
+    setPendingDeletes(prev => [...prev, note]);
+    const timer = setTimeout(() => {
+      deleteTimers.current.delete(id);
+      setPendingDeletes(prev => prev.filter(n => n.id !== id));
+      void window.api.concepts.notes.delete(id);
+    }, 5000);
+    deleteTimers.current.set(id, timer);
   }
+
+  function undoRemoveNote(note: Note) {
+    const timer = deleteTimers.current.get(note.id);
+    if (timer) { clearTimeout(timer); deleteTimers.current.delete(note.id); }
+    setPendingDeletes(prev => prev.filter(n => n.id !== note.id));
+    setNotes(prev => [...prev, note].sort((a, b) => a.position - b.position));
+  }
+
+  useEffect(() => () => { for (const t of deleteTimers.current.values()) clearTimeout(t); }, []);
 
   async function move(id: number, dir: -1 | 1) {
     const idx = notes.findIndex(n => n.id === id);
@@ -111,6 +130,20 @@ export default function UserNotesSection({ conceptId }: Props) {
           />
         ))}
       </div>
+
+      {pendingDeletes.map(n => (
+        <div key={`pending-${n.id}`} style={{
+          display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8,
+          background: 'rgba(13,13,22,0.6)', border: '1px solid #1f2937', borderRadius: 6,
+          padding: '8px 10px', fontSize: 12, color: '#94a3b8',
+        }}>
+          <span>Note deleted{n.heading && n.heading !== 'Untitled note' ? ` — “${n.heading}”` : ''}.</span>
+          <button
+            onClick={() => undoRemoveNote(n)}
+            style={{ marginLeft: 'auto', background: '#1e1b4b', border: '1px solid #6366f1', borderRadius: 4, color: '#c7d2fe', cursor: 'pointer', fontSize: 11, fontWeight: 700, padding: '3px 9px' }}
+          >Undo</button>
+        </div>
+      ))}
 
       <button
         onClick={addNote}

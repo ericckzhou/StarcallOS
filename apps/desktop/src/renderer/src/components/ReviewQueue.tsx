@@ -242,7 +242,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
   if (collapsed) {
     return (
       <aside style={{
-        width: 36, borderRight: '1px solid #1f2937', background: '#0d0d16',
+        width: 36, borderRight: '1px solid #1f2937', background: 'rgba(13, 13, 22, 0.5)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 8,
       }}>
         <button
@@ -420,29 +420,35 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                       {c.name}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                      <button
-                        onClick={e => {
-                          e.stopPropagation();
-                          markReviewedFromQueue(it);
-                        }}
-                        title="Mark reviewed (remove from queue)"
-                        aria-label={`Mark ${c.name} reviewed`}
-                        style={{
-                          width: 20, height: 20,
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          background: actionsVisible ? 'rgba(34, 197, 94, 0.12)' : 'transparent',
-                          border: actionsVisible ? '1px solid rgba(34, 197, 94, 0.5)' : '1px solid transparent',
-                          borderRadius: 4,
-                          color: '#22c55e',
-                          fontSize: 12,
-                          lineHeight: 1, cursor: 'pointer',
-                          flexShrink: 0,
-                          opacity: actionsVisible ? 1 : 0.25,
-                          transition: 'opacity 120ms ease, background 120ms ease, border-color 120ms ease',
-                        }}
-                      >
-                        ✓
-                      </button>
+                      {(() => {
+                        const reviewable = it.attempts > 0;
+                        return (
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            if (reviewable) markReviewedFromQueue(it);
+                          }}
+                          disabled={!reviewable}
+                          title={reviewable ? 'Mark reviewed (remove from queue)' : 'Review this concept at least once before marking it done'}
+                          aria-label={`Mark ${c.name} reviewed`}
+                          style={{
+                            width: 20, height: 20,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            background: reviewable && actionsVisible ? 'rgba(34, 197, 94, 0.12)' : 'transparent',
+                            border: `1px solid ${reviewable && actionsVisible ? 'rgba(34, 197, 94, 0.5)' : 'transparent'}`,
+                            borderRadius: 4,
+                            color: reviewable ? '#22c55e' : '#475569',
+                            fontSize: 12,
+                            lineHeight: 1, cursor: reviewable ? 'pointer' : 'not-allowed',
+                            flexShrink: 0,
+                            opacity: reviewable ? (actionsVisible ? 1 : 0.25) : 0.4,
+                            transition: 'opacity 120ms ease, background 120ms ease, border-color 120ms ease',
+                          }}
+                        >
+                          ✓
+                        </button>
+                        );
+                      })()}
                       <button
                         onClick={e => {
                           e.stopPropagation();

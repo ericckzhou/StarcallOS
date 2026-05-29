@@ -101,6 +101,10 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
     e.stopPropagation();
     await window.api.sources.delete(sourceId);
     onSourcesChange(sources.filter(s => s.id !== sourceId));
+    // Deleting a source cascades away its concepts + evidence_records, so XP,
+    // challenge counts, and the review queue all change — tell them to refetch.
+    window.dispatchEvent(new Event('starcall:progressChanged'));
+    window.dispatchEvent(new Event('starcall:review-queue-stale'));
   }
 
   async function handleExtract(e: React.MouseEvent, sourceId: number) {

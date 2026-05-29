@@ -73,13 +73,14 @@ body::after {
   background: transparent;
 }
 ::-webkit-scrollbar-track {
-  background: #0a0a0f;
-  border-left: 1px solid #111827;
+  background: transparent;
+  border-left: none;
 }
 ::-webkit-scrollbar-thumb {
   background: #1f2937;
   border-radius: 5px;
-  border: 2px solid #0a0a0f;       /* shrinks the visible thumb, creates padding effect */
+  border: 2px solid transparent;   /* shrinks the visible thumb, creates padding effect */
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #312e81;
@@ -88,13 +89,13 @@ body::after {
   background: #4338ca;
 }
 ::-webkit-scrollbar-corner {
-  background: #0a0a0f;
+  background: transparent;
 }
 
 /* Firefox fallback (less granular, no padding control). */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #1f2937 #0a0a0f;
+  scrollbar-color: #1f2937 transparent;
 }
 
 /* Selection — keep the brand indigo. */
@@ -319,6 +320,11 @@ body::after {
 .ev-row:hover .ev-action, .ev-row:focus-within .ev-action { opacity: 1; }
 .ev-action:hover { color: #e2e8f0; }
 .ev-action.ev-del:hover { color: #fca5a5; }
+
+/* Themed dropdown option rows (custom menus, since native <option> can't be
+   styled): purple hover following the app accent. */
+.rel-opt { transition: background-color 110ms ease; }
+.rel-opt:hover, .rel-opt:focus-visible { background: rgba(129, 140, 248, 0.18); }
 
 /* Spinner for in-progress icon buttons (e.g. Regenerate). */
 .spin { transform-box: fill-box; transform-origin: center; animation: spin 0.9s linear infinite; }

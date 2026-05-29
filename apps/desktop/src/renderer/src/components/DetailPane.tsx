@@ -316,9 +316,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, minWidth: 0 }}>
               <EditableTitle concept={concept} compact />
-              <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: `${IMP_COLOR[concept.importance] ?? '#374151'}22`, color: IMP_COLOR[concept.importance] ?? '#6b7280', flexShrink: 0 }}>
-                {concept.importance}
-              </span>
+              <ImportancePill concept={concept} compact />
               {headerKinds.map(k => (
                 <span key={k} style={{
                   fontSize: 10, padding: '2px 7px', borderRadius: 3,
@@ -369,9 +367,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <EditableTitle concept={concept} />
-          <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: `${IMP_COLOR[concept.importance] ?? '#374151'}22`, color: IMP_COLOR[concept.importance] ?? '#6b7280' }}>
-            {concept.importance}
-          </span>
+          <ImportancePill concept={concept} />
           {headerKinds.map(k => (
             <span key={k} style={{
               fontSize: 10, padding: '2px 7px', borderRadius: 3,
@@ -536,10 +532,37 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
   const [equationVarsDraft, setEquationVarsDraft] = useState('');
   const [equationBusy, setEquationBusy] = useState(false);
   const [equationErr, setEquationErr] = useState<string | null>(null);
+  const [eqOptions, setEqOptions] = useState<{ latex: string; page: number; variables: string[] }[]>([]);
+  const [eqPickerOpen, setEqPickerOpen] = useState(false);
   const [editingEquationId, setEditingEquationId] = useState<number | null>(null);
   const [editEqLatex, setEditEqLatex] = useState('');
   const [editEqPage, setEditEqPage] = useState('');
   const [editEqVars, setEditEqVars] = useState('');
+
+  // When the add-equation form opens, offer the source's detected equation
+  // candidates to pick from (prefills latex/page/vars), instead of typing raw.
+  useEffect(() => {
+    if (!addingEquation || concept.source_id == null) { return; }
+    let alive = true;
+    window.api.candidates.bySource(concept.source_id).then(b => {
+      if (!alive) return;
+      const eqs = ((b as { equations?: Array<{ latex?: string; page?: number; variables?: unknown }> }).equations) ?? [];
+      const seen = new Set<string>();
+      const opts: { latex: string; page: number; variables: string[] }[] = [];
+      for (const e of eqs) {
+        const latex = (e.latex ?? '').trim();
+        if (!latex || seen.has(latex)) continue;
+        seen.add(latex);
+        opts.push({
+          latex,
+          page: Number(e.page ?? 0),
+          variables: Array.isArray(e.variables) ? (e.variables as string[]) : [],
+        });
+      }
+      setEqOptions(opts);
+    }).catch(() => { /* candidates may be wiped; the free-text path still works */ });
+    return () => { alive = false; };
+  }, [addingEquation, concept.source_id]);
 
   function startEditEquation(eq: Equation): void {
     setEquationErr(null);
@@ -898,7 +921,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                 display: 'flex',
                 alignItems: 'center',
                 gap: 10,
-                background: '#111827',
+                background: 'rgba(17, 24, 39, 0.4)',
                 border: '1px solid #312e81',
                 borderRadius: 6,
                 padding: '8px 10px',
@@ -926,8 +949,57 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
             </div>
           ))}
 
-          {addingEquation && (
-            <div style={{ background: '#0d0d16', border: '1px solid #312e81', borderRadius: 6, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {addingEquation && (() => {
+            const attached = new Set(equations.map(e => e.latex.trim()));
+            const available = eqOptions.filter(o => !attached.has(o.latex.trim()));
+            return (
+            <div style={{ background: 'rgba(13, 13, 22, 0.5)', border: '1px solid #312e81', borderRadius: 6, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {available.length > 0 && (
+                <div style={{ position: 'relative' }}>
+                  <button
+                    type="button"
+                    onClick={() => setEqPickerOpen(o => !o)}
+                    onBlur={() => setTimeout(() => setEqPickerOpen(false), 150)}
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      background: 'transparent', border: '1px solid #263244', borderRadius: 4,
+                      padding: '6px 9px', color: '#c7d2fe', fontSize: 11, cursor: 'pointer',
+                    }}
+                  >
+                    <span>Pick from {available.length} detected equation{available.length === 1 ? '' : 's'}…</span>
+                    <span style={{ color: '#6b7280' }}>▾</span>
+                  </button>
+                  {eqPickerOpen && (
+                    <div role="listbox" style={{
+                      position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 2, zIndex: 20,
+                      background: 'rgba(13,13,22,0.6)', backdropFilter: 'blur(12px)', border: '1px solid #312e81', borderRadius: 6,
+                      maxHeight: 220, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                    }}>
+                      {available.map((opt, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          className="rel-opt"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => {
+                            setEquationDraft(opt.latex);
+                            if (opt.page) setEquationPageDraft(String(opt.page));
+                            if (opt.variables.length) setEquationVarsDraft(opt.variables.join(', '));
+                            setEqPickerOpen(false);
+                          }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                            background: 'transparent', border: 'none', padding: '6px 9px', cursor: 'pointer',
+                          }}
+                        >
+                          <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#fde68a', fontFamily: 'ui-monospace, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{opt.latex}</span>
+                          {opt.page > 0 && <span style={{ fontSize: 9, color: '#64748b', flexShrink: 0 }}>p.{opt.page}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <textarea
                 value={equationDraft}
                 onChange={e => setEquationDraft(e.target.value)}
@@ -935,7 +1007,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                 rows={3}
                 style={{
                   width: '100%', boxSizing: 'border-box', resize: 'vertical',
-                  background: '#111827', border: '1px solid #1f2937', borderRadius: 4,
+                  background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937', borderRadius: 4,
                   padding: '8px 10px', color: '#fde68a', fontSize: 13,
                   lineHeight: 1.55, fontFamily: 'inherit', outline: 'none',
                 }}
@@ -947,7 +1019,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                   placeholder="page"
                   inputMode="numeric"
                   style={{
-                    width: 80, background: '#111827', border: '1px solid #1f2937',
+                    width: 80, background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937',
                     borderRadius: 4, padding: '6px 8px', color: '#cbd5e1', fontSize: 12,
                   }}
                 />
@@ -956,7 +1028,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                   onChange={e => setEquationVarsDraft(e.target.value)}
                   placeholder="vars, comma separated (optional)"
                   style={{
-                    flex: '1 1 220px', background: '#111827', border: '1px solid #1f2937',
+                    flex: '1 1 220px', background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937',
                     borderRadius: 4, padding: '6px 8px', color: '#cbd5e1', fontSize: 12,
                   }}
                 />
@@ -965,7 +1037,8 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                 </button>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {equations.length === 0 && !addingEquation && (
             <div style={{ color: '#4b5563', fontSize: 12 }}>No equations attached yet.</div>
@@ -1217,7 +1290,7 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
         const xp = r.xp_awarded ?? 0;
         const questionType = (r.task_kind_snapshot ?? 'challenge').replace(/_/g, ' ');
         return (
-          <div key={r.id} style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
+          <div key={r.id} style={{ background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <span
                 style={{
@@ -1372,7 +1445,7 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
         <div style={{ color: '#fca5a5', fontSize: 12, lineHeight: 1.5 }}>{taskGenError}</div>
       )}
       {selectedTask && (
-        <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
+        <div style={{ background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
           <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
             {selectedTask.kind.replace(/_/g, ' ')} · difficulty {selectedTask.difficulty}/5
           </div>
@@ -1385,7 +1458,7 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
         placeholder="Write your response here…"
         rows={7}
         style={{
-          background: '#111827', border: '1px solid #1f2937', borderRadius: 6, padding: 12,
+          background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937', borderRadius: 6, padding: 12,
           color: '#e2e8f0', fontSize: 13, lineHeight: 1.65, resize: 'vertical', outline: 'none',
           fontFamily: 'inherit', width: '100%', boxSizing: 'border-box',
         }}
@@ -1460,7 +1533,7 @@ function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task:
         +{xp} XP
       </div>
       {task && (
-        <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
+        <div style={{ background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
           <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
             {task.kind.replace(/_/g, ' ')} · difficulty {task.difficulty}/5
           </div>
@@ -1473,7 +1546,7 @@ function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task:
           <p style={{ margin: 0, fontSize: 13, color: '#cbd5e1', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{userResponse}</p>
         </div>
       )}
-      <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 6, padding: '12px 14px' }}>
+      <div style={{ background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937', borderRadius: 6, padding: '12px 14px' }}>
         <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Grader Feedback</div>
         <p style={{ margin: 0, fontSize: 13, color: '#9ca3af', lineHeight: 1.6 }}>{grade.grader_reasoning}</p>
       </div>
@@ -1500,6 +1573,52 @@ function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task:
         Try Another Challenge
       </button>
     </div>
+  );
+}
+
+const IMPORTANCE_ORDER = ['foundational', 'core', 'supporting', 'peripheral', 'reference_only'];
+
+// Click-to-edit importance tag: click the pill → pick a new importance → saves.
+function ImportancePill({ concept, compact = false }: { concept: Concept; compact?: boolean }) {
+  const [value, setValue] = useState(concept.importance);
+  const [open, setOpen] = useState(false);
+  useEffect(() => { setValue(concept.importance); }, [concept.id, concept.importance]);
+  async function pick(imp: string) {
+    setValue(imp);
+    setOpen(false);
+    concept.importance = imp; // keep the shared ref in sync until the next refetch
+    await window.api.concepts.updateFields({ conceptId: concept.id, importance: imp });
+    window.dispatchEvent(new Event('starcall:review-queue-stale'));
+  }
+  const color = IMP_COLOR[value] ?? '#6b7280';
+  return (
+    <span style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        title="Change importance"
+        style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: `${color}22`, color, border: '1px solid transparent', cursor: 'pointer', lineHeight: 1.4 }}
+      >
+        {value} <span style={{ opacity: 0.6, marginLeft: compact ? 1 : 2 }}>▾</span>
+      </button>
+      {open && (
+        <div role="listbox" style={{ position: 'absolute', top: '100%', left: 0, marginTop: 2, zIndex: 30, background: 'rgba(13,13,22,0.6)', backdropFilter: 'blur(12px)', border: '1px solid #312e81', borderRadius: 6, minWidth: 150, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+          {IMPORTANCE_ORDER.map(imp => (
+            <button
+              key={imp}
+              type="button"
+              className="rel-opt"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => void pick(imp)}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '6px 10px', fontSize: 11, color: imp === value ? (IMP_COLOR[imp] ?? '#e2e8f0') : '#cbd5e1', cursor: 'pointer' }}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: IMP_COLOR[imp] ?? '#6b7280', flexShrink: 0 }} />
+              {imp}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
   );
 }
 

@@ -141,19 +141,21 @@ export function updateConceptFields(
     why_exists?: string;
     what_breaks?: string;
     where_reappears?: Array<string | { name: string; reason?: string }>;
+    importance?: string;
   },
 ): Concept | null {
   const current = getConceptById(db, id);
   if (!current) return null;
   db.prepare(
     `UPDATE concepts
-     SET definition_text = ?, why_exists = ?, what_breaks = ?, where_reappears = ?
+     SET definition_text = ?, why_exists = ?, what_breaks = ?, where_reappears = ?, importance = ?
      WHERE id = ?`,
   ).run(
     fields.definition_text ?? current.definition_text,
     fields.why_exists      ?? current.why_exists,
     fields.what_breaks     ?? current.what_breaks,
     JSON.stringify(fields.where_reappears ?? current.where_reappears),
+    fields.importance      ?? current.importance,
     id,
   );
   return getConceptById(db, id);

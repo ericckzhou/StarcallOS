@@ -148,3 +148,15 @@ export function rejectCandidate(db: DatabaseSync, candidateId: number): void {
   );
   deleteConceptCandidate(db, candidateId);
 }
+
+// Reject many candidates in one call. Returns the number actually rejected.
+export function rejectCandidatesBulk(db: DatabaseSync, candidateIds: number[]): { rejected: number } {
+  let rejected = 0;
+  for (const id of candidateIds) {
+    const cand = getConceptCandidateById(db, id);
+    if (!cand) continue;
+    rejectCandidate(db, id);
+    rejected += 1;
+  }
+  return { rejected };
+}

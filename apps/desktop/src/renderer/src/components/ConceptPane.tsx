@@ -42,7 +42,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === 'true');
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState('');
-  const [createImportance, setCreateImportance] = useState('supporting');
+  const [createImportance, setCreateImportance] = useState('foundational');
   const [createDefinition, setCreateDefinition] = useState('');
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -153,6 +153,19 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
     exitSelect();
     refreshHubs();
   }
+  async function deleteSelectedConcepts() {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    await Promise.all(ids.map(id => window.api.concepts.delete(id)));
+    const removed = new Set(ids);
+    setConcepts(prev => prev.filter(c => !removed.has(c.id)));
+    setMasteries(prev => { const n = new Map(prev); ids.forEach(id => n.delete(id)); return n; });
+    exitSelect();
+    for (const id of ids) window.dispatchEvent(new CustomEvent('starcall:concept-deleted', { detail: { conceptId: id } }));
+    window.dispatchEvent(new Event('starcall:review-queue-stale'));
+    window.dispatchEvent(new Event('starcall:progressChanged'));
+  }
+
   const masteredCount = [...masteries.values()].filter(s => s >= 3).length;
   const selectedConcept = selectedId != null ? concepts.find(c => c.id === selectedId) : null;
 
@@ -179,7 +192,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
       setMasteries(prev => new Map(prev).set(created.id, 0));
       setCreateName('');
       setCreateDefinition('');
-      setCreateImportance('supporting');
+      setCreateImportance('foundational');
       setCreateOpen(false);
       onSelect(created);
       window.dispatchEvent(new Event('starcall:review-queue-stale'));
@@ -193,7 +206,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   if (collapsed) {
     return (
       <aside style={{
-        width: 36, borderRight: '1px solid #1f2937', background: '#0d0d16',
+        width: 36, borderRight: '1px solid #1f2937', background: 'rgba(13, 13, 22, 0.5)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 8,
       }}>
         <button
@@ -251,7 +264,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           style={{
             width: 380, maxWidth: '90vw',
             display: 'flex', flexDirection: 'column', gap: 8, padding: 16,
-            borderRadius: 12, background: 'rgba(13, 13, 22, 0.97)',
+            borderRadius: 12, background: 'rgba(13, 13, 22, 0.6)', backdropFilter: 'blur(14px)',
             border: '1px solid #312e81', boxShadow: '0 24px 64px rgba(0, 0, 0, 0.6)',
           }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -278,7 +291,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             }}
             placeholder="Concept name"
             style={{
-              background: '#111827', border: '1px solid #263244', borderRadius: 4,
+              background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #263244', borderRadius: 4,
               padding: '7px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none',
             }}
           />
@@ -286,7 +299,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             value={createImportance}
             onChange={e => setCreateImportance(e.target.value)}
             style={{
-              background: '#111827', border: '1px solid #263244', borderRadius: 4,
+              background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #263244', borderRadius: 4,
               padding: '6px 8px', color: '#cbd5e1', fontSize: 12, outline: 'none',
             }}
           >
@@ -300,7 +313,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             placeholder="Optional starter definition..."
             rows={3}
             style={{
-              background: '#111827', border: '1px solid #263244', borderRadius: 4,
+              background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #263244', borderRadius: 4,
               padding: '7px 8px', color: '#cbd5e1', fontSize: 12, lineHeight: 1.5,
               resize: 'vertical', outline: 'none', fontFamily: 'inherit',
             }}
@@ -340,7 +353,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           placeholder="Search concepts…  ( / )"
           style={{
             width: '100%', boxSizing: 'border-box',
-            background: '#111827', border: '1px solid #263244', borderRadius: 4,
+            background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #263244', borderRadius: 4,
             padding: '6px 26px 6px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none',
           }}
         />
@@ -369,7 +382,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             disabled={selectedIds.size === 0}
             style={{ marginLeft: 'auto', background: selectedIds.size ? '#312e81' : '#111827', border: `1px solid ${selectedIds.size ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '3px 8px', color: selectedIds.size ? '#e0e7ff' : '#475569', fontSize: 10, fontWeight: 700, cursor: selectedIds.size ? 'pointer' : 'not-allowed' }}
           >
-            New Hub
+            + Hub
           </button>
           {hubs.length > 0 && (
             <button
@@ -380,6 +393,20 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
               Add to ▾
             </button>
           )}
+          <button
+            onClick={() => void deleteSelectedConcepts()}
+            disabled={selectedIds.size === 0}
+            title={`Delete ${selectedIds.size} selected concept${selectedIds.size === 1 ? '' : 's'} (removes evidence + study history)`}
+            aria-label="Delete selected concepts"
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              padding: '3px 9px', fontSize: 13, lineHeight: 1,
+              background: selectedIds.size ? 'rgba(127,29,29,0.3)' : 'transparent',
+              border: `1px solid ${selectedIds.size ? '#ef4444' : '#1f2937'}`,
+              borderRadius: 4, color: selectedIds.size ? '#fca5a5' : '#475569',
+              cursor: selectedIds.size ? 'pointer' : 'not-allowed',
+            }}
+          >×</button>
           {addMenuOpen && (
             <div style={{ position: 'absolute', top: '100%', right: 8, zIndex: 20, marginTop: 2, background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 4, minWidth: 150, maxHeight: 220, overflowY: 'auto', boxShadow: '0 6px 20px rgba(0,0,0,0.45)' }}>
               {hubs.map(h => (
@@ -403,7 +430,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
               onChange={e => setHubName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void createHubFromSelection(); } else if (e.key === 'Escape') setHubModalOpen(false); }}
               placeholder="Hub name"
-              style={{ flex: 1, minWidth: 0, background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '7px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+              style={{ flex: 1, minWidth: 0, background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #263244', borderRadius: 4, padding: '7px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
             />
             <input
               type="color" value={hubColor} onChange={e => setHubColor(e.target.value)}

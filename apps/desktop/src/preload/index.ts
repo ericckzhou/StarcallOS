@@ -46,7 +46,7 @@ contextBridge.exposeInMainWorld('api', {
     deleteEvidence: (args: { conceptId: number; index: number }) =>
       ipcRenderer.invoke('concepts:deleteEvidence', args),
     enrich: (conceptId: number) => ipcRenderer.invoke('concepts:enrich', conceptId),
-    updateFields: (args: { conceptId: number; definition_text?: string; why_exists?: string; what_breaks?: string; where_reappears?: Array<string | { name: string; reason: string }> }) =>
+    updateFields: (args: { conceptId: number; definition_text?: string; why_exists?: string; what_breaks?: string; where_reappears?: Array<string | { name: string; reason: string }>; importance?: string }) =>
       ipcRenderer.invoke('concepts:updateFields', args),
     searchByPrefix: (args: { conceptId: number; prefix: string; limit?: number }) =>
       ipcRenderer.invoke('concepts:searchByPrefix', args),
@@ -82,6 +82,7 @@ contextBridge.exposeInMainWorld('api', {
     promote:  (candidateId: number) => ipcRenderer.invoke('candidates:promote', candidateId),
     promoteBulk: (candidateIds: number[]) => ipcRenderer.invoke('candidates:promoteBulk', candidateIds),
     reject:   (candidateId: number) => ipcRenderer.invoke('candidates:reject', candidateId),
+    rejectBulk: (candidateIds: number[]) => ipcRenderer.invoke('candidates:rejectBulk', candidateIds),
     extract:  (sourceId: number) => ipcRenderer.invoke('candidates:extract', sourceId),
     llmFilter: (args: unknown) => ipcRenderer.invoke('candidates:llmFilter', args),
     relationCreate: (args: unknown) => ipcRenderer.invoke('candidates:relationCreate', args),
