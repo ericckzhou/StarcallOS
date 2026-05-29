@@ -97,89 +97,107 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
     else if (e.key === 'Escape') { setOpen(false); }
   }
 
+  function renderReasonBox() {
+    if (!pending) return null;
+    const ready = pending.reason.trim().length > 0;
+    return (
+      <div style={{ border: '1px solid #4338ca', borderRadius: 8, padding: 10, background: 'rgba(13,13,22,0.86)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ fontSize: 12, color: '#c7d2fe' }}>
+          Why does this relate to <span style={{ fontWeight: 800 }}>{pending.name}</span>?
+        </div>
+        <textarea
+          ref={reasonRef}
+          value={pending.reason}
+          onChange={e => setPending(p => (p ? { ...p, reason: e.target.value } : p))}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); confirmPending(); }
+            else if (e.key === 'Escape') { e.preventDefault(); setPending(null); }
+          }}
+          placeholder={`How does this relate to ${pending.name}? — builds on, contrasts with, depends on…`}
+          rows={3}
+          style={{ background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '7px 9px', color: '#e2e8f0', fontSize: 12, lineHeight: 1.5, resize: 'vertical', outline: 'none', fontFamily: 'inherit' }}
+        />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={confirmPending}
+            disabled={!ready}
+            title={ready ? '' : 'A reason is required'}
+            style={{ background: ready ? '#312e81' : '#111827', border: `1px solid ${ready ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '5px 12px', color: ready ? '#e0e7ff' : '#475569', fontSize: 12, fontWeight: 700, cursor: ready ? 'pointer' : 'not-allowed' }}
+          >
+            {pending.editIndex == null ? 'Link' : 'Save reason'}
+          </button>
+          <button
+            onClick={() => setPending(null)}
+            style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '5px 12px', color: '#94a3b8', fontSize: 12, cursor: 'pointer' }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       {value.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
           {value.map((link, i) => (
+            pending && pending.editIndex === i ? (
+              <div key={`edit-${i}`}>{renderReasonBox()}</div>
+            ) : (
             <div
               key={`${link.name}-${i}`}
+              className="cm-link-card"
+              role="button"
+              tabIndex={0}
+              onClick={() => beginEdit(i)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); beginEdit(i); } }}
+              title="Edit reason"
               style={{
-                display: 'flex', alignItems: 'flex-start', gap: 8,
+                display: 'flex', alignItems: 'center', gap: 8,
                 background: '#1e1b4b', border: '1px solid #312e81', borderRadius: 8,
-                padding: '6px 8px 6px 11px',
+                padding: '7px 8px 7px 0', cursor: 'pointer', overflow: 'hidden',
               }}
             >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <button
-                  onClick={() => beginEdit(i)}
-                  title="Edit reason"
-                  style={{ background: 'transparent', border: 'none', padding: 0, color: '#c7d2fe', fontSize: 12, fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}
-                >
+              {/* Left accent bar for visual hierarchy. */}
+              <span style={{ alignSelf: 'stretch', width: 3, borderRadius: 3, background: '#6366f1', flexShrink: 0 }} aria-hidden="true" />
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 7 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#e0e7ff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {link.name}
-                </button>
-                <div style={{ fontSize: 11, color: link.reason ? '#a5b4fc' : '#6b7280', lineHeight: 1.45, marginTop: 1 }}>
-                  {link.reason || 'No reason yet — click the name to add one.'}
-                </div>
+                </span>
+                {/* Reason stays hidden on the card — click to reveal/edit it.
+                    A faint dot just signals a reason exists vs. needs one. */}
+                <span
+                  title={link.reason ? 'Has a reason — click to view/edit' : 'No reason yet — click to add'}
+                  style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: link.reason ? '#818cf8' : 'transparent', border: link.reason ? 'none' : '1px solid #475569' }}
+                  aria-hidden="true"
+                />
               </div>
+              {/* Edit affordance (appears on hover/focus). */}
+              <span className="cm-link-edit" aria-hidden="true" style={{ flexShrink: 0, color: '#a5b4fc', display: 'inline-flex' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </span>
               <button
-                onClick={() => removeAt(i)}
+                className="cm-link-del"
+                onClick={e => { e.stopPropagation(); removeAt(i); }}
                 title={`Remove "${link.name}"`}
-                style={{ background: 'transparent', border: 'none', color: '#a5b4fc', fontSize: 14, lineHeight: 1, cursor: 'pointer', padding: 0, flexShrink: 0 }}
+                aria-label={`Remove link to ${link.name}`}
+                style={{
+                  background: 'transparent', border: 'none', color: '#a5b4fc',
+                  fontSize: 15, lineHeight: 1, cursor: 'pointer', flexShrink: 0,
+                  width: 22, height: 22, borderRadius: 5, marginRight: 6,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                }}
               >×</button>
             </div>
+            )
           ))}
         </div>
       )}
 
-      {pending ? (
-        <div style={{
-          border: '1px solid #4338ca', borderRadius: 8, padding: 10,
-          background: 'rgba(13,13,22,0.86)', display: 'flex', flexDirection: 'column', gap: 8,
-        }}>
-          <div style={{ fontSize: 12, color: '#c7d2fe' }}>
-            Why does this relate to <span style={{ fontWeight: 800 }}>{pending.name}</span>?
-          </div>
-          <textarea
-            ref={reasonRef}
-            value={pending.reason}
-            onChange={e => setPending(p => (p ? { ...p, reason: e.target.value } : p))}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); confirmPending(); }
-              else if (e.key === 'Escape') { e.preventDefault(); setPending(null); }
-            }}
-            placeholder={`How does this relate to ${pending.name}? — builds on, contrasts with, depends on…`}
-            rows={2}
-            style={{
-              background: '#111827', border: '1px solid #263244', borderRadius: 4,
-              padding: '7px 9px', color: '#e2e8f0', fontSize: 12, lineHeight: 1.5,
-              resize: 'vertical', outline: 'none', fontFamily: 'inherit',
-            }}
-          />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={confirmPending}
-              disabled={pending.reason.trim().length === 0}
-              title={pending.reason.trim() ? '' : 'A reason is required'}
-              style={{
-                background: pending.reason.trim() ? '#312e81' : '#111827',
-                border: `1px solid ${pending.reason.trim() ? '#6366f1' : '#1f2937'}`,
-                borderRadius: 4, padding: '5px 12px',
-                color: pending.reason.trim() ? '#e0e7ff' : '#475569',
-                fontSize: 12, fontWeight: 700, cursor: pending.reason.trim() ? 'pointer' : 'not-allowed',
-              }}
-            >
-              {pending.editIndex == null ? 'Link' : 'Save reason'}
-            </button>
-            <button
-              onClick={() => setPending(null)}
-              style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '5px 12px', color: '#94a3b8', fontSize: 12, cursor: 'pointer' }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
+      {pending == null ? (
         <div style={{ position: 'relative' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 6 }}>
             <input
@@ -252,7 +270,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
             </div>
           )}
         </div>
-      )}
+      ) : pending.editIndex == null ? renderReasonBox() : null}
     </div>
   );
 }

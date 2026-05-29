@@ -151,6 +151,31 @@ body::after {
 .cm-relation-edge { animation: cm-flow 1.1s linear infinite; }
 @keyframes cm-flow { to { stroke-dashoffset: -14; } }
 
+/* Honor reduced-motion: kill the map's ambient animations + transitions. The
+   force simulation also settles synchronously (no rAF) in this mode. */
+@media (prefers-reduced-motion: reduce) {
+  .cm-graph, .cm-spark, .cm-halo, .cm-relation-edge, .cm-node-inner {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Keyboard focus ring for the SVG star nodes. */
+.cm-node:focus { outline: none; }
+.cm-node:focus-visible .cm-focus-ring { opacity: 1; }
+
+/* Constellation link cards (concept Overview). */
+.cm-link-card {
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+.cm-link-card:hover { background: #272263; border-color: #4f46e5; }
+.cm-link-card:focus-within { border-color: #6366f1; }
+.cm-link-edit { opacity: 0; transition: opacity 140ms ease; }
+.cm-link-card:hover .cm-link-edit,
+.cm-link-card:focus-within .cm-link-edit { opacity: 1; }
+.cm-link-del { transition: background-color 140ms ease, color 140ms ease; }
+.cm-link-del:hover { background: #3f1d1d; color: #fecaca; }
+
 /* Default focus ring tamed for the dark theme. */
 :focus-visible {
   outline: 1px solid #818cf8;

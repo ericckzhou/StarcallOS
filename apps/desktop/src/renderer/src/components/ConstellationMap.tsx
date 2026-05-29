@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DetailPane from './DetailPane';
 import type { Concept } from './ConceptPane';
 import type { Profile } from './profile';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface GraphNode {
   id: number;
@@ -33,7 +35,6 @@ interface Graph {
   edges: GraphEdge[];
   stats: GraphStats;
 }
-
 interface SimNode extends GraphNode {
   x: number;
   y: number;
@@ -41,11 +42,15 @@ interface SimNode extends GraphNode {
   vy: number;
   fixed: boolean;
 }
+interface SourceMeta {
+  id: number;
+  filename: string;
+  color: string;
+}
 
-// Mastery stage drives the ring around each star.
+// ─── Design constants ──────────────────────────────────────────────────────────
+
 const STAGE_COLORS = ['#374151', '#6b7280', '#3b82f6', '#8b5cf6', '#f59e0b', '#22c55e'];
-// Distinct per-source star colors (assigned by source order). Star body/glow is
-// colored by source; the ring encodes mastery.
 const SOURCE_PALETTE = [
   '#60a5fa', '#f472b6', '#34d399', '#fbbf24', '#a78bfa', '#22d3ee',
   '#fb7185', '#a3e635', '#f59e0b', '#818cf8', '#2dd4bf', '#e879f9',
@@ -53,28 +58,55 @@ const SOURCE_PALETTE = [
 const IMPORTANCE_WEIGHT: Record<string, number> = {
   foundational: 4, core: 3, supporting: 2, peripheral: 1, reference_only: 0,
 };
+const SAME_SOURCE_EDGE = '#818cf8';
+const CROSS_SOURCE_EDGE = '#fdba74';
+// z-index scale for layered map chrome.
+const Z = { graph: 1, panelClose: 30 } as const;
 
-function nodeRadius(n: GraphNode): number {
+function nodeRadius(n: { degree: number; importance: string }): number {
   const base = 5 + Math.sqrt(n.degree) * 3 + (IMPORTANCE_WEIGHT[n.importance] ?? 0) * 1.4;
   return Math.max(5, Math.min(26, base));
 }
 
-interface Props {
-  profile?: Profile;
-  onConceptChanged?: () => void;
+// ─── Hooks ──────────────────────────────────────────────────────────────────────
+
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const handler = () => setReduced(mq.matches);
+    mq.addEventListener?.('change', handler);
+    return () => mq.removeEventListener?.('change', handler);
+  }, []);
+  return reduced;
 }
 
-export default function ConstellationMap({ profile, onConceptChanged }: Props) {
+// Fetch the graph, derive per-source colors, and compute the focused view
+// (selected source + concepts linked to it from other sources).
+function useConstellationGraph() {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<Concept | null>(null);
-  const [hoverNode, setHoverNode] = useState<number | null>(null);
-  const [hoverEdge, setHoverEdge] = useState<{ x: number; y: number; text: string } | null>(null);
   const [selectedSource, setSelectedSource] = useState<number | null>(null);
-  const [, forceTick] = useState(0);
 
-  // Distinct sources (sorted by id for stable colors) → palette color.
-  const sources = useMemo(() => {
+  useEffect(() => {
+    setLoading(true);
+    window.api.concepts.graph().then(g => {
+      const data = g as Graph;
+      setGraph(data);
+      const counts = new Map<number, number>();
+      for (const n of data.nodes) counts.set(n.source_id, (counts.get(n.source_id) ?? 0) + 1);
+      let best: number | null = null, bestN = -1;
+      for (const [sid, c] of counts) if (c > bestN) { bestN = c; best = sid; }
+      setSelectedSource(best);
+      setLoading(false);
+    });
+  }, []);
+
+  const sources = useMemo<SourceMeta[]>(() => {
     if (!graph) return [];
     const seen = new Map<number, string>();
     for (const n of graph.nodes) {
@@ -87,140 +119,125 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
   const sourceColor = useMemo(() => new Map(sources.map(s => [s.id, s.color])), [sources]);
   const sourceName = useMemo(() => new Map(sources.map(s => [s.id, s.filename])), [sources]);
 
-  // Map shows the selected source's concepts PLUS any concept from another
-  // source that is directly linked to one of them (constellation/relation),
-  // so cross-source connections stay visible without dumping every source in.
   const view = useMemo(() => {
-    if (!graph || selectedSource == null) return { nodes: [], edges: [] as GraphEdge[] };
+    if (!graph || selectedSource == null) return { nodes: [] as GraphNode[], edges: [] as GraphEdge[] };
     const primary = new Set(graph.nodes.filter(n => n.source_id === selectedSource).map(n => n.id));
     const visible = new Set(primary);
     for (const e of graph.edges) {
       if (primary.has(e.a)) visible.add(e.b);
       if (primary.has(e.b)) visible.add(e.a);
     }
-    const nodes = graph.nodes.filter(n => visible.has(n.id));
-    const edges = graph.edges.filter(e => visible.has(e.a) && visible.has(e.b));
-    return { nodes, edges };
+    return {
+      nodes: graph.nodes.filter(n => visible.has(n.id)),
+      edges: graph.edges.filter(e => visible.has(e.a) && visible.has(e.b)),
+    };
   }, [graph, selectedSource]);
 
+  return { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view };
+}
+
+interface ForceLayout {
+  svgRef: React.RefObject<SVGSVGElement>;
+  sim: SimNode[];
+  tx: number; ty: number; scale: number;
+  panning: boolean;
+  onSvgMouseMove: (e: React.MouseEvent) => void;
+  onSvgMouseUp: () => void;
+  onBackgroundMouseDown: (e: React.MouseEvent) => void;
+  onWheel: (e: React.WheelEvent) => void;
+  beginNodeDrag: (e: React.MouseEvent, id: number) => void;
+}
+
+// Owns the force simulation + pan/zoom/drag. Settles synchronously when the
+// user prefers reduced motion (no per-frame animation).
+function useForceLayout(view: { nodes: GraphNode[]; edges: GraphEdge[] }, reducedMotion: boolean): ForceLayout {
   const simRef = useRef<SimNode[]>([]);
   const rafRef = useRef<number | null>(null);
   const tickRef = useRef(0);
   const stepRef = useRef<(() => void) | null>(null);
   const dragRef = useRef<{ id: number; ox: number; oy: number } | null>(null);
-  const viewRef = useRef<{ tx: number; ty: number; scale: number }>({ tx: 0, ty: 0, scale: 1 });
+  const viewRef = useRef({ tx: 0, ty: 0, scale: 1 });
   const panRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const [, render] = useState(0);
+  const repaint = useCallback(() => render(t => t + 1), []);
 
   useEffect(() => {
-    setLoading(true);
-    window.api.concepts.graph().then(g => {
-      const graphData = g as Graph;
-      setGraph(graphData);
-      // Default to the source with the most concepts.
-      const counts = new Map<number, number>();
-      for (const n of graphData.nodes) counts.set(n.source_id, (counts.get(n.source_id) ?? 0) + 1);
-      let best: number | null = null, bestN = -1;
-      for (const [sid, c] of counts) if (c > bestN) { bestN = c; best = sid; }
-      setSelectedSource(best);
-      setLoading(false);
-    });
-  }, []);
-
-  // Initialize positions + run the force simulation for the visible (toggled)
-  // node set; re-runs whenever the source filter changes.
-  useEffect(() => {
-    if (view.nodes.length === 0) { simRef.current = []; forceTick(t => t + 1); return; }
-    const W = 1000, H = 700;
-    const cx = W / 2, cy = H / 2;
+    if (view.nodes.length === 0) { simRef.current = []; repaint(); return; }
+    const W = 1000, H = 700, cx = W / 2, cy = H / 2;
     const n = view.nodes.length;
     simRef.current = view.nodes.map((node, i) => {
       const angle = (i / Math.max(1, n)) * Math.PI * 2;
       const radius = 60 + (i % 7) * 28;
-      return {
-        ...node,
-        x: cx + Math.cos(angle) * radius,
-        y: cy + Math.sin(angle) * radius,
-        vx: 0, vy: 0, fixed: false,
-      };
+      return { ...node, x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius, vx: 0, vy: 0, fixed: false };
     });
     const idx = new Map(simRef.current.map((s, i) => [s.id, i]));
     const links = view.edges
       .map(e => ({ s: idx.get(e.a), t: idx.get(e.b) }))
       .filter((l): l is { s: number; t: number } => l.s != null && l.t != null);
 
-    const REPULSION = 1400;
-    const SPRING = 0.02;
-    const REST = 90;
-    const CENTER = 0.006;
-    const DAMP = 0.86;
-    tickRef.current = 0;
-    const MAX_TICKS = 320;
+    const REPULSION = 1400, SPRING = 0.02, REST = 90, CENTER = 0.006, DAMP = 0.86, MAX_TICKS = 320;
 
-    function step() {
+    function tickOnce() {
       const nodes = simRef.current;
-      // Repulsion (O(n^2); n<=150).
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
-          let dx = nodes[i].x - nodes[j].x;
-          let dy = nodes[i].y - nodes[j].y;
+          let dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
           let d2 = dx * dx + dy * dy;
           if (d2 < 0.01) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 0.01; }
-          const f = REPULSION / d2;
-          const d = Math.sqrt(d2);
+          const f = REPULSION / d2, d = Math.sqrt(d2);
           const fx = (dx / d) * f, fy = (dy / d) * f;
           nodes[i].vx += fx; nodes[i].vy += fy;
           nodes[j].vx -= fx; nodes[j].vy -= fy;
         }
       }
-      // Springs along edges.
       for (const l of links) {
         const a = nodes[l.s], b = nodes[l.t];
-        const dx = b.x - a.x, dy = b.y - a.y;
-        const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-        const f = SPRING * (d - REST);
-        const fx = (dx / d) * f, fy = (dy / d) * f;
-        a.vx += fx; a.vy += fy;
-        b.vx -= fx; b.vy -= fy;
+        const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+        const f = SPRING * (d - REST), fx = (dx / d) * f, fy = (dy / d) * f;
+        a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
       }
-      // Centering + integrate.
       for (const nd of nodes) {
         if (nd.fixed) { nd.vx = 0; nd.vy = 0; continue; }
-        nd.vx += (cx - nd.x) * CENTER;
-        nd.vy += (cy - nd.y) * CENTER;
-        nd.vx *= DAMP; nd.vy *= DAMP;
-        nd.x += nd.vx; nd.y += nd.vy;
+        nd.vx += (cx - nd.x) * CENTER; nd.vy += (cy - nd.y) * CENTER;
+        nd.vx *= DAMP; nd.vy *= DAMP; nd.x += nd.vx; nd.y += nd.vy;
       }
+    }
+
+    tickRef.current = 0;
+    if (reducedMotion) {
+      // Settle to the final layout in one synchronous pass — no animation.
+      for (let i = 0; i < MAX_TICKS; i++) tickOnce();
+      repaint();
+      return;
+    }
+    function step() {
+      tickOnce();
       tickRef.current += 1;
-      forceTick(t => t + 1);
-      if (tickRef.current < MAX_TICKS || dragRef.current) {
-        rafRef.current = requestAnimationFrame(step);
-      } else {
-        rafRef.current = null;
-      }
+      repaint();
+      if (tickRef.current < MAX_TICKS || dragRef.current) rafRef.current = requestAnimationFrame(step);
+      else rafRef.current = null;
     }
     stepRef.current = step;
     rafRef.current = requestAnimationFrame(step);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [view]);
+  }, [view, reducedMotion, repaint]);
 
-  // Resume/extend the settle loop (after drag, etc.) so neighbors re-relax.
-  function resume() {
+  const resume = useCallback(() => {
+    if (reducedMotion) { repaint(); return; }
     tickRef.current = 0;
-    if (rafRef.current == null && stepRef.current) {
-      rafRef.current = requestAnimationFrame(stepRef.current);
-    }
-  }
+    if (rafRef.current == null && stepRef.current) rafRef.current = requestAnimationFrame(stepRef.current);
+  }, [reducedMotion, repaint]);
 
-  function screenToGraph(clientX: number, clientY: number): { x: number; y: number } {
+  const screenToGraph = useCallback((clientX: number, clientY: number) => {
     const rect = svgRef.current?.getBoundingClientRect();
     const { tx, ty, scale } = viewRef.current;
     const sx = rect ? clientX - rect.left : clientX;
     const sy = rect ? clientY - rect.top : clientY;
     return { x: (sx - tx) / scale, y: (sy - ty) / scale };
-  }
+  }, []);
 
-  function onNodeMouseDown(e: React.MouseEvent, id: number) {
+  const beginNodeDrag = useCallback((e: React.MouseEvent, id: number) => {
     e.stopPropagation();
     const node = simRef.current.find(s => s.id === id);
     if (!node) return;
@@ -228,25 +245,20 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
     const p = screenToGraph(e.clientX, e.clientY);
     dragRef.current = { id, ox: node.x - p.x, oy: node.y - p.y };
     resume();
-  }
+  }, [screenToGraph, resume]);
 
-  function onMouseMove(e: React.MouseEvent) {
+  const onSvgMouseMove = useCallback((e: React.MouseEvent) => {
     if (dragRef.current) {
       const node = simRef.current.find(s => s.id === dragRef.current!.id);
-      if (node) {
-        const p = screenToGraph(e.clientX, e.clientY);
-        node.x = p.x + dragRef.current.ox;
-        node.y = p.y + dragRef.current.oy;
-        forceTick(t => t + 1);
-      }
+      if (node) { const p = screenToGraph(e.clientX, e.clientY); node.x = p.x + dragRef.current.ox; node.y = p.y + dragRef.current.oy; repaint(); }
     } else if (panRef.current) {
       viewRef.current.tx = panRef.current.tx + (e.clientX - panRef.current.x);
       viewRef.current.ty = panRef.current.ty + (e.clientY - panRef.current.y);
-      forceTick(t => t + 1);
+      repaint();
     }
-  }
+  }, [screenToGraph, repaint]);
 
-  function onMouseUp() {
+  const onSvgMouseUp = useCallback(() => {
     if (dragRef.current) {
       const node = simRef.current.find(s => s.id === dragRef.current!.id);
       if (node) node.fixed = false;
@@ -254,31 +266,247 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
       resume();
     }
     panRef.current = null;
-  }
+  }, [resume]);
 
-  function onBackgroundMouseDown(e: React.MouseEvent) {
+  const onBackgroundMouseDown = useCallback((e: React.MouseEvent) => {
     panRef.current = { x: e.clientX, y: e.clientY, tx: viewRef.current.tx, ty: viewRef.current.ty };
-  }
+  }, []);
 
-  function onWheel(e: React.WheelEvent) {
+  const onWheel = useCallback((e: React.WheelEvent) => {
     const rect = svgRef.current?.getBoundingClientRect();
     const mx = rect ? e.clientX - rect.left : e.clientX;
     const my = rect ? e.clientY - rect.top : e.clientY;
     const v = viewRef.current;
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
     const newScale = Math.max(0.25, Math.min(3, v.scale * factor));
-    // Zoom toward the cursor.
     v.tx = mx - (mx - v.tx) * (newScale / v.scale);
     v.ty = my - (my - v.ty) * (newScale / v.scale);
     v.scale = newScale;
-    forceTick(t => t + 1);
-  }
+    repaint();
+  }, [repaint]);
 
-  async function openNode(id: number) {
+  return {
+    svgRef, sim: simRef.current,
+    tx: viewRef.current.tx, ty: viewRef.current.ty, scale: viewRef.current.scale,
+    panning: panRef.current != null,
+    onSvgMouseMove, onSvgMouseUp, onBackgroundMouseDown, onWheel, beginNodeDrag,
+  };
+}
+
+// ─── Presentational subcomponents ────────────────────────────────────────────
+
+const MapDefs = React.memo(function MapDefs({ sources }: { sources: SourceMeta[] }) {
+  return (
+    <defs>
+      {sources.map(s => (
+        <React.Fragment key={s.id}>
+          <radialGradient id={`cm-core-${s.id}`}>
+            <stop offset="0%" stopColor="#ffffff" stopOpacity={1} />
+            <stop offset="55%" stopColor={s.color} stopOpacity={0.95} />
+            <stop offset="100%" stopColor={s.color} stopOpacity={0.8} />
+          </radialGradient>
+          <radialGradient id={`cm-halo-${s.id}`}>
+            <stop offset="0%" stopColor={s.color} stopOpacity={0.5} />
+            <stop offset="60%" stopColor={s.color} stopOpacity={0.12} />
+            <stop offset="100%" stopColor={s.color} stopOpacity={0} />
+          </radialGradient>
+        </React.Fragment>
+      ))}
+      <marker id="cm-arrow-con" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+        <path d="M0,1 L9,5 L0,9 Z" fill="#c084fc" />
+      </marker>
+      <marker id="cm-arrow-cross" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+        <path d="M0,1 L9,5 L0,9 Z" fill="#f472b6" />
+      </marker>
+    </defs>
+  );
+});
+
+interface EdgeProps {
+  ax: number; ay: number; bx: number; by: number; ra: number; rb: number;
+  bidir: boolean; crossSource: boolean; active: boolean; tip: string; midX: number; midY: number;
+  onHover: (t: { x: number; y: number; text: string } | null) => void;
+}
+const GraphEdgeLine = React.memo(function GraphEdgeLine(p: EdgeProps) {
+  const dx = p.bx - p.ax, dy = p.by - p.ay, d = Math.hypot(dx, dy) || 1;
+  const ux = dx / d, uy = dy / d;
+  const x1 = p.ax + ux * p.ra, y1 = p.ay + uy * p.ra;
+  const x2 = p.bx - ux * p.rb, y2 = p.by - uy * p.rb;
+  const marker = p.crossSource ? 'url(#cm-arrow-cross)' : 'url(#cm-arrow-con)';
+  return (
+    <line
+      className={p.crossSource ? 'cm-relation-edge' : undefined}
+      x1={x1} y1={y1} x2={x2} y2={y2}
+      stroke={p.crossSource ? CROSS_SOURCE_EDGE : SAME_SOURCE_EDGE}
+      strokeWidth={p.bidir ? 1.7 : 1.2}
+      strokeLinecap="round"
+      strokeDasharray={p.crossSource ? '5 4' : undefined}
+      strokeOpacity={p.active ? (p.bidir ? 0.75 : 0.55) : 0.06}
+      markerEnd={p.active ? marker : undefined}
+      markerStart={p.active && p.bidir ? marker : undefined}
+      style={{ cursor: 'pointer' }}
+      onMouseEnter={() => p.onHover({ x: p.midX, y: p.midY, text: p.tip })}
+      onMouseLeave={() => p.onHover(null)}
+    />
+  );
+});
+
+interface StarProps {
+  id: number; x: number; y: number; r: number; name: string;
+  stage: number; sourceId: number; sourceColor: string; sourceName: string;
+  dim: boolean; isHover: boolean; isSel: boolean; reducedMotion: boolean;
+  onHoverEnter: (id: number) => void; onHoverLeave: (id: number) => void;
+  onDown: (e: React.MouseEvent, id: number) => void; onOpen: (id: number) => void;
+}
+const StarNode = React.memo(function StarNode(p: StarProps) {
+  const ring = STAGE_COLORS[p.stage];
+  const showLabel = !p.dim && (p.r >= 11 || p.isHover || p.isSel);
+  return (
+    <g
+      className="cm-node"
+      transform={`translate(${p.x},${p.y})`}
+      style={{ cursor: 'pointer' }}
+      role="button"
+      tabIndex={0}
+      aria-label={`${p.name} — open concept`}
+      onMouseEnter={() => p.onHoverEnter(p.id)}
+      onMouseLeave={() => p.onHoverLeave(p.id)}
+      onMouseDown={e => p.onDown(e, p.id)}
+      onClick={e => { e.stopPropagation(); p.onOpen(p.id); }}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.onOpen(p.id); } }}
+    >
+      <circle className="cm-focus-ring" r={p.r + 7} fill="none" stroke="#e2e8f0" strokeWidth={1.5} strokeDasharray="3 3" opacity={0} />
+      <g className="cm-node-inner" style={{ opacity: p.dim ? 0.2 : 1, transform: p.isHover ? 'scale(1.38)' : 'scale(1)' }}>
+        {p.isSel && (p.reducedMotion ? (
+          <circle r={p.r + 6} fill="none" stroke="#e2e8f0" strokeWidth={1.6} opacity={0.85} />
+        ) : (
+          <circle r={p.r + 4} fill="none" stroke="#e2e8f0" strokeWidth={1.4}>
+            <animate attributeName="r" values={`${p.r + 3};${p.r + 14}`} dur="1.8s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.85;0" dur="1.8s" repeatCount="indefinite" />
+          </circle>
+        ))}
+        <circle className="cm-halo" r={p.r * 2.6} fill={`url(#cm-halo-${p.sourceId})`} style={{ animationDelay: `${(p.id % 17) * 0.23}s` }} />
+        <circle r={p.r + 1.5} fill="none" stroke={ring} strokeWidth={0.6 + p.stage * 0.5} strokeOpacity={p.stage === 0 ? 0.35 : 0.85} />
+        <circle r={p.r} fill={`url(#cm-core-${p.sourceId})`} stroke={p.sourceColor} strokeWidth={0.6} strokeOpacity={0.65} />
+        <circle className="cm-spark" r={Math.max(1.3, p.r * 0.34)} fill="#ffffff" style={{ animationDelay: `${(p.id % 13) * 0.31}s` }} />
+      </g>
+      {showLabel && (
+        <text
+          x={p.r + 6} y={4} fontSize={11}
+          fill={p.isHover || p.isSel ? '#f1f5f9' : '#cbd5e1'}
+          style={{ pointerEvents: 'none', userSelect: 'none', paintOrder: 'stroke', stroke: 'rgba(2,6,23,0.9)', strokeWidth: 3, strokeLinejoin: 'round', fontWeight: p.isHover || p.isSel ? 700 : 400 }}
+        >
+          {p.name.length > 28 ? p.name.slice(0, 27) + '…' : p.name}
+        </text>
+      )}
+      {(p.isHover || p.isSel) && (
+        <text
+          x={p.r + 6} y={18} fontSize={9.5} fill={p.sourceColor}
+          style={{ pointerEvents: 'none', userSelect: 'none', paintOrder: 'stroke', stroke: 'rgba(2,6,23,0.92)', strokeWidth: 3, strokeLinejoin: 'round' }}
+        >
+          {p.sourceName.length > 32 ? p.sourceName.slice(0, 31) + '…' : p.sourceName}
+        </text>
+      )}
+    </g>
+  );
+});
+
+function EdgeTooltip({ x, y, text }: { x: number; y: number; text: string }) {
+  return (
+    <g transform={`translate(${x},${y})`} style={{ pointerEvents: 'none' }}>
+      <rect x={-2} y={-16} width={text.length * 6.6 + 12} height={18} rx={3} fill="rgba(2,6,23,0.92)" stroke="#312e81" />
+      <text x={6} y={-3} fontSize={11} fill="#c7d2fe">{text}</text>
+    </g>
+  );
+}
+
+function MapLegend() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <svg width="24" height="9" viewBox="0 0 24 9" aria-hidden="true"><line x1="0" y1="4.5" x2="18" y2="4.5" stroke={SAME_SOURCE_EDGE} strokeWidth="1.4" /><path d="M18,1.5 L24,4.5 L18,7.5 Z" fill="#c084fc" /></svg>
+        one-way
+      </span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <svg width="28" height="9" viewBox="0 0 28 9" aria-hidden="true"><line x1="6" y1="4.5" x2="22" y2="4.5" stroke={SAME_SOURCE_EDGE} strokeWidth="1.7" /><path d="M6,1.5 L0,4.5 L6,7.5 Z" fill="#c084fc" /><path d="M22,1.5 L28,4.5 L22,7.5 Z" fill="#c084fc" /></svg>
+        mutual
+      </span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <svg width="24" height="9" viewBox="0 0 24 9" aria-hidden="true"><line x1="0" y1="4.5" x2="18" y2="4.5" stroke={CROSS_SOURCE_EDGE} strokeWidth="1.4" strokeDasharray="4 3" /><path d="M18,1.5 L24,4.5 L18,7.5 Z" fill="#f472b6" /></svg>
+        cross-source
+      </span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ width: 11, height: 11, borderRadius: '50%', border: '2px solid #22c55e', display: 'inline-block', boxSizing: 'border-box' }} />
+        mastery ring
+      </span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'radial-gradient(circle, #fff 30%, #60a5fa 100%)', display: 'inline-block' }} />
+        color = source
+      </span>
+    </div>
+  );
+}
+
+function SourceSelect({ sources, selectedSource, color, onChange }: {
+  sources: SourceMeta[]; selectedSource: number | null; color: string; onChange: (id: number) => void;
+}) {
+  if (sources.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, flexShrink: 0 }} aria-hidden="true" />
+      <select
+        value={selectedSource ?? ''}
+        onChange={e => onChange(Number(e.target.value))}
+        aria-label="Source to view on the constellation map"
+        title="Choose which source's constellation to view (linked concepts from other sources are shown automatically)"
+        style={{ background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '4px 8px', color: '#e2e8f0', fontSize: 11, outline: 'none', maxWidth: 260, cursor: 'pointer' }}
+      >
+        {sources.map(s => <option key={s.id} value={s.id}>{s.filename}</option>)}
+      </select>
+      <span style={{ fontSize: 10, color: '#475569' }}>+ linked sources shown</span>
+    </div>
+  );
+}
+
+function StatsFooter({ stats }: { stats: GraphStats }) {
+  return (
+    <div style={{
+      padding: '5px 16px', borderTop: '1px solid rgba(31,41,55,0.72)',
+      background: 'rgba(4,6,26,0.5)', fontSize: 10, color: '#64748b',
+      display: 'flex', gap: 16, flexShrink: 0, fontVariantNumeric: 'tabular-nums',
+    }}>
+      <span><span style={{ color: '#475569' }}>nodes</span> {stats.nodeCount}</span>
+      <span><span style={{ color: '#475569' }}>edges</span> {stats.edgeCount}</span>
+      <span><span style={{ color: '#475569' }}>dangling</span> {stats.danglingConstellations}</span>
+      <span><span style={{ color: '#475569' }}>unresolved rel</span> {stats.unresolvedRelations}</span>
+      <span><span style={{ color: '#475569' }}>dupes</span> {stats.duplicateEdges}</span>
+      {stats.capped && <span style={{ color: '#f59e0b' }}>Showing highest-degree / highest-importance concepts.</span>}
+    </div>
+  );
+}
+
+// ─── Orchestrator ────────────────────────────────────────────────────────────
+
+interface Props {
+  profile?: Profile;
+  onConceptChanged?: () => void;
+}
+
+export default function ConstellationMap({ profile, onConceptChanged }: Props) {
+  const reducedMotion = usePrefersReducedMotion();
+  const { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view } = useConstellationGraph();
+  const layout = useForceLayout(view, reducedMotion);
+
+  const [selected, setSelected] = useState<Concept | null>(null);
+  const [hoverNode, setHoverNode] = useState<number | null>(null);
+  const [hoverEdge, setHoverEdge] = useState<{ x: number; y: number; text: string } | null>(null);
+
+  const openNode = useCallback(async (id: number) => {
     const c = await window.api.concepts.get(id);
     if (c) setSelected(c as Concept);
-  }
-
+  }, []);
+  const onHoverEnter = useCallback((id: number) => setHoverNode(id), []);
+  const onHoverLeave = useCallback((id: number) => setHoverNode(h => (h === id ? null : h)), []);
 
   const neighbors = useMemo(() => {
     if (hoverNode == null) return null;
@@ -290,45 +518,31 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
     return set;
   }, [hoverNode, view]);
 
-  const sim = simRef.current;
-  const posById = new Map(sim.map(s => [s.id, s]));
-  const { tx, ty, scale } = viewRef.current;
+  const sim = layout.sim;
+  const posById = useMemo(() => new Map(sim.map(s => [s.id, s])), [sim]);
+  const showGraph = !loading && graph != null && view.nodes.length > 0;
 
   return (
-    <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative', zIndex: 1 }}>
+    <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative', zIndex: Z.graph }}>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
         <div style={{
           padding: '10px 16px', borderBottom: '1px solid rgba(31,41,55,0.72)',
           background: 'rgba(4,6,26,0.4)', backdropFilter: 'blur(14px)',
           display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
         }}>
-          {sources.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: sourceColor.get(selectedSource ?? -1) ?? '#94a3b8', flexShrink: 0 }} />
-              <select
-                value={selectedSource ?? ''}
-                onChange={e => setSelectedSource(Number(e.target.value))}
-                title="Choose which source's constellation to view (linked concepts from other sources are shown automatically)"
-                style={{
-                  background: '#111827', border: '1px solid #263244', borderRadius: 4,
-                  padding: '4px 8px', color: '#e2e8f0', fontSize: 11, outline: 'none',
-                  maxWidth: 260, cursor: 'pointer',
-                }}
-              >
-                {sources.map(s => (
-                  <option key={s.id} value={s.id}>{s.filename}</option>
-                ))}
-              </select>
-              <span style={{ fontSize: 10, color: '#475569' }}>+ linked sources shown</span>
-            </div>
-          )}
+          <SourceSelect
+            sources={sources}
+            selectedSource={selectedSource}
+            color={sourceColor.get(selectedSource ?? -1) ?? '#94a3b8'}
+            onChange={setSelectedSource}
+          />
           <span style={{ fontSize: 11, color: '#6b7280' }}>drag · scroll to zoom · drag bg to pan</span>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, color: '#94a3b8' }}>
-            <Legend />
+            <MapLegend />
           </div>
         </div>
 
-        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'radial-gradient(circle at 50% 40%, rgba(30,27,75,0.35), rgba(2,6,23,0.0))' }}>
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'radial-gradient(circle at 50% 40%, rgba(30,27,75,0.42), rgba(2,6,23,0.18))' }}>
           {loading && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 13 }}>Loading map…</div>
           )}
@@ -342,210 +556,88 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
               Select a source above to view its constellation.
             </div>
           )}
-          {!loading && graph && view.nodes.length > 0 && (
+          {showGraph && (
             <svg
-              ref={svgRef}
+              ref={layout.svgRef}
               width="100%" height="100%"
-              onMouseMove={onMouseMove}
-              onMouseUp={onMouseUp}
-              onMouseLeave={onMouseUp}
-              onMouseDown={onBackgroundMouseDown}
-              onWheel={onWheel}
-              style={{ display: 'block', cursor: panRef.current ? 'grabbing' : 'default' }}
+              role="application"
+              aria-label="Constellation map of linked concepts"
+              onMouseMove={layout.onSvgMouseMove}
+              onMouseUp={layout.onSvgMouseUp}
+              onMouseLeave={layout.onSvgMouseUp}
+              onMouseDown={layout.onBackgroundMouseDown}
+              onWheel={layout.onWheel}
+              style={{ display: 'block', cursor: layout.panning ? 'grabbing' : 'default' }}
             >
-              <defs>
-                {sources.map(s => (
-                  <React.Fragment key={s.id}>
-                    <radialGradient id={`cm-core-${s.id}`}>
-                      <stop offset="0%" stopColor="#ffffff" stopOpacity={1} />
-                      <stop offset="55%" stopColor={s.color} stopOpacity={0.95} />
-                      <stop offset="100%" stopColor={s.color} stopOpacity={0.8} />
-                    </radialGradient>
-                    <radialGradient id={`cm-halo-${s.id}`}>
-                      <stop offset="0%" stopColor={s.color} stopOpacity={0.5} />
-                      <stop offset="60%" stopColor={s.color} stopOpacity={0.12} />
-                      <stop offset="100%" stopColor={s.color} stopOpacity={0} />
-                    </radialGradient>
-                  </React.Fragment>
-                ))}
-                <marker id="cm-arrow-con" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
-                  <path d="M0,1 L9,5 L0,9 Z" fill="#c084fc" />
-                </marker>
-                <marker id="cm-arrow-cross" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
-                  <path d="M0,1 L9,5 L0,9 Z" fill="#f472b6" />
-                </marker>
-              </defs>
-              <g className="cm-graph" transform={`translate(${tx},${ty}) scale(${scale})`}>
+              <MapDefs sources={sources} />
+              <g className="cm-graph" transform={`translate(${layout.tx},${layout.ty}) scale(${layout.scale})`}>
                 {view.edges.map((e, i) => {
                   const a = posById.get(e.a), b = posById.get(e.b);
                   if (!a || !b) return null;
                   const active = neighbors == null || (neighbors.has(e.a) && neighbors.has(e.b));
                   const bidir = e.directed === false;
-                  // Dashed line = the link crosses sources (connects two books);
-                  // solid = both concepts live in the same source.
                   const crossSource = a.source_id !== b.source_id;
-                  const color = crossSource ? '#fdba74' : '#818cf8';
-                  const marker = crossSource ? 'url(#cm-arrow-cross)' : 'url(#cm-arrow-con)';
-                  // Trim the line to each node's edge so arrowheads sit on the rim.
-                  const dx = b.x - a.x, dy = b.y - a.y;
-                  const d = Math.hypot(dx, dy) || 1;
-                  const ux = dx / d, uy = dy / d;
-                  const ra = nodeRadius(a) + 1.5, rb = nodeRadius(b) + 1.5;
-                  const x1 = a.x + ux * ra, y1 = a.y + uy * ra;
-                  const x2 = b.x - ux * rb, y2 = b.y - uy * rb;
                   const tip = `${bidir ? 'mutual ↔' : 'one-way →'}${crossSource ? ' · cross-source' : ''}${e.label ? ' · ' + e.label : ''}`;
                   return (
-                    <line
+                    <GraphEdgeLine
                       key={i}
-                      className={crossSource ? 'cm-relation-edge' : undefined}
-                      x1={x1} y1={y1} x2={x2} y2={y2}
-                      stroke={color}
-                      strokeWidth={bidir ? 1.7 : 1.2}
-                      strokeLinecap="round"
-                      strokeDasharray={crossSource ? '5 4' : undefined}
-                      strokeOpacity={active ? (bidir ? 0.75 : 0.55) : 0.06}
-                      markerEnd={active ? marker : undefined}
-                      markerStart={active && bidir ? marker : undefined}
-                      style={{ cursor: 'pointer' }}
-                      onMouseEnter={() => setHoverEdge({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, text: tip })}
-                      onMouseLeave={() => setHoverEdge(null)}
+                      ax={a.x} ay={a.y} bx={b.x} by={b.y}
+                      ra={nodeRadius(a) + 1.5} rb={nodeRadius(b) + 1.5}
+                      bidir={bidir} crossSource={crossSource} active={active}
+                      tip={tip} midX={(a.x + b.x) / 2} midY={(a.y + b.y) / 2}
+                      onHover={setHoverEdge}
                     />
                   );
                 })}
                 {sim.map(node => {
-                  const r = nodeRadius(node);
-                  const dim = neighbors != null && !neighbors.has(node.id);
                   const stage = Math.max(0, Math.min(5, node.mastery_stage));
-                  const ring = STAGE_COLORS[stage];
-                  const isSel = selected?.id === node.id;
-                  const isHover = hoverNode === node.id;
                   return (
-                    <g key={node.id} transform={`translate(${node.x},${node.y})`} style={{ cursor: 'pointer' }}
-                       onMouseEnter={() => setHoverNode(node.id)}
-                       onMouseLeave={() => setHoverNode(h => (h === node.id ? null : h))}
-                       onMouseDown={e => onNodeMouseDown(e, node.id)}
-                       onClick={e => { e.stopPropagation(); void openNode(node.id); }}>
-                      <g className="cm-node-inner" style={{ opacity: dim ? 0.2 : 1, transform: isHover ? 'scale(1.38)' : 'scale(1)' }}>
-                        {isSel && (
-                          <circle r={r + 4} fill="none" stroke="#e2e8f0" strokeWidth={1.4}>
-                            <animate attributeName="r" values={`${r + 3};${r + 14}`} dur="1.8s" repeatCount="indefinite" />
-                            <animate attributeName="opacity" values="0.85;0" dur="1.8s" repeatCount="indefinite" />
-                          </circle>
-                        )}
-                        <circle
-                          className="cm-halo"
-                          r={r * 2.6}
-                          fill={`url(#cm-halo-${node.source_id})`}
-                          style={{ animationDelay: `${(node.id % 17) * 0.23}s` }}
-                        />
-                        {/* Mastery ring: thicker + brighter as the stage climbs. */}
-                        <circle r={r + 1.5} fill="none" stroke={ring} strokeWidth={0.6 + stage * 0.5} strokeOpacity={stage === 0 ? 0.35 : 0.85} />
-                        <circle r={r} fill={`url(#cm-core-${node.source_id})`} stroke={sourceColor.get(node.source_id) ?? '#94a3b8'} strokeWidth={0.6} strokeOpacity={0.65} />
-                        <circle
-                          className="cm-spark"
-                          r={Math.max(1.3, r * 0.34)}
-                          fill="#ffffff"
-                          style={{ animationDelay: `${(node.id % 13) * 0.31}s` }}
-                        />
-                      </g>
-                      {(!dim && (r >= 11 || isHover || isSel)) && (
-                        <text
-                          x={r + 6} y={4}
-                          fontSize={11}
-                          fill={isHover || isSel ? '#f1f5f9' : '#cbd5e1'}
-                          style={{
-                            pointerEvents: 'none', userSelect: 'none',
-                            paintOrder: 'stroke', stroke: 'rgba(2,6,23,0.9)', strokeWidth: 3, strokeLinejoin: 'round',
-                            fontWeight: isHover || isSel ? 700 : 400,
-                          }}
-                        >
-                          {node.name.length > 28 ? node.name.slice(0, 27) + '…' : node.name}
-                        </text>
-                      )}
-                      {(isHover || isSel) && (
-                        <text
-                          x={r + 6} y={18}
-                          fontSize={9.5}
-                          fill={sourceColor.get(node.source_id) ?? '#94a3b8'}
-                          style={{
-                            pointerEvents: 'none', userSelect: 'none',
-                            paintOrder: 'stroke', stroke: 'rgba(2,6,23,0.92)', strokeWidth: 3, strokeLinejoin: 'round',
-                          }}
-                        >
-                          {(() => { const f = sourceName.get(node.source_id) ?? ''; return f.length > 32 ? f.slice(0, 31) + '…' : f; })()}
-                        </text>
-                      )}
-                    </g>
+                    <StarNode
+                      key={node.id}
+                      id={node.id} x={node.x} y={node.y} r={nodeRadius(node)} name={node.name}
+                      stage={stage} sourceId={node.source_id}
+                      sourceColor={sourceColor.get(node.source_id) ?? '#94a3b8'}
+                      sourceName={sourceName.get(node.source_id) ?? ''}
+                      dim={neighbors != null && !neighbors.has(node.id)}
+                      isHover={hoverNode === node.id}
+                      isSel={selected?.id === node.id}
+                      reducedMotion={reducedMotion}
+                      onHoverEnter={onHoverEnter} onHoverLeave={onHoverLeave}
+                      onDown={layout.beginNodeDrag} onOpen={openNode}
+                    />
                   );
                 })}
-                {hoverEdge && (
-                  <g transform={`translate(${hoverEdge.x},${hoverEdge.y})`} style={{ pointerEvents: 'none' }}>
-                    <rect x={-2} y={-16} width={hoverEdge.text.length * 6.6 + 12} height={18} rx={3} fill="rgba(2,6,23,0.92)" stroke="#312e81" />
-                    <text x={6} y={-3} fontSize={11} fill="#c7d2fe">{hoverEdge.text}</text>
-                  </g>
-                )}
+                {hoverEdge && <EdgeTooltip x={hoverEdge.x} y={hoverEdge.y} text={hoverEdge.text} />}
               </g>
             </svg>
           )}
         </div>
 
-        {graph && (
-          <div style={{
-            padding: '5px 16px', borderTop: '1px solid rgba(31,41,55,0.72)',
-            background: 'rgba(4,6,26,0.5)', fontSize: 10, color: '#64748b',
-            display: 'flex', gap: 16, flexShrink: 0, fontVariantNumeric: 'tabular-nums',
-          }}>
-            <span><span style={{ color: '#475569' }}>nodes</span> {graph.stats.nodeCount}</span>
-            <span><span style={{ color: '#475569' }}>edges</span> {graph.stats.edgeCount}</span>
-            <span><span style={{ color: '#475569' }}>dangling</span> {graph.stats.danglingConstellations}</span>
-            <span><span style={{ color: '#475569' }}>unresolved rel</span> {graph.stats.unresolvedRelations}</span>
-            <span><span style={{ color: '#475569' }}>dupes</span> {graph.stats.duplicateEdges}</span>
-            {graph.stats.capped && <span style={{ color: '#f59e0b' }}>Showing highest-degree / highest-importance concepts.</span>}
-          </div>
-        )}
+        {graph && <StatsFooter stats={graph.stats} />}
       </div>
 
       {selected && (
-        <div style={{ flex: '0 0 600px', maxWidth: '52%', display: 'flex', borderLeft: '1px solid #1f2937', position: 'relative' }}>
-          <button
-            onClick={() => setSelected(null)}
-            title="Close"
-            style={{ position: 'absolute', top: 8, right: 10, zIndex: 5, background: '#1e1b4b', border: '1px solid #4338ca', borderRadius: 4, color: '#c7d2fe', fontSize: 13, lineHeight: 1, padding: '2px 8px', cursor: 'pointer' }}
-          >×</button>
-          <DetailPane
-            concept={selected}
-            profile={profile}
-            onDeleted={() => { setSelected(null); onConceptChanged?.(); }}
-          />
+        <div style={{ flex: '0 0 600px', maxWidth: '52%', display: 'flex', flexDirection: 'column', borderLeft: '1px solid #1f2937', minWidth: 0, zIndex: Z.panelClose }}>
+          {/* Dedicated close strip so this button never overlaps DetailPane's
+              own header controls (e.g. the Source toggle). */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '4px 8px 4px 12px', borderBottom: '1px solid rgba(31,41,55,0.72)', background: 'rgba(4,6,26,0.6)', flexShrink: 0 }}>
+            <span style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em' }}>concept</span>
+            <button
+              onClick={() => setSelected(null)}
+              title="Close concept detail"
+              aria-label="Close concept detail"
+              style={{ background: '#1e1b4b', border: '1px solid #4338ca', borderRadius: 4, color: '#c7d2fe', fontSize: 13, lineHeight: 1, padding: '3px 9px', cursor: 'pointer' }}
+            >×</button>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+            <DetailPane
+              concept={selected}
+              profile={profile}
+              onDeleted={() => { setSelected(null); onConceptChanged?.(); }}
+            />
+          </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function Legend() {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        <svg width="24" height="9" viewBox="0 0 24 9"><line x1="0" y1="4.5" x2="18" y2="4.5" stroke="#818cf8" strokeWidth="1.4" /><path d="M18,1.5 L24,4.5 L18,7.5 Z" fill="#c084fc" /></svg>
-        one-way
-      </span>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        <svg width="28" height="9" viewBox="0 0 28 9"><line x1="6" y1="4.5" x2="22" y2="4.5" stroke="#818cf8" strokeWidth="1.7" /><path d="M6,1.5 L0,4.5 L6,7.5 Z" fill="#c084fc" /><path d="M22,1.5 L28,4.5 L22,7.5 Z" fill="#c084fc" /></svg>
-        mutual
-      </span>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        <svg width="24" height="9" viewBox="0 0 24 9"><line x1="0" y1="4.5" x2="18" y2="4.5" stroke="#fdba74" strokeWidth="1.4" strokeDasharray="4 3" /><path d="M18,1.5 L24,4.5 L18,7.5 Z" fill="#f472b6" /></svg>
-        cross-source
-      </span>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        <span style={{ width: 11, height: 11, borderRadius: '50%', border: '2px solid #22c55e', display: 'inline-block', boxSizing: 'border-box' }} />
-        mastery ring
-      </span>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'radial-gradient(circle, #fff 30%, #60a5fa 100%)', display: 'inline-block' }} />
-        color = source
-      </span>
     </div>
   );
 }
