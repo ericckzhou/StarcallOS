@@ -52,18 +52,20 @@ apps/desktop/        Electron: main process + preload + renderer (React)
 **Process boundary rule:** Renderer never touches SQLite or API keys.
 All data flows: renderer → contextBridge → IPC → main → services → DB.
 
-## Data Model (migrations 0001 → 0017+)
+## Data Model (migrations 0001 → 0023)
 
 ```
 sources                    PDF/text inputs + topic_anchors_json + llm_filter_keep_terms_json
 semantic_chunks            LLM-enriched blocks (only populated in candidate_gated/full modes)
-concepts                   promoted candidates OR LLM-extracted; evidence_json snapshot
+concepts                   promoted candidates OR LLM-extracted; evidence_json snapshot; tags_json (0023); reviewed_at (0021)
+concept_notes              user notes per concept; linked_annotation_id → a PDF highlight (0022)
 concept_edges              requires | enables | related | causes | contrasts_with | example_of | prevents
 misconceptions             attached to concepts: description, why_think_it, why_wrong
 evidence_tasks             5 kinds: definition | connection | application | misconception_resistance | compression
 mastery                    compression_stage 0–5 per concept
 evidence_records           graded attempts (append-only-ish)
 pdf_annotations            source/concept-scoped highlights and sticky notes
+star_hubs / star_hub_members  named/color cross-source concept groups (0019)
 events                     APPEND-ONLY audit log
 
 concept_candidates         deterministic candidates (term, confidence, signals, evidence, topic_relevance_score, is_boilerplate, is_broad)
@@ -201,12 +203,25 @@ Manual highlights and sticky notes are concept-scoped by default. Source-wide
 annotations remain supported but are hidden unless the Source-wide toggle is
 enabled. Highlight overlays stay non-interactive so text selection continues to
 work; sticky note markers are draggable and persist their normalized position.
+New highlights get a random light-palette color (changeable via the popover);
+saving the popover closes it.
+
+**Highlight ↔ evidence ↔ note sync.** Creating a highlight also creates a
+concept evidence span (`SourceEvidenceKind` gains `highlight`; the span stores
+the source `annotationId` so the evidence-rail accent renders the live highlight
+color even after the description is edited or recolored). Deleting a highlight
+removes its evidence span and clears any note linked to it; deleting that
+evidence span removes the backing highlight and clears the note. A user note can
+link to a highlight (`concept_notes.linked_annotation_id`, migration 0022) via a
+dropdown of the concept's highlights; the note chip jumps to the source page.
+Cross-surface refresh rides the `starcall:evidenceChanged` / `starcall:notesChanged`
+window events.
 
 ## UI Layout (current)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ Sources | Review                         Profile / Settings│
+│ Sources | Review | Map | Hubs             Profile / Settings│
 ├─────────┬────────────────────────────────────────────────┤
 │ Sources │ Candidates | Concepts | Runs                    │
 │ (list)  ├────────────────────────────────────────────────┤
@@ -279,8 +294,23 @@ importance tag.
   dropped in favor of event-driven refetch.
 - The top-level source tab defaults to **Candidates** on first launch and
   remembers the last-selected tab thereafter.
-- Lightweight equation rendering handles fractions, scripts, text blocks, and
-  orphan braces from imperfect PDF extraction.
+- Equation LaTeX renders via **KaTeX** (`LatexMath.tsx`,
+  `katex.renderToString({ throwOnError: false })`, fonts/CSS bundled by vite),
+  replacing the earlier homegrown parser; raw text is the fallback.
+- **Concept tags**: a `+ tag` picker in the DetailPane header (beside the
+  importance pill) lists existing tags (`concepts.allTags`) or creates a new one
+  with a chosen color. Tags are `concepts.tags_json` (migration 0023); colors
+  are a global name-keyed localStorage map. The auto evidence-kind chips are
+  read-only but dismissible per concept (hover-×, localStorage).
+- **Source search**: a find box filters to matching pages (PDF) or highlights
+  matches inline (text source); a "related pages only" toggle scopes the
+  rendered PDF to evidence pages.
+- **Constellation reason = evidence selector**: the link reason is picked from
+  the linked concept's evidence spans (resolving to a span's linked note when
+  present, else the evidence title), not free-typed.
+- **5s undo** for source delete and concept bulk delete: the DB delete is
+  deferred and flushed on unmount (so it commits rather than stranding an
+  orphaned row); notes delete likewise.
 - Background customization accepts video (`mp4` / `webm`) as well as images;
   video backgrounds autoplay muted and looped behind the app chrome.
 - All delete affordances render a compact `×` (not the word "Delete") with a
@@ -303,14 +333,19 @@ sources); per-source node color, mastery ring, directional (one-way →) vs mutu
 (↔) arrows, same-source solid vs cross-source dashed edges; reduced-motion aware;
 node click opens DetailPane beside the graph.
 
-**Shipped — Star Hubs (v1):** named, color-coded groups of concepts
-(cross-source). Tables `star_hubs` + `star_hub_members` (migration 0019;
-`parent_hub_id` reserved for future nesting). Created via Select-mode
-multi-select in `ConceptPane` → New hub (name + color) or Add-to existing; hub
-filter chips + per-row hub dots; user-curated, never LLM-written.
+**Shipped — Star Hubs:** named, color-coded groups of concepts (cross-source).
+Tables `star_hubs` + `star_hub_members` (migration 0019; `parent_hub_id`
+reserved for future nesting). Members are added via Select-mode multi-select in
+`ConceptPane` ("Add to ▾"); hubs render as **nebula clusters on the Map**.
+There is a dedicated top-level **Hubs tab** (`HubsPane.tsx`) for full
+management — create (random default color), inline rename/recolor/describe,
+remove members, delete — independent of any source view. The Map rail lists ALL
+hubs (dimming ones not on the current source) so a hub whose source was deleted
+remains deletable. New-hub default color is randomized. User-curated, never
+LLM-written.
 
-**Still planned:** hubs as graph containers in the Map (clusters + cross-hub
-edges), member roles (`core`/`supporting`/`prerequisite`/…), and hub nesting.
+**Still planned:** cross-hub edges in the Map, member roles
+(`core`/`supporting`/`prerequisite`/…), and hub nesting.
 
 Potential data model:
 
@@ -348,6 +383,6 @@ Uses Node.js 22 built-in `node:sqlite` (experimental). No native compilation req
 
 ## Current State (snapshot)
 
-Shipped: richer deterministic candidate parser, equations, relations, misconception phrases; deterministic mode (default); candidate_gated mode (LLM-cheap); full mode (legacy); per-provider settings (Groq + Anthropic); per-source topic anchors; bucket/tag/min-score + filtered LLM filters with persistence and compact API batching (min-score now applies to the suspicious bucket too); bulk-promote w/ safe-default gate; lazy task gen; lazy concept enrichment; ChatGPT prompt round-trip; continuous-scroll side-by-side PDF viewer with fit-to-width, − / % / + zoom, a selectable/copyable text layer, evidence rail, auto-scroll to the first evidence page, concept-scoped highlights, and draggable sticky notes; click-to-rename concept titles; evidence-kind chips on the concept header; cross-source constellations via Overview typeahead; Challenge-task regeneration that excludes already-answered prompts and adds a twist; grader that always surfaces next-stage gaps; History-delete that recomputes XP winner and mastery stage; Review Queue sort-cycle (default/importance/stage); source tab defaulting to Candidates; user-authored concept notes; profile/avatar/XP/background customization with image **and video** backgrounds; multi-PDF import; centered text-source import overlay; manual concept/equation/candidate CRUD; parse_runs audit; Re-extract preserving user data; running-header section detection (deterministic) with `section_source` provenance; concept search (ConceptPane + Candidate Review, `/` focus); Paper tab (low-chrome autosave scratchpad per concept); constellation links with required reasons; **global Constellation Map** (force-directed SVG, source-focused, directional/cross-source edges, reduced-motion aware); **Star Hubs v1** (named/color-coded cross-source concept groups via Select-mode, hub chips/filter).
+Shipped: richer deterministic candidate parser, equations, relations, misconception phrases; deterministic mode (default); candidate_gated mode (LLM-cheap); full mode (legacy); per-provider settings (Groq + Anthropic); per-source topic anchors; bucket/tag/min-score + filtered LLM filters with persistence and compact API batching (min-score now applies to the suspicious bucket too); bulk-promote w/ safe-default gate; lazy task gen; lazy concept enrichment; ChatGPT prompt round-trip; continuous-scroll side-by-side PDF viewer with fit-to-width, − / % / + zoom, a selectable/copyable text layer, evidence rail, auto-scroll to the first evidence page, concept-scoped highlights, and draggable sticky notes; click-to-rename concept titles; evidence-kind chips on the concept header; cross-source constellations via Overview typeahead; Challenge-task regeneration that excludes already-answered prompts and adds a twist; grader that always surfaces next-stage gaps; History-delete that recomputes XP winner and mastery stage; Review Queue sort-cycle (default/importance/stage); source tab defaulting to Candidates; user-authored concept notes; profile/avatar/XP/background customization with image **and video** backgrounds; multi-PDF import; centered text-source import overlay; manual concept/equation/candidate CRUD; parse_runs audit; Re-extract preserving user data; running-header section detection (deterministic) with `section_source` provenance; concept search (ConceptPane + Candidate Review, `/` focus); Paper tab (low-chrome autosave scratchpad per concept); constellation links with required reasons; **global Constellation Map** (force-directed SVG, source-focused, directional/cross-source edges, reduced-motion aware, nebula hub clusters, stable per-source-id node color, refetch on constellation edit); **Star Hubs** (cross-source concept groups) with a dedicated **Hubs tab** for full management (create/rename/recolor/remove-members/delete, orphaned hubs included); **KaTeX** equation rendering; **note ↔ highlight ↔ evidence linking** (highlight creates an evidence span carrying `annotationId`, two-way delete sync, notes link to highlights and jump to page); **concept tags** (colored, pick-existing-or-create, dismissible auto kind chips); **source search** (PDF page filter + text inline match) and "related pages only"; **constellation reason via evidence selector**; **5s undo** for source/concept/note delete (deferred delete, flush on unmount).
 
-Queued (not blocking): hubs as Map clusters + cross-hub edges; hub member roles + nesting; full-coverage LLM topic filter (paced multi-batch + 429 backoff, currently 75/call); ID-based constellation links (vs name-based); refactor `CandidateReview.tsx` into per-panel files; per-pass model override UI; CSS design tokens; more tests for `promotion`, `cleanup`, `enrich_concept`, annotations, candidate CRUD, LLM topic filtering, source-preview page anchoring, and `buildConstellationGraph`.
+Queued (not blocking): cross-hub edges in the Map; hub member roles + nesting; full-coverage LLM topic filter (paced multi-batch + 429 backoff, currently 75/call); ID-based constellation links (vs name-based); refactor `CandidateReview.tsx` into per-panel files; per-pass model override UI; CSS design tokens; more tests for `promotion`, `cleanup`, `enrich_concept`, annotations, candidate CRUD, LLM topic filtering, source-preview page anchoring, and `buildConstellationGraph`.

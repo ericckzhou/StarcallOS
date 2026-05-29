@@ -72,9 +72,14 @@ The grader sees the same context. No domain bias, no default associations.
 - **Source-aware enrichment** — definitions anchored to the page you actually read
 - **Challenge mode with XP** — task difficulty is tracked, history shows task kind/difficulty, and XP only counts the highest completed difficulty per concept/task kind
 - **Side-by-side source preview** — continuous-scroll PDF that fits page width, zooms (− / % / +), lets you select and copy text, auto-jumps to the evidence page, and carries concept-scoped highlights and draggable sticky notes
-- **Cross-source constellations** — link a concept to any other promoted concept across all your sources from the Overview typeahead; the list is yours, never LLM-written
+- **Cross-source constellations** — link a concept to any other promoted concept across all your sources; the link reason can point at a specific piece of evidence (or its note) in the linked concept. The list is yours, never LLM-written
+- **Star Hubs** — group concepts into named, color-coded hubs (cross-source) that render as nebula clusters on the Map; a dedicated **Hubs tab** manages them (create, rename, recolor, remove members, delete)
+- **Concept tags** — add your own colored tags to a concept; reuse existing tags or create new ones
+- **Find in source** — search the open source (matching pages in a PDF, inline match highlight in text), or scope the view to just the related pages
+- **Highlights as evidence** — highlighting in the source creates an evidence entry; you can link a note to a highlight and click it to jump back to the page
 - **Replayable challenges** — rename concepts inline, regenerate tasks (never re-asking a question you've already answered), and the grader always tells you what would push an answer to the next stage
-- **Equation extraction and display** — formulas render in a lightweight LaTeX-style view and attach to nearby concepts/sections when possible
+- **Equation extraction and display** — formulas render with **KaTeX** and attach to nearby concepts/sections when possible
+- **Undo-friendly deletes** — deleting a source, concept, or note gives you a 5-second undo
 - **Profile customization** — local display name, avatar, XP stats, background image/video, and background opacity
 - **User-authored notes** — your own follow-ups attached to a concept, styled with the overview fields and never overwritten by anything else
 - **Multi-PDF import** — add several PDFs from one file-picker action
@@ -112,8 +117,19 @@ The grader sees the same context. No domain bias, no default associations.
   to it from other books; one-way vs mutual and same- vs cross-source links are
   drawn distinctly.
 - **Star Hubs:** group concepts into named, color-coded hubs (cross-source) via
-  multi-select in the concept list; filter the list by hub. (Hub clustering in
-  the Map and member roles are still planned.)
+  multi-select in the concept list ("Add to ▾"). Hubs render as nebula clusters
+  on the Map, and a dedicated **Hubs tab** manages them (create, rename, recolor,
+  remove members, delete) — even hubs whose source was deleted. (Member roles
+  and nesting are still planned.)
+- **Note ↔ highlight ↔ evidence linking:** a highlight in the source also
+  becomes a concept evidence entry; deleting either side keeps them in sync, and
+  a note can link to a highlight and jump to its page.
+- **Concept tags** with per-tag colors, picked from existing tags or created on
+  the spot; the auto evidence-kind chips can be dismissed per concept.
+- **Find in source** (page filter on PDF, inline match on text) and a
+  "related pages only" view.
+- **Equation rendering via KaTeX**, replacing the earlier homegrown view.
+- **5-second undo** for deleting sources, concepts, and notes.
 
 ## Quickstart
 

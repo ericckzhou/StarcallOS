@@ -51,10 +51,52 @@ Remember these as the active state of the repo:
   `compression_stage` — gaining mastery no longer removes a concept. A per-row
   `✓ Done` marks reviewed (`concepts.setReviewed` IPC) and removes it; the queue
   defaults to expanding only the most recently previewed source's group.
-- Star Hubs are shipped (v1): named/color-coded cross-source concept groups
-  (`star_hubs` + `star_hub_members`, migration 0019), created via Select-mode
-  multi-select in `ConceptPane`. Hubs render as Map nebula clusters and live in
-  the Map rail (focus/edit/delete). Still planned: member roles, nesting.
+- Star Hubs are shipped: named/color-coded cross-source concept groups
+  (`star_hubs` + `star_hub_members`, migration 0019). Members are added via
+  Select-mode multi-select in `ConceptPane` ("Add to ▾"; the old in-pane "+ Hub"
+  create form was removed — creation now lives in the Hubs tab). Hubs render as
+  Map nebula clusters. There is a dedicated top-level **Hubs tab**
+  (`HubsPane.tsx`) for full management: create (random default color),
+  rename/recolor/describe, remove members, delete. The Map rail lists ALL hubs
+  (dimming ones not on the current source) so a hub whose source was deleted is
+  still deletable. New-hub default color is randomized. Still planned: member
+  roles, nesting.
+- Notes ↔ highlights ↔ evidence are linked (migration 0022 adds
+  `concept_notes.linked_annotation_id`): a note can link to a PDF highlight (a
+  dropdown of the concept's highlights); the chip jumps to the source page.
+  Creating a highlight also creates a concept evidence span
+  (`SourceEvidenceKind` includes `highlight`; the span stores `annotationId` so
+  the rail color tracks the live highlight color across edits/recolor). Deleting
+  a highlight removes its evidence span and clears any linked note; deleting that
+  evidence span removes the backing highlight and clears the note — both via the
+  `starcall:evidenceChanged` / `starcall:notesChanged` window events.
+- User concept tags (migration 0023 adds `concepts.tags_json`, array of strings):
+  the header `+ tag` picker lists existing tags (`concepts.allTags` IPC) or
+  creates a new one with a chosen color. Tag colors are a global, name-keyed
+  localStorage map (`starcall.tagColors`) so the same tag looks the same
+  everywhere. The auto evidence-kind chips (HEADING/CHUNK/…) are read-only but
+  dismissible per concept via hover-× (persisted in localStorage); the
+  `highlight` kind is filtered from the header chips entirely.
+- Source preview has find-in-source: a search box filters to matching pages
+  (PDF) or highlights matches inline (text source). "Related pages only" (was
+  "Evidence pages only") scopes the rendered PDF to evidence pages. The « Ev / Ev »
+  evidence-nav buttons were removed to declutter.
+- Constellation link reason is chosen via an evidence selector: it lists the
+  LINKED (target) concept's evidence spans; selecting one resolves to the note
+  linked to that span's highlight if present, else the evidence title (shown
+  with an ellipsis when truncated). The editor resets on concept switch and
+  refetches on `starcall:evidenceChanged`.
+- Source and concept(bulk) delete use a 5s undo: the actual DB delete is
+  deferred and only committed when the timer fires. The pending delete is
+  FLUSHED on unmount (e.g. tab switch) so it commits rather than vanishing —
+  earlier a cancel-on-unmount left the row deleted in the UI but alive in the DB
+  with orphaned concepts/map. Note delete also uses a 5s undo.
+- Equation LaTeX renders via KaTeX (`LatexMath.tsx`, `katex.renderToString`,
+  fonts/CSS bundled by vite). The old homegrown parser was removed.
+- Map node source colors key off `source_id` (stable across concept/source
+  delete). Turning the Hubs toggle off shows all nodes (no focus dimming). The
+  Map refetches its graph on `starcall:graphChanged` (dispatched on constellation
+  edits) so deleted links drop their edges without reload.
 - The Constellation Map is a shipped top-level "Map" tab (force-directed SVG over
   `concepts.graph()`, source-focused, directional/cross-source edges,
   reduced-motion aware). It has a left rail (source selector → Hubs →
@@ -64,7 +106,11 @@ Remember these as the active state of the repo:
   `graph.statsBySource`. The mastery ring ramps orange→yellow→green by stage.
 - User-facing provider text should say "configured LLM provider" unless a
   feature is truly Groq-specific.
-- `ARCHITECTURE.md` may be untracked in this workspace; do not remove or overwrite it.
+- `.claude/agents/ipc-contract-reviewer.md` is a project review agent that
+  checks any IPC change stays in sync across shared (`IPC` const + `IpcApi`),
+  main handler, preload bridge, and renderer call site (plus the
+  `pnpm -C packages/shared build` step). `.claude/` is gitignored, so it is
+  local-only.
 - `pnpm` may not be on PATH in this shell. If verification cannot run, say so
   plainly instead of implying tests passed.
 - PowerShell may render UTF-8 box drawing and arrows as mojibake. Do not treat
@@ -132,6 +178,11 @@ High-change areas:
 - Profile/background/XP display: `apps/desktop/src/renderer/src/components/ProfilePane.tsx`,
   `apps/desktop/src/renderer/src/App.tsx`
 - Candidate CRUD panels: `apps/desktop/src/renderer/src/components/candidates/panels.tsx`
+- Constellation Map + hub rail: `apps/desktop/src/renderer/src/components/ConstellationMap.tsx`
+- Hubs management tab: `apps/desktop/src/renderer/src/components/HubsPane.tsx`
+- Concept list + select mode/tags: `apps/desktop/src/renderer/src/components/ConceptPane.tsx`
+- User notes + note→highlight link: `apps/desktop/src/renderer/src/components/UserNotesSection.tsx`
+- Constellation editor: `apps/desktop/src/renderer/src/components/WhereItReappearsEditor.tsx`
 
 ## Parser Versioning
 
@@ -166,6 +217,16 @@ Candidate rows and parse runs stamp these versions for auditability.
   contract changes.
 - PDF annotation rows use soft delete/restore semantics for undo where
   available. Do not hard-delete user annotations unless explicitly requested.
+- Deferred-delete (source delete, concept bulk delete) must FLUSH on unmount,
+  not cancel. The pattern: optimistically remove from the list, start a 5s
+  timer that performs the real IPC delete, and on component unmount commit any
+  still-pending deletes. Cancelling on unmount silently strands the row in the
+  DB (deleted in UI, alive in DB → orphaned concepts/map).
+- A highlight and its derived evidence span stay in sync both ways: creating a
+  highlight adds a `highlight`-kind span carrying its `annotationId`; deleting
+  either side removes the other and clears any note linked to that highlight.
+  The rail renders highlight-evidence color by `annotationId` lookup (stable
+  across description edits), falling back to page+quote match for legacy spans.
 - User-authored notes and profile data are user-owned. Do not overwrite them
   during extraction, enrichment, or UI refresh.
 - Review queue rows must be refreshed/removed immediately after concept delete
@@ -239,6 +300,23 @@ Candidate rows and parse runs stamp these versions for auditability.
   configured background.
 - `+ PDF` supports multi-select import. `+ Text` opens a centered large glass
   overlay for long pasted notes/articles/transcripts.
+- The DetailPane header carries user tags beside the importance pill: a `+ tag`
+  picker (existing tags or create-new with a color), each tag chip removable on
+  hover (`×`). The auto evidence-kind chips are dismissible per concept.
+- The Hubs tab (top-level, beside Map) is the home for hub management: create,
+  inline rename/recolor/description, member removal (`×` chips), delete. It is
+  independent of any source view, so orphaned hubs are manageable.
+- The concept Select-mode toolbar is `[select-all] · N selected · Add to ▾ · ×`
+  (delete). No Done button — Esc exits, and navigating away clears selection.
+  Bulk delete shows a 5s "Undo" toast.
+- Source preview has a find box (filter to matching pages on PDF, inline match
+  highlight on text) and a "related pages only" toggle.
+- The constellation editor's reason field is an evidence selector over the
+  linked concept's spans (resolving to a linked note when present), not a
+  free-typed relationship phrase.
+- Most text inputs/selectors are translucent over the configured background
+  (map selector/search, overview fields, notes, candidate search, profile
+  name); custom dropdown option hover uses the shared `.rel-opt` purple.
 
 ## LLM Provider Notes
 
