@@ -205,6 +205,59 @@ body::after {
 }
 .cp-filter:hover { border-color: #475569; color: #cbd5e1; }
 
+/* ── Level-up celebration ────────────────────────────────────────────────── */
+/* Brief XP-chip flash when XP increases without a level change. */
+.xp-pulse { animation: xp-pulse 0.7s ease; }
+@keyframes xp-pulse {
+  0%   { color: #94a3b8; text-shadow: none; }
+  35%  { color: #e9d5ff; text-shadow: 0 0 10px rgba(167,139,250,0.9); }
+  100% { color: #94a3b8; text-shadow: none; }
+}
+
+/* Full-screen level-up overlay: badge pops in, a glow + ring expand, all fade. */
+@keyframes lvlup-fade {
+  0% { opacity: 0; }
+  8% { opacity: 1; }
+  82% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.lvlup-badge { animation: lvlup-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+@keyframes lvlup-pop {
+  0%   { transform: scale(0.4); opacity: 0; }
+  60%  { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.lvlup-sub { animation: lvlup-rise 0.7s ease 0.18s both; }
+@keyframes lvlup-rise {
+  0% { transform: translateY(8px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.lvlup-glow {
+  position: absolute; width: 360px; height: 360px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(167,139,250,0.45) 0%, transparent 65%);
+  animation: lvlup-glow 2.4s ease both;
+}
+@keyframes lvlup-glow {
+  0% { transform: scale(0.5); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.lvlup-ring {
+  position: absolute; width: 120px; height: 120px; border-radius: 50%;
+  border: 2px solid rgba(196,181,253,0.8);
+  animation: lvlup-ring 1.4s ease-out both;
+}
+@keyframes lvlup-ring {
+  0% { transform: scale(0.4); opacity: 0.9; }
+  100% { transform: scale(3.4); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xp-pulse, .lvlup-badge, .lvlup-sub, .lvlup-glow, .lvlup-ring {
+    animation: none !important;
+  }
+}
+
 /* Default focus ring tamed for the dark theme. */
 :focus-visible {
   outline: 1px solid #818cf8;

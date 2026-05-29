@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Concept } from './ConceptPane';
+import { LAST_SOURCE_KEY } from '../App';
 
 interface QueueItem {
   concept: {
@@ -9,6 +10,7 @@ interface QueueItem {
     definition_text: string;
     section_path: string[];
   };
+  source_id: number;
   source_title: string | null;
   source_filename: string;
   compression_stage: number;
@@ -73,6 +75,21 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // On first load, open only the source you were most recently previewing and
+  // collapse the rest. Runs once per mount; manual toggles take over afterward.
+  const didInitGroups = useRef(false);
+  useEffect(() => {
+    if (didInitGroups.current || items.length === 0) return;
+    didInitGroups.current = true;
+    const lastRaw = localStorage.getItem(LAST_SOURCE_KEY);
+    const last = lastRaw != null ? Number(lastRaw) : NaN;
+    const keys = new Set(items.map(it => String(it.source_id)));
+    if (Number.isFinite(last) && keys.has(String(last))) {
+      keys.delete(String(last));
+      setCollapsedGroups(keys);
+    }
+  }, [items]);
 
   // Refetch whenever another part of the app signals that mastery /
   // review-history state changed (evidence submit, history delete, task
@@ -174,7 +191,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
     const groups = new Map<string, QueueGroup>();
     for (const item of displayedItems) {
       const title = item.source_title || item.source_filename || 'Untitled source';
-      const key = title.toLowerCase();
+      const key = String(item.source_id);
       const group = groups.get(key) ?? { key, title, items: [] };
       group.items.push(item);
       groups.set(key, group);

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import DetailPane from './DetailPane';
 import type { Concept } from './ConceptPane';
 import type { Profile } from './profile';
+import { LAST_SOURCE_KEY } from '../App';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,11 @@ interface Graph {
   nodes: GraphNode[];
   edges: GraphEdge[];
   stats: GraphStats;
+  statsBySource: Record<number, {
+    danglingConstellations: number;
+    unresolvedRelations: number;
+    duplicateEdges: number;
+  }>;
 }
 interface SimNode extends GraphNode {
   x: number;
@@ -51,7 +57,9 @@ interface HubLite { id: number; name: string; color: string; member_count: numbe
 
 // ─── Design constants ──────────────────────────────────────────────────────────
 
-const STAGE_COLORS = ['#374151', '#6b7280', '#3b82f6', '#8b5cf6', '#f59e0b', '#22c55e'];
+// Mastery ring ramps from least → most proficient: orange → yellow → green.
+// Stage 0 (unseen) sits at the orange end but is drawn faint (see strokeOpacity).
+const STAGE_COLORS = ['#f97316', '#fb923c', '#fbbf24', '#facc15', '#a3e635', '#22c55e'];
 const SOURCE_PALETTE = [
   '#60a5fa', '#f472b6', '#34d399', '#fbbf24', '#a78bfa', '#22d3ee',
   '#fb7185', '#a3e635', '#f59e0b', '#818cf8', '#2dd4bf', '#e879f9',
@@ -114,11 +122,20 @@ function useConstellationGraph() {
     window.api.concepts.graph().then(g => {
       const data = g as Graph;
       setGraph(data);
-      const counts = new Map<number, number>();
-      for (const n of data.nodes) counts.set(n.source_id, (counts.get(n.source_id) ?? 0) + 1);
-      let best: number | null = null, bestN = -1;
-      for (const [sid, c] of counts) if (c > bestN) { bestN = c; best = sid; }
-      setSelectedSource(best);
+      const present = new Set(data.nodes.map(n => n.source_id));
+      // Default to the source you were most recently previewing in the Sources
+      // tab, if it's still on the map; otherwise fall back to the largest source.
+      const lastRaw = localStorage.getItem(LAST_SOURCE_KEY);
+      const last = lastRaw != null ? Number(lastRaw) : NaN;
+      if (Number.isFinite(last) && present.has(last)) {
+        setSelectedSource(last);
+      } else {
+        const counts = new Map<number, number>();
+        for (const n of data.nodes) counts.set(n.source_id, (counts.get(n.source_id) ?? 0) + 1);
+        let best: number | null = null, bestN = -1;
+        for (const [sid, c] of counts) if (c > bestN) { bestN = c; best = sid; }
+        setSelectedSource(best);
+      }
       setLoading(false);
     });
   }, []);
@@ -463,6 +480,10 @@ const StarNode = React.memo(function StarNode(p: StarProps) {
           </circle>
         ))}
         <circle className="cm-halo" r={p.r * 2.6} fill={`url(#cm-halo-${p.sourceId})`} style={{ animationDelay: `${(p.id % 17) * 0.23}s` }} />
+        {/* Soft glow ring — widens/brightens with proficiency (orange→green). */}
+        {p.stage > 0 && (
+          <circle r={p.r + 3.5} fill="none" stroke={ring} strokeWidth={2.4} strokeOpacity={0.1 + p.stage * 0.05} />
+        )}
         <circle r={p.r + 1.5} fill="none" stroke={ring} strokeWidth={0.6 + p.stage * 0.5} strokeOpacity={p.stage === 0 ? 0.35 : 0.85} />
         <circle r={p.r} fill={`url(#cm-core-${p.sourceId})`} stroke={p.sourceColor} strokeWidth={0.6} strokeOpacity={0.65} />
         <circle className="cm-spark" r={Math.max(1.3, p.r * 0.34)} fill="#ffffff" style={{ animationDelay: `${(p.id % 13) * 0.31}s` }} />
@@ -513,7 +534,7 @@ function MapLegend() {
         cross-source
       </span>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        <span style={{ width: 11, height: 11, borderRadius: '50%', border: '2px solid #22c55e', display: 'inline-block', boxSizing: 'border-box' }} />
+        <span style={{ width: 11, height: 11, borderRadius: '50%', border: '2px solid transparent', background: 'conic-gradient(#f97316, #facc15, #22c55e, #f97316) border-box', WebkitMask: 'radial-gradient(circle, transparent 54%, #000 56%)', display: 'inline-block', boxSizing: 'border-box' }} />
         mastery ring
       </span>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -647,6 +668,20 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [view, conceptQuery]);
 
+  // Footer stats scoped to the selected source: node/edge counts come from the
+  // rendered view; data-health diagnostics from the per-source build tally.
+  const footerStats = useMemo<GraphStats>(() => {
+    const per = (selectedSource != null && graph) ? graph.statsBySource[selectedSource] : undefined;
+    return {
+      nodeCount: view.nodes.length,
+      edgeCount: view.edges.length,
+      danglingConstellations: per?.danglingConstellations ?? 0,
+      unresolvedRelations: per?.unresolvedRelations ?? 0,
+      duplicateEdges: per?.duplicateEdges ?? 0,
+      capped: graph?.stats.capped ?? false,
+    };
+  }, [graph, selectedSource, view]);
+
   // Hub nebulae — recomputed each render so the clouds track the live layout.
   const clusters: Cluster[] = [];
   if (showHubs && hubs.length > 0) {
@@ -674,27 +709,8 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
           <div style={{ padding: '10px 10px 8px', borderBottom: '1px solid #1f2937' }}>
             <SourceSelect sources={sources} selectedSource={selectedSource} color={sourceColor.get(selectedSource ?? -1) ?? '#94a3b8'} onChange={setSelectedSource} />
           </div>
-          <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937' }}>
-            <input value={conceptQuery} onChange={e => setConceptQuery(e.target.value)} placeholder="Search concepts…"
-              style={{ width: '100%', boxSizing: 'border-box', background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '6px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }} />
-          </div>
-          <div className="concept-scroll" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-            {conceptList.length === 0 ? (
-              <div style={{ padding: 16, fontSize: 11, color: '#475569', textAlign: 'center' }}>{view.nodes.length === 0 ? 'No concepts on this map.' : 'No matches.'}</div>
-            ) : conceptList.map(n => {
-              const isSel = selected?.id === n.id;
-              return (
-                <button key={n.id} onClick={() => void openNode(n.id)}
-                  onMouseEnter={() => onHoverEnter(n.id)} onMouseLeave={() => onHoverLeave(n.id)} title={n.name}
-                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: isSel ? '#1a1a2e' : 'transparent', border: 'none', borderLeft: `2px solid ${isSel ? (sourceColor.get(n.source_id) ?? '#374151') : 'transparent'}`, padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid #111827' }}>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: sourceColor.get(n.source_id) ?? '#6b7280', flexShrink: 0 }} />
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: isSel ? '#e2e8f0' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
-                </button>
-              );
-            })}
-          </div>
           {visibleHubs.length > 0 && (
-            <div style={{ borderTop: '1px solid #1f2937', padding: 8, maxHeight: '42%', overflowY: 'auto', flexShrink: 0 }}>
+            <div style={{ borderBottom: '1px solid #1f2937', padding: 8, maxHeight: '42%', overflowY: 'auto', flexShrink: 0 }}>
               <div style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Hubs</div>
               {visibleHubs.map(h => (
                 <div key={h.id} className="cm-hub-chip" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 4px', borderRadius: 6, background: focusedHub === h.id ? 'rgba(129,140,248,0.14)' : 'transparent' }}>
@@ -735,6 +751,25 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
               )}
             </div>
           )}
+          <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937' }}>
+            <input value={conceptQuery} onChange={e => setConceptQuery(e.target.value)} placeholder="Search concepts…"
+              style={{ width: '100%', boxSizing: 'border-box', background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '6px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }} />
+          </div>
+          <div className="concept-scroll" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+            {conceptList.length === 0 ? (
+              <div style={{ padding: 16, fontSize: 11, color: '#475569', textAlign: 'center' }}>{view.nodes.length === 0 ? 'No concepts on this map.' : 'No matches.'}</div>
+            ) : conceptList.map(n => {
+              const isSel = selected?.id === n.id;
+              return (
+                <button key={n.id} onClick={() => void openNode(n.id)}
+                  onMouseEnter={() => onHoverEnter(n.id)} onMouseLeave={() => onHoverLeave(n.id)} title={n.name}
+                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: isSel ? '#1a1a2e' : 'transparent', border: 'none', borderLeft: `2px solid ${isSel ? (sourceColor.get(n.source_id) ?? '#374151') : 'transparent'}`, padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid #111827' }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: sourceColor.get(n.source_id) ?? '#6b7280', flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: isSel ? '#e2e8f0' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
+                </button>
+              );
+            })}
+          </div>
         </aside>
       )}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
@@ -832,7 +867,7 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
           )}
         </div>
 
-        {graph && <StatsFooter stats={graph.stats} />}
+        {graph && <StatsFooter stats={footerStats} />}
       </div>
 
       {selected && (

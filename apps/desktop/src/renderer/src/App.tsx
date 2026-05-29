@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import SourcePane, { type Source } from './components/SourcePane';
 import ConceptPane, { type Concept } from './components/ConceptPane';
 import DetailPane from './components/DetailPane';
@@ -12,6 +12,9 @@ import { loadProfile, xpToNext, type Profile, type StudyProgress } from './compo
 type Tab = 'concepts' | 'candidates' | 'runs';
 
 const SOURCE_TAB_KEY = 'starcall.layout.sourceTab';
+// Last source the user opened in the Sources tab — the Map uses this to default
+// to whatever you were most recently looking at, not just the largest source.
+export const LAST_SOURCE_KEY = 'starcall.layout.lastSource';
 const VALID_TABS: Tab[] = ['concepts', 'candidates', 'runs'];
 function loadInitialTab(): Tab {
   const stored = localStorage.getItem(SOURCE_TAB_KEY);
@@ -28,6 +31,28 @@ export default function App() {
   const [conceptsRefreshKey, setConceptsRefreshKey] = useState(0);
   const [profile, setProfile] = useState<Profile>(() => loadProfile());
   const [progress, setProgress] = useState<StudyProgress | null>(null);
+  const [levelUp, setLevelUp] = useState<number | null>(null);
+  const [xpPulse, setXpPulse] = useState(false);
+  const prevLevel = useRef<number | null>(null);
+  const prevXp = useRef<number | null>(null);
+
+  // Celebrate level-ups and pulse the XP chip on XP gains. Guards the initial
+  // load (prev refs start null) so we never fire on first render.
+  useEffect(() => {
+    if (!progress) return;
+    if (prevLevel.current != null && progress.level > prevLevel.current) {
+      setLevelUp(progress.level);
+    }
+    if (prevXp.current != null && progress.total_xp > prevXp.current) {
+      setXpPulse(true);
+      const t = setTimeout(() => setXpPulse(false), 700);
+      prevLevel.current = progress.level;
+      prevXp.current = progress.total_xp;
+      return () => clearTimeout(t);
+    }
+    prevLevel.current = progress.level;
+    prevXp.current = progress.total_xp;
+  }, [progress]);
 
   useEffect(() => {
     window.api.sources.list().then(r => setSources(r as Source[]));
@@ -54,6 +79,7 @@ export default function App() {
   function handleSourceSelect(id: number) {
     setSelectedSourceId(id);
     setSelectedConcept(null);
+    localStorage.setItem(LAST_SOURCE_KEY, String(id));
   }
 
   function handleReviewSelect(c: Concept) {
@@ -161,7 +187,7 @@ export default function App() {
                 <span style={{ fontSize: 11, color: '#e2e8f0', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {profile.name}
                 </span>
-                <span style={{ fontSize: 10, color: '#94a3b8', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                <span className={xpPulse ? 'xp-pulse' : undefined} style={{ fontSize: 10, color: '#94a3b8', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                   Lv {progress.level} · {progress.total_xp} XP
                 </span>
               </div>
@@ -262,6 +288,45 @@ export default function App() {
           )}
         </div>
       )}
+      {levelUp != null && <LevelUpOverlay level={levelUp} onDone={() => setLevelUp(null)} />}
+    </div>
+  );
+}
+
+function LevelUpOverlay({ level, onDone }: { level: number; onDone: () => void }) {
+  const reduced = typeof window !== 'undefined'
+    && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  useEffect(() => {
+    const t = setTimeout(onDone, reduced ? 1600 : 2600);
+    return () => clearTimeout(t);
+  }, [onDone, reduced]);
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      onClick={onDone}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9999, display: 'flex',
+        alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
+        animation: reduced ? 'lvlup-fade 1.6s ease forwards' : 'lvlup-fade 2.6s ease forwards',
+      }}
+    >
+      <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+        {!reduced && <div className="lvlup-glow" />}
+        {!reduced && <div className="lvlup-ring" />}
+        <div className={reduced ? undefined : 'lvlup-badge'} style={{
+          padding: '14px 30px', borderRadius: 14,
+          background: 'linear-gradient(135deg, #312e81, #6d28d9)',
+          border: '1px solid #a78bfa', color: '#ede9fe',
+          fontWeight: 900, fontSize: 30, letterSpacing: '0.04em',
+          boxShadow: '0 0 32px rgba(167,139,250,0.55)', textAlign: 'center',
+        }}>
+          LEVEL {level}
+        </div>
+        <div className={reduced ? undefined : 'lvlup-sub'} style={{ fontSize: 13, color: '#c7d2fe', fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' }}>
+          Level Up
+        </div>
+      </div>
     </div>
   );
 }

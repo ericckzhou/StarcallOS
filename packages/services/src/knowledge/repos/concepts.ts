@@ -364,6 +364,11 @@ export interface ConstellationGraph {
     duplicateEdges: number;
     capped: boolean;
   };
+  statsBySource: Record<number, {
+    danglingConstellations: number;
+    unresolvedRelations: number;
+    duplicateEdges: number;
+  }>;
 }
 
 const GRAPH_MAX_NODES = 150;
@@ -421,6 +426,17 @@ export function buildConstellationGraph(db: DatabaseSync): ConstellationGraph {
   let unresolvedRelations = 0;
   let duplicateEdges = 0;
 
+  // Per-source tally of the same diagnostics, so the Map footer can scope them
+  // to the selected source. Each issue is attributed to the source of the
+  // concept that owns it (the link holder / the edge's endpoint).
+  const perSource = new Map<number, { danglingConstellations: number; unresolvedRelations: number; duplicateEdges: number }>();
+  function bump(sourceId: number | undefined, field: 'danglingConstellations' | 'unresolvedRelations' | 'duplicateEdges'): void {
+    if (sourceId == null) return;
+    const rec = perSource.get(sourceId) ?? { danglingConstellations: 0, unresolvedRelations: 0, duplicateEdges: 0 };
+    rec[field] += 1;
+    perSource.set(sourceId, rec);
+  }
+
   function pairKey(a: number, b: number): string {
     return a < b ? `${a}-${b}` : `${b}-${a}`;
   }
@@ -439,7 +455,7 @@ export function buildConstellationGraph(db: DatabaseSync): ConstellationGraph {
       const reason = typeof raw === 'string' ? '' : ((raw as { reason?: string })?.reason ?? '');
       if (!name) continue;
       const targets = idsByName.get(normalizeConceptName(name));
-      if (!targets || targets.length === 0) { danglingConstellations += 1; continue; }
+      if (!targets || targets.length === 0) { danglingConstellations += 1; bump(Number(r.source_id), 'danglingConstellations'); continue; }
       for (const toId of targets) {
         if (toId === fromId) continue;
         const lo = Math.min(fromId, toId), hi = Math.max(fromId, toId);
@@ -460,9 +476,13 @@ export function buildConstellationGraph(db: DatabaseSync): ConstellationGraph {
   for (const e of edgeRows) {
     const a = Number(e.from_id);
     const b = Number(e.to_id);
-    if (!byId.has(a) || !byId.has(b) || a === b) { unresolvedRelations += 1; continue; }
+    if (!byId.has(a) || !byId.has(b) || a === b) {
+      unresolvedRelations += 1;
+      bump(byId.get(a)?.source_id ?? byId.get(b)?.source_id, 'unresolvedRelations');
+      continue;
+    }
     const key = pairKey(a, b);
-    if (relByPair.has(key)) { duplicateEdges += 1; continue; }
+    if (relByPair.has(key)) { duplicateEdges += 1; bump(byId.get(a)?.source_id, 'duplicateEdges'); continue; }
     relByPair.set(key, { a, b, label: e.edge_type });
   }
 
@@ -475,7 +495,7 @@ export function buildConstellationGraph(db: DatabaseSync): ConstellationGraph {
     edgeByPair.set(key, { a: rel.a, b: rel.b, kind: 'relation', label: rel.label, directed: true });
   }
   for (const [key, rec] of constByPair) {
-    if (edgeByPair.has(key)) { duplicateEdges += 1; continue; }
+    if (edgeByPair.has(key)) { duplicateEdges += 1; bump(byId.get(rec.lo)?.source_id, 'duplicateEdges'); continue; }
     const mutual = rec.loToHi && rec.hiToLo;
     if (mutual) {
       const reason = [rec.loReason, rec.hiReason].filter(Boolean).join('  ·  ') || undefined;
@@ -536,11 +556,13 @@ export function buildConstellationGraph(db: DatabaseSync): ConstellationGraph {
       duplicateEdges,
       capped,
     },
+    statsBySource: Object.fromEntries(perSource),
   };
 }
 
 export interface ReviewQueueItem {
   concept: Concept;
+  source_id: number;
   source_title: string | null;
   source_filename: string;
   compression_stage: number;
@@ -607,6 +629,7 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
 
   return rows.map(row => ({
     concept: rowToConcept(row),
+    source_id: Number(row.source_id),
     source_title: row.source_title,
     source_filename: row.source_filename,
     compression_stage: row.compression_stage ?? 0,

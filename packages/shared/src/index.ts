@@ -309,6 +309,7 @@ export interface ReviewQueueItemPayload {
     definition_text: string;
     section_path: string[];
   };
+  source_id: number;
   source_title: string | null;
   source_filename: string;
   compression_stage: number;
@@ -366,6 +367,20 @@ export interface ConstellationGraph {
     duplicateEdges: number;
     capped: boolean;
   };
+  // Build-time data-health diagnostics attributed to each source, keyed by
+  // source_id, so the Map footer can scope dangling/unresolved/dupes to the
+  // currently selected source.
+  statsBySource: Record<number, {
+    danglingConstellations: number;
+    unresolvedRelations: number;
+    duplicateEdges: number;
+  }>;
+}
+
+export interface SourceChallengeCount {
+  source_id: number;
+  source_title: string;
+  count: number;
 }
 
 export interface StudyProgress {
@@ -376,6 +391,7 @@ export interface StudyProgress {
   progress_ratio: number;
   challenges_completed: number;
   difficulty_counts: Record<1 | 2 | 3 | 4 | 5, number>;
+  source_counts: SourceChallengeCount[];
 }
 
 // ─── The renderer-facing API contract ────────────────────────────────────────

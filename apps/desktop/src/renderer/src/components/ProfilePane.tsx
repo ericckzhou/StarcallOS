@@ -58,7 +58,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
 
   return (
     <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-      <aside style={{ width: 220, borderRight: '1px solid #1f2937', background: '#0d0d16', padding: 16, boxSizing: 'border-box' }}>
+      <aside style={{ width: 220, borderRight: '1px solid #1f2937', background: 'rgba(13, 13, 22, 0.35)', padding: 16, boxSizing: 'border-box' }}>
         <Avatar profile={{ name, avatarDataUrl }} size={72} />
         <div style={{ marginTop: 10, fontSize: 16, fontWeight: 700 }}>{name}</div>
         {progress && (
@@ -223,6 +223,13 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                   </div>
                   <DifficultyChart counts={progress.difficulty_counts} />
                 </section>
+                <section style={panel}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <div style={eyebrow}>Challenges by Source</div>
+                    <div style={{ fontSize: 11, color: '#64748b' }}>{progress.source_counts.length} source{progress.source_counts.length === 1 ? '' : 's'}</div>
+                  </div>
+                  <SourceChallengeChart counts={progress.source_counts} />
+                </section>
               </>
             )}
 
@@ -233,11 +240,6 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                 <InfoTile label="Avatar" value={profile.avatarDataUrl ? 'Custom image' : 'Initials icon'} />
                 <InfoTile label="Background" value={profile.backgroundDataUrl ? `${Math.round(profile.backgroundOpacity * 100)}% opacity` : 'Default'} />
                 <InfoTile label="Storage" value="Local app profile" muted />
-              </div>
-              <div style={{ display: 'none' }}>
-                <InfoLabel>Name</InfoLabel><span>{profile.name}</span>
-                <InfoLabel>Avatar</InfoLabel><span>{profile.avatarDataUrl ? 'Custom image' : 'Initials icon'}</span>
-                <InfoLabel>Storage</InfoLabel><span style={{ color: '#94a3b8' }}>Profile identity is stored locally in this app.</span>
               </div>
             </section>
           </div>
@@ -287,6 +289,37 @@ function DifficultyChart({ counts }: { counts: Record<1 | 2 | 3 | 4 | 5, number>
   );
 }
 
+const SOURCE_PALETTE = [
+  '#60a5fa', '#f472b6', '#34d399', '#fbbf24', '#a78bfa', '#22d3ee',
+  '#fb7185', '#a3e635', '#f59e0b', '#818cf8', '#2dd4bf', '#e879f9',
+];
+
+function SourceChallengeChart({ counts }: { counts: { source_id: number; source_title: string; count: number }[] }) {
+  if (counts.length === 0) {
+    return <div style={{ marginTop: 14, fontSize: 12, color: '#475569' }}>No challenges completed yet.</div>;
+  }
+  const max = Math.max(1, ...counts.map(c => c.count));
+  return (
+    <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {counts.map((c, i) => {
+        const color = SOURCE_PALETTE[i % SOURCE_PALETTE.length];
+        return (
+          <div key={c.source_id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div title={c.source_title} style={{ width: 150, flexShrink: 0, fontSize: 12, color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+              {c.source_title}
+            </div>
+            <div style={{ flex: 1, minWidth: 0, height: 14, background: 'rgba(31,41,55,0.55)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ width: `${(c.count / max) * 100}%`, height: '100%', background: color, borderRadius: 4, transition: 'width 360ms ease' }} />
+            </div>
+            <div style={{ width: 28, flexShrink: 0, textAlign: 'right', fontSize: 12, color: '#e2e8f0', fontVariantNumeric: 'tabular-nums' }}>{c.count}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProgressBar({ progress }: { progress: number }) {
   return (
     <div style={{ height: 6, background: '#1f2937', borderRadius: 999, overflow: 'hidden' }}>
@@ -297,7 +330,7 @@ function ProgressBar({ progress }: { progress: number }) {
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8, padding: '12px 10px' }}>
+    <div style={{ background: 'rgba(11, 18, 32, 0.4)', border: '1px solid #1f2937', borderRadius: 8, padding: '12px 10px' }}>
       <div style={eyebrow}>{label}</div>
       <div style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: '#e2e8f0' }}>{value}</div>
     </div>
@@ -306,7 +339,7 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 
 function InfoTile({ label, value, muted = false }: { label: string; value: string; muted?: boolean }) {
   return (
-    <div style={{ background: '#0b1220', border: '1px solid #1f2937', borderRadius: 6, padding: 12, minWidth: 0 }}>
+    <div style={{ background: 'rgba(11, 18, 32, 0.4)', border: '1px solid #1f2937', borderRadius: 6, padding: 12, minWidth: 0 }}>
       <div style={eyebrow}>{label}</div>
       <div style={{ marginTop: 7, color: muted ? '#94a3b8' : '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {value}
@@ -328,12 +361,8 @@ function NavButton({ active, onClick, children }: { active: boolean; onClick: ()
   );
 }
 
-function InfoLabel({ children }: { children: React.ReactNode }) {
-  return <span style={{ color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 10 }}>{children}</span>;
-}
-
 const panel: React.CSSProperties = {
-  background: '#0d0d16',
+  background: 'rgba(13, 13, 22, 0.35)',
   border: '1px solid #1f2937',
   borderRadius: 8,
   padding: 18,

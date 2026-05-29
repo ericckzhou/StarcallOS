@@ -477,6 +477,12 @@ export function listRecordsByConcept(db: DatabaseSync, conceptId: number): Evide
   ).map(rowToRecord);
 }
 
+export interface SourceChallengeCount {
+  source_id: number;
+  source_title: string;
+  count: number;
+}
+
 export interface StudyProgress {
   total_xp: number;
   level: number;
@@ -485,12 +491,14 @@ export interface StudyProgress {
   progress_ratio: number;
   challenges_completed: number;
   difficulty_counts: Record<1 | 2 | 3 | 4 | 5, number>;
+  source_counts: SourceChallengeCount[];
 }
 
 export function progressFromXp(
   totalXp: number,
   challengesCompleted = 0,
   difficultyCounts: Record<1 | 2 | 3 | 4 | 5, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+  sourceCounts: SourceChallengeCount[] = [],
 ): StudyProgress {
   const level = Math.floor(Math.sqrt(Math.max(0, totalXp) / 100)) + 1;
   const currentLevelXp = (level - 1) * (level - 1) * 100;
@@ -505,6 +513,7 @@ export function progressFromXp(
       : 1,
     challenges_completed: challengesCompleted,
     difficulty_counts: difficultyCounts,
+    source_counts: sourceCounts,
   };
 }
 
@@ -532,5 +541,22 @@ export function getStudyProgress(db: DatabaseSync): StudyProgress {
     const difficulty = Math.max(1, Math.min(5, Number(row.difficulty))) as 1 | 2 | 3 | 4 | 5;
     difficultyCounts[difficulty] = Number(row.total);
   }
-  return progressFromXp(Number(xpRow?.total_xp ?? 0), Number(challengeRow?.total ?? 0), difficultyCounts);
+  const sourceRows = db
+    .prepare(
+      `SELECT s.id AS source_id,
+              COALESCE(s.title, s.filename) AS source_title,
+              COUNT(*) AS total
+         FROM evidence_records r
+         JOIN concepts c ON c.id = r.concept_id
+         JOIN sources s ON s.id = c.source_id
+        GROUP BY s.id, source_title
+        ORDER BY total DESC`,
+    )
+    .all() as unknown as Array<{ source_id: number | bigint; source_title: string; total: number | bigint }>;
+  const sourceCounts: SourceChallengeCount[] = sourceRows.map(row => ({
+    source_id: Number(row.source_id),
+    source_title: row.source_title,
+    count: Number(row.total),
+  }));
+  return progressFromXp(Number(xpRow?.total_xp ?? 0), Number(challengeRow?.total ?? 0), difficultyCounts, sourceCounts);
 }
