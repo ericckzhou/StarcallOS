@@ -22,8 +22,11 @@ Remember these as the active state of the repo:
 - Candidate review filters now operate on `final_score`, parser labels, and
   currently visible rows. Both manual ChatGPT prompts and configured in-app LLM
   filtering must send only the visible filtered candidates. The configured API
-  filter uses a compact provider-safe batch, currently 30 visible candidates
-  with short context, to avoid low-tier TPM failures.
+  filter sends a single compact call of up to `LLM_API_FILTER_LIMIT` (75)
+  deduped visible candidates (term-only payload) to stay under low Groq TPM
+  tiers; the manual ChatGPT prompt is the large-list fallback. (An earlier
+  multi-batch/dual-provider "full coverage" path was reverted — it stalled on
+  Groq 429 backoff.)
 - Source preview is a shared side pane across concept tabs. Preserve logical
   page anchoring when tabs, rails, zoom, or layout width changes.
 - PDF annotations are persisted source records. New manual highlights/sticky
@@ -37,16 +40,28 @@ Remember these as the active state of the repo:
 - `+ Text` opens a centered workspace-sized glass import overlay. Keep the
   existing text-source API and do not reintroduce the old sidebar form.
 - Promoted concepts can be manually added/edited/deleted and attached to an
-  existing source. Review queue concepts are grouped by source and collapsible.
+  existing source. Adding a concept opens a centered glass modal overlay (not an
+  inline sidebar form). Review queue concepts are grouped by source and
+  collapsible.
+- Constellations (`where_reappears`) are user-curated ONLY. Enrichment and LLM
+  extraction never write them (the full-extraction persist forces `[]`);
+  migration 0020 cleared legacy LLM-generated links. Links store `{ name, reason }`
+  (legacy bare strings still load); the reason is required on add.
+- The review queue is driven by `concepts.reviewed_at` (migration 0021), NOT by
+  `compression_stage` — gaining mastery no longer removes a concept. A per-row
+  `✓ Done` marks reviewed (`concepts.setReviewed` IPC) and removes it; the queue
+  defaults to expanding only the most recently previewed source's group.
 - Star Hubs are shipped (v1): named/color-coded cross-source concept groups
   (`star_hubs` + `star_hub_members`, migration 0019), created via Select-mode
-  multi-select in `ConceptPane`, with hub chips/filter. Still planned: hubs as
-  Map clusters, member roles, nesting.
+  multi-select in `ConceptPane`. Hubs render as Map nebula clusters and live in
+  the Map rail (focus/edit/delete). Still planned: member roles, nesting.
 - The Constellation Map is a shipped top-level "Map" tab (force-directed SVG over
   `concepts.graph()`, source-focused, directional/cross-source edges,
-  reduced-motion aware). Constellation links (`where_reappears`) now store
-  `{ name, reason }` (legacy bare strings still load); the reason is required on
-  add and shows as the Map edge label.
+  reduced-motion aware). It has a left rail (source selector → Hubs →
+  concept search → concept list) and defaults to the most recently previewed
+  source (`starcall.layout.lastSource`, set on Sources-tab select), falling back
+  to the largest source. The footer stats scope to the selected source via
+  `graph.statsBySource`. The mastery ring ramps orange→yellow→green by stage.
 - User-facing provider text should say "configured LLM provider" unless a
   feature is truly Groq-specific.
 - `ARCHITECTURE.md` may be untracked in this workspace; do not remove or overwrite it.
@@ -164,7 +179,8 @@ Candidate rows and parse runs stamp these versions for auditability.
 - Concept rename updates `concepts.name` only; never change `slug` (promotion
   idempotency depends on `(source_id, slug)`).
 - All renderer delete buttons render `×`, never the word "Delete", and carry a
-  descriptive `title`.
+  descriptive `title`. Standalone Cancel buttons that sit beside a primary
+  action also render `×` (the `+ Add` toggles stay as text triggers).
 - Background customization accepts video (`mp4`/`webm`) and images; video
   backgrounds render via `<video autoplay muted loop playsinline>`.
 
@@ -174,7 +190,9 @@ Candidate rows and parse runs stamp these versions for auditability.
   manual ChatGPT topic filtering, configured API filtering inside the LLM
   topic-filter modal, and conservative bulk promotion.
 - Relations, Misconceptions, and Equations candidate tabs use shared glass
-  add/edit/delete controls with inline editors.
+  controls. Adding opens a centered `EditorModal` overlay; row edit stays inline.
+  Row delete and editor cancel are `×` buttons (the `RowButton` `danger` variant
+  renders `×`).
 - Source preview is available beside all concept tabs (toggled by the Source
   button; the legacy in-tab Source tab was removed), can be resized/zoomed,
   has an evidence rail, and must preserve logical page position through tab,
@@ -194,21 +212,31 @@ Candidate rows and parse runs stamp these versions for auditability.
   paste flow, and the generated prompt never write it.
 - Regenerating Challenge tasks excludes every already-seen prompt (live tasks
   + every `task_prompt_snapshot`), sends them as an AVOID list with a twist
-  instruction, and post-filters exact normalized duplicates.
+  instruction, and post-filters exact normalized duplicates. The Regenerate
+  control is a refresh-icon button that spins while generating (reduced-motion
+  aware), not a text button.
 - The grader always returns a non-empty `gaps_detected`, even on `understood`
   — framed as the next-stage step.
 - The Review Queue header has a sort-cycle button (default → importance →
   stage, persisted in localStorage); there is no Refresh button (refetch is
-  event-driven via the `starcall:review-queue-stale` window event).
+  event-driven via the `starcall:review-queue-stale` window event). Membership
+  is `reviewed_at IS NULL` (not mastery stage); each row has a `✓ Done`
+  (mark-reviewed, optimistic remove) plus the `×` delete. On open, only the
+  most recently previewed source's group is expanded.
 - The top-level source tab defaults to Candidates on first launch and
   remembers the last pick.
 - Review queue rows are grouped by source/book with collapsible headers and
   quiet inline delete/undo behavior.
 - Concept Overview supports manual concept fields, equations, constellations,
   and user notes. LLM population should not auto-create constellations.
-- Profile owns display name, avatar, XP/challenge stats, difficulty chart,
-  background image/video, and background opacity. App chrome should stay
-  translucent over the configured background where possible.
+- Profile owns display name, avatar, XP/challenge stats, a GitHub-style
+  challenge-activity heatmap (53 weeks; per-day hover tooltip with a per-source
+  breakdown), a challenges-by-source bar chart, background image/video, and
+  background opacity. `StudyProgress` carries `source_counts` and
+  `daily_activity` (with per-source counts). A level-up fires a supernova
+  overlay and the header XP chip pulses on XP gain (both reduced-motion aware).
+  Panels, the side tab, and the opacity slider are translucent over the
+  configured background.
 - `+ PDF` supports multi-select import. `+ Text` opens a centered large glass
   overlay for long pasted notes/articles/transcripts.
 
