@@ -103,8 +103,17 @@ The grader sees the same context. No domain bias, no default associations.
   same question type cannot be farmed repeatedly.
 - `+ PDF` supports importing multiple PDFs in one file-picker action; `+ Text`
   opens a centered workspace-sized import overlay.
-- Planned next grouping primitive: Star Hubs, named/color-coded concept groups
-  that will later feed constellation/graph organization.
+- Concept search in the concept list and Candidate Review (`/` to focus); a
+  per-concept **Paper** tab — a low-chrome autosaving scratchpad.
+- Cross-source **constellation links** carry a required reason explaining the
+  connection (directional, or mutual when both concepts link each other).
+- **Constellation Map** (top-level "Map" tab): a force-directed star graph of
+  your promoted concepts, focused on a selected source plus the concepts linked
+  to it from other books; one-way vs mutual and same- vs cross-source links are
+  drawn distinctly.
+- **Star Hubs:** group concepts into named, color-coded hubs (cross-source) via
+  multi-select in the concept list; filter the list by hub. (Hub clustering in
+  the Map and member roles are still planned.)
 
 ## Quickstart
 
