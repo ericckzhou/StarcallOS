@@ -51,14 +51,11 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   const [conceptHubs, setConceptHubs] = useState<Map<number, number[]>>(new Map());
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [hubFilter, setHubFilter] = useState<number | null>(null);
   const [hubModalOpen, setHubModalOpen] = useState(false);
   const [hubName, setHubName] = useState('');
   const [hubDesc, setHubDesc] = useState('');
   const [hubColor, setHubColor] = useState(HUB_PALETTE[0]);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
-  const [editHub, setEditHub] = useState<{ id: number; name: string; color: string; description: string } | null>(null);
-  const [hubsExpanded, setHubsExpanded] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
 
@@ -129,8 +126,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   const query = search.trim().toLowerCase();
   const displayed = concepts.filter(c =>
     (filter === 'all' || c.importance === filter) &&
-    (query === '' || c.name.toLowerCase().includes(query)) &&
-    (hubFilter == null || (conceptHubs.get(c.id) ?? []).includes(hubFilter)),
+    (query === '' || c.name.toLowerCase().includes(query)),
   );
 
   function toggleSelected(id: number) {
@@ -155,24 +151,6 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
     await window.api.hubs.addMembers({ hubId, conceptIds: [...selectedIds] });
     setAddMenuOpen(false);
     exitSelect();
-    refreshHubs();
-  }
-  async function removeFromHub(conceptId: number, hubId: number) {
-    await window.api.hubs.removeMember({ hubId, conceptId });
-    refreshHubs();
-  }
-  async function deleteHub(hubId: number) {
-    if (!window.confirm('Delete this hub? Concepts are kept; only the grouping is removed.')) return;
-    await window.api.hubs.delete(hubId);
-    if (hubFilter === hubId) setHubFilter(null);
-    refreshHubs();
-  }
-  async function saveHubEdit() {
-    if (!editHub) return;
-    const name = editHub.name.trim();
-    if (!name) return;
-    await window.api.hubs.update({ id: editHub.id, name, color: editHub.color, description: editHub.description.trim() });
-    setEditHub(null);
     refreshHubs();
   }
   const masteredCount = [...masteries.values()].filter(s => s >= 3).length;
@@ -438,78 +416,6 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           </div>
         </div>
       )}
-      {!selectMode && hubs.length > 0 && (
-        <div style={{ borderBottom: '1px solid #1f2937' }}>
-          <button
-            onClick={() => setHubsExpanded(v => !v)}
-            title={hubsExpanded ? 'Hide hubs' : 'Show hubs'}
-            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', padding: '6px 10px', cursor: 'pointer', color: '#4b5563', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em' }}
-          >
-            <span style={{ display: 'inline-block', transform: (hubsExpanded || hubFilter != null) ? 'rotate(90deg)' : 'none', transition: 'transform 120ms' }}>▸</span>
-            hubs ({hubs.length})
-            {hubFilter != null && <span style={{ marginLeft: 'auto', color: '#818cf8', textTransform: 'none', letterSpacing: 0 }}>filtered</span>}
-          </button>
-        {(hubsExpanded || hubFilter != null) && (
-        <div style={{ padding: '0 10px 8px', display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-          {hubs.map(h => {
-            const on = hubFilter === h.id;
-            return (
-              <span key={h.id} className="cm-hub-chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: on ? 'rgba(129,140,248,0.12)' : 'transparent', border: `1px solid ${on ? h.color : '#1f2937'}`, borderRadius: 12, padding: '1px 4px 1px 8px' }}>
-                <button onClick={() => setHubFilter(on ? null : h.id)} title={`Filter by ${h.name} · ${h.member_count} concept${h.member_count === 1 ? '' : 's'}`}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'transparent', border: 'none', color: on ? '#e2e8f0' : '#94a3b8', fontSize: 10, cursor: 'pointer', padding: '2px 2px 2px 0' }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: h.color, flexShrink: 0 }} />
-                  {h.name}
-                </button>
-                <button className="cm-hub-action" onClick={() => setEditHub({ id: h.id, name: h.name, color: h.color, description: h.description ?? '' })} title={`Edit ${h.name}`} aria-label={`Edit hub ${h.name}`}
-                  style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', padding: 3, display: 'inline-flex', borderRadius: 4 }}>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                  </svg>
-                </button>
-                <button className="cm-hub-action cm-hub-del" onClick={() => void deleteHub(h.id)} title={`Delete ${h.name}`} aria-label={`Delete hub ${h.name}`}
-                  style={{ background: 'transparent', border: 'none', color: '#475569', fontSize: 13, lineHeight: 1, cursor: 'pointer', padding: '3px 4px', borderRadius: 4 }}>×</button>
-              </span>
-            );
-          })}
-          {hubFilter != null && (
-            <button onClick={() => setHubFilter(null)} style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 3, padding: '1px 6px', fontSize: 10, color: '#9ca3af', cursor: 'pointer' }}>clear</button>
-          )}
-        </div>
-        )}
-        </div>
-      )}
-      {editHub && (
-        <div style={{ borderBottom: '1px solid #1f2937', padding: 12, display: 'flex', flexDirection: 'column', gap: 8, background: 'rgba(13,13,22,0.92)' }}>
-          <div style={{ fontSize: 11, color: '#c7d2fe', fontWeight: 800 }}>Edit Hub</div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input
-              autoFocus value={editHub.name}
-              onChange={e => setEditHub(h => (h ? { ...h, name: e.target.value } : h))}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void saveHubEdit(); } else if (e.key === 'Escape') setEditHub(null); }}
-              placeholder="Hub name"
-              style={{ flex: 1, minWidth: 0, background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '7px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
-            />
-            <input
-              type="color" value={editHub.color} onChange={e => setEditHub(h => (h ? { ...h, color: e.target.value } : h))}
-              aria-label="Hub color" title="Hub color"
-              style={{ width: 34, height: 32, padding: 0, border: '1px solid #263244', borderRadius: 4, background: '#111827', cursor: 'pointer', flexShrink: 0 }}
-            />
-          </div>
-          <input
-            value={editHub.description}
-            onChange={e => setEditHub(h => (h ? { ...h, description: e.target.value } : h))}
-            placeholder="Short description (optional)"
-            style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 4, padding: '6px 8px', color: '#cbd5e1', fontSize: 11, outline: 'none' }}
-          />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => void saveHubEdit()} disabled={!editHub.name.trim()}
-              style={{ background: editHub.name.trim() ? '#312e81' : '#111827', border: `1px solid ${editHub.name.trim() ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '6px 12px', color: editHub.name.trim() ? '#e0e7ff' : '#475569', fontSize: 12, fontWeight: 700, cursor: editHub.name.trim() ? 'pointer' : 'not-allowed' }}>
-              Save
-            </button>
-            <button onClick={() => setEditHub(null)} style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '6px 12px', color: '#94a3b8', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
-          </div>
-        </div>
-      )}
       <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         {['all', ...IMPORTANCE_ORDER].map(imp => (
           <button
@@ -576,15 +482,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
               </div>
               <div style={{ paddingLeft: selectMode ? 36 : 15, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 10, color: IMP_COLOR[c.importance] ?? '#6b7280' }}>{c.importance}</span>
-                {hubFilter != null && !selectMode ? (
-                  <button
-                    onClick={e => { e.stopPropagation(); void removeFromHub(c.id, hubFilter); }}
-                    title="Remove from this hub"
-                    style={{ background: 'transparent', border: '1px solid #3f1515', borderRadius: 3, padding: '0 6px', fontSize: 10, color: '#fca5a5', cursor: 'pointer' }}
-                  >− hub</button>
-                ) : stage > 0 ? (
-                  <span style={{ fontSize: 10, color: STAGE_COLORS[stage] }}>Stage {stage}</span>
-                ) : null}
+                {stage > 0 && <span style={{ fontSize: 10, color: STAGE_COLORS[stage] }}>Stage {stage}</span>}
               </div>
             </div>
           );

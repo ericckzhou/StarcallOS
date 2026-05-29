@@ -47,7 +47,7 @@ interface SourceMeta {
   filename: string;
   color: string;
 }
-interface HubLite { id: number; name: string; color: string; }
+interface HubLite { id: number; name: string; color: string; member_count: number; description: string; }
 
 // ─── Design constants ──────────────────────────────────────────────────────────
 
@@ -95,9 +95,9 @@ function useConstellationGraph() {
   const [hubs, setHubs] = useState<HubLite[]>([]);
   const [conceptHubs, setConceptHubs] = useState<Map<number, number[]>>(new Map());
 
-  useEffect(() => {
+  const refreshHubs = useCallback(() => {
     Promise.all([window.api.hubs.list(), window.api.hubs.memberships()]).then(([hs, ms]) => {
-      setHubs((hs as Array<{ id: number; name: string; color: string }>).map(h => ({ id: h.id, name: h.name, color: h.color })));
+      setHubs((hs as HubLite[]).map(h => ({ id: h.id, name: h.name, color: h.color, member_count: h.member_count, description: h.description })));
       const m = new Map<number, number[]>();
       for (const { hub_id, concept_id } of ms as Array<{ hub_id: number; concept_id: number }>) {
         const arr = m.get(concept_id) ?? [];
@@ -107,6 +107,7 @@ function useConstellationGraph() {
       setConceptHubs(m);
     });
   }, []);
+  useEffect(() => { refreshHubs(); }, [refreshHubs]);
 
   useEffect(() => {
     setLoading(true);
@@ -149,7 +150,7 @@ function useConstellationGraph() {
     };
   }, [graph, selectedSource]);
 
-  return { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view, hubs, conceptHubs };
+  return { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view, hubs, conceptHubs, refreshHubs };
 }
 
 interface ForceLayout {
@@ -574,13 +575,15 @@ interface Props {
 
 export default function ConstellationMap({ profile, onConceptChanged }: Props) {
   const reducedMotion = usePrefersReducedMotion();
-  const { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view, hubs, conceptHubs } = useConstellationGraph();
+  const { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view, hubs, conceptHubs, refreshHubs } = useConstellationGraph();
   const layout = useForceLayout(view, reducedMotion, conceptHubs);
 
   const [selected, setSelected] = useState<Concept | null>(null);
   const [hoverNode, setHoverNode] = useState<number | null>(null);
   const [hoverEdge, setHoverEdge] = useState<{ x: number; y: number; text: string } | null>(null);
   const [showHubs, setShowHubs] = useState(true);
+  const [focusedHub, setFocusedHub] = useState<number | null>(null);
+  const [editHub, setEditHub] = useState<{ id: number; name: string; color: string; description: string } | null>(null);
 
   const openNode = useCallback(async (id: number) => {
     const c = await window.api.concepts.get(id);
@@ -588,6 +591,28 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
   }, []);
   const onHoverEnter = useCallback((id: number) => setHoverNode(id), []);
   const onHoverLeave = useCallback((id: number) => setHoverNode(h => (h === id ? null : h)), []);
+
+  async function saveHubEdit() {
+    if (!editHub || !editHub.name.trim()) return;
+    await window.api.hubs.update({ id: editHub.id, name: editHub.name.trim(), color: editHub.color, description: editHub.description.trim() });
+    setEditHub(null);
+    refreshHubs();
+  }
+  async function deleteHub(id: number) {
+    if (!window.confirm('Delete this hub? Concepts are kept; only the grouping is removed.')) return;
+    await window.api.hubs.delete(id);
+    if (focusedHub === id) setFocusedHub(null);
+    if (editHub?.id === id) setEditHub(null);
+    refreshHubs();
+  }
+
+  // A hub focus dims everything outside that hub's members (like hover, but pinned).
+  const focusSet = useMemo(() => {
+    if (focusedHub == null) return null;
+    const s = new Set<number>();
+    for (const [cid, hs] of conceptHubs) if (hs.includes(focusedHub)) s.add(cid);
+    return s;
+  }, [focusedHub, conceptHubs]);
 
   const neighbors = useMemo(() => {
     if (hoverNode == null) return null;
@@ -654,6 +679,48 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
         </div>
 
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'radial-gradient(circle at 50% 40%, rgba(30,27,75,0.42), rgba(2,6,23,0.18))' }}>
+          {showGraph && hubs.length > 0 && (
+            <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 5, width: 204, maxHeight: '72%', overflowY: 'auto', background: 'rgba(4,6,26,0.82)', border: '1px solid #1f2937', borderRadius: 8, padding: 8, backdropFilter: 'blur(8px)' }}>
+              <div style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Hubs</div>
+              {hubs.map(h => (
+                <div key={h.id} className="cm-hub-chip" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 4px', borderRadius: 6, background: focusedHub === h.id ? 'rgba(129,140,248,0.14)' : 'transparent' }}>
+                  <button onClick={() => setFocusedHub(f => (f === h.id ? null : h.id))} title={`Focus ${h.name} · ${h.member_count} concept${h.member_count === 1 ? '' : 's'}`}
+                    style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', cursor: 'pointer', color: focusedHub === h.id ? '#e2e8f0' : '#cbd5e1', fontSize: 11, padding: 0, textAlign: 'left' }}>
+                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: h.color, flexShrink: 0 }} />
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
+                    <span style={{ fontSize: 9, color: '#64748b' }}>{h.member_count}</span>
+                  </button>
+                  <button className="cm-hub-action" onClick={() => setEditHub({ id: h.id, name: h.name, color: h.color, description: h.description ?? '' })} title={`Edit ${h.name}`} aria-label={`Edit hub ${h.name}`}
+                    style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', padding: 2, display: 'inline-flex', borderRadius: 4 }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                  </button>
+                  <button className="cm-hub-action cm-hub-del" onClick={() => void deleteHub(h.id)} title={`Delete ${h.name}`} aria-label={`Delete hub ${h.name}`}
+                    style={{ background: 'transparent', border: 'none', color: '#475569', fontSize: 13, lineHeight: 1, cursor: 'pointer', padding: '2px 3px', borderRadius: 4 }}>×</button>
+                </div>
+              ))}
+              {focusedHub != null && (
+                <button onClick={() => setFocusedHub(null)} style={{ marginTop: 6, width: '100%', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: 3, fontSize: 10, color: '#9ca3af', cursor: 'pointer' }}>Clear focus</button>
+              )}
+              {editHub && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #1f2937', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input autoFocus value={editHub.name} onChange={e => setEditHub(h => (h ? { ...h, name: e.target.value } : h))}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void saveHubEdit(); } else if (e.key === 'Escape') setEditHub(null); }}
+                      placeholder="Hub name" style={{ flex: 1, minWidth: 0, background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '5px 7px', color: '#e2e8f0', fontSize: 11, outline: 'none' }} />
+                    <input type="color" value={editHub.color} onChange={e => setEditHub(h => (h ? { ...h, color: e.target.value } : h))}
+                      aria-label="Hub color" title="Hub color" style={{ width: 28, height: 26, padding: 0, border: '1px solid #263244', borderRadius: 4, background: '#111827', cursor: 'pointer', flexShrink: 0 }} />
+                  </div>
+                  <input value={editHub.description} onChange={e => setEditHub(h => (h ? { ...h, description: e.target.value } : h))}
+                    placeholder="Short description (optional)" style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 4, padding: '5px 7px', color: '#cbd5e1', fontSize: 10, outline: 'none' }} />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => void saveHubEdit()} disabled={!editHub.name.trim()}
+                      style={{ flex: 1, background: editHub.name.trim() ? '#312e81' : '#111827', border: `1px solid ${editHub.name.trim() ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: 5, color: editHub.name.trim() ? '#e0e7ff' : '#475569', fontSize: 11, fontWeight: 700, cursor: editHub.name.trim() ? 'pointer' : 'not-allowed' }}>Save</button>
+                    <button onClick={() => setEditHub(null)} style={{ flex: 1, background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: 5, color: '#94a3b8', fontSize: 11, cursor: 'pointer' }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {loading && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 13 }}>Loading map…</div>
           )}
@@ -686,7 +753,8 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
                 {view.edges.map((e, i) => {
                   const a = posById.get(e.a), b = posById.get(e.b);
                   if (!a || !b) return null;
-                  const active = neighbors == null || (neighbors.has(e.a) && neighbors.has(e.b));
+                  const active = (neighbors == null || (neighbors.has(e.a) && neighbors.has(e.b)))
+                    && (focusSet == null || (focusSet.has(e.a) && focusSet.has(e.b)));
                   const bidir = e.directed === false;
                   const crossSource = a.source_id !== b.source_id;
                   const tip = `${bidir ? 'mutual ↔' : 'one-way →'}${crossSource ? ' · cross-source' : ''}${e.label ? ' · ' + e.label : ''}`;
@@ -710,7 +778,7 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
                       stage={stage} sourceId={node.source_id}
                       sourceColor={sourceColor.get(node.source_id) ?? '#94a3b8'}
                       sourceName={sourceName.get(node.source_id) ?? ''}
-                      dim={neighbors != null && !neighbors.has(node.id)}
+                      dim={(neighbors != null && !neighbors.has(node.id)) || (focusSet != null && !focusSet.has(node.id))}
                       isHover={hoverNode === node.id}
                       isSel={selected?.id === node.id}
                       reducedMotion={reducedMotion}
