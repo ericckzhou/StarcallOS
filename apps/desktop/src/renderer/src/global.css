@@ -176,6 +176,14 @@ body::after {
 .cm-link-del { transition: background-color 140ms ease, color 140ms ease; }
 .cm-link-del:hover { background: #3f1d1d; color: #fecaca; }
 
+/* Star Hub filter chips: keep the chip clean (color + name = filter); reveal
+   edit/delete only on hover or keyboard focus, with color feedback. */
+.cm-hub-action { opacity: 0; transition: opacity 130ms ease, color 130ms ease; }
+.cm-hub-chip:hover .cm-hub-action,
+.cm-hub-chip:focus-within .cm-hub-action { opacity: 1; }
+.cm-hub-action:hover { color: #e2e8f0; }
+.cm-hub-del:hover { color: #fecaca; }
+
 /* Default focus ring tamed for the dark theme. */
 :focus-visible {
   outline: 1px solid #818cf8;

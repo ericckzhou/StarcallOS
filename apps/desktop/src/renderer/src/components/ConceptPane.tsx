@@ -435,20 +435,20 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           {hubs.map(h => {
             const on = hubFilter === h.id;
             return (
-              <span key={h.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: on ? 'rgba(129,140,248,0.12)' : 'transparent', border: `1px solid ${on ? h.color : '#1f2937'}`, borderRadius: 12, padding: '1px 3px 1px 7px' }}>
-                <button onClick={() => setHubFilter(on ? null : h.id)} title={`${h.member_count} concepts`}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'transparent', border: 'none', color: on ? '#e2e8f0' : '#94a3b8', fontSize: 10, cursor: 'pointer', padding: 0 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: h.color }} />
+              <span key={h.id} className="cm-hub-chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, background: on ? 'rgba(129,140,248,0.12)' : 'transparent', border: `1px solid ${on ? h.color : '#1f2937'}`, borderRadius: 12, padding: '1px 4px 1px 8px' }}>
+                <button onClick={() => setHubFilter(on ? null : h.id)} title={`Filter by ${h.name} · ${h.member_count} concept${h.member_count === 1 ? '' : 's'}`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'transparent', border: 'none', color: on ? '#e2e8f0' : '#94a3b8', fontSize: 10, cursor: 'pointer', padding: '2px 2px 2px 0' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: h.color, flexShrink: 0 }} />
                   {h.name}
                 </button>
-                <button onClick={() => setEditHub({ id: h.id, name: h.name, color: h.color })} title="Edit hub" aria-label={`Edit hub ${h.name}`}
-                  style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: 9, lineHeight: 1, cursor: 'pointer', padding: '0 1px', display: 'inline-flex' }}>
+                <button className="cm-hub-action" onClick={() => setEditHub({ id: h.id, name: h.name, color: h.color })} title={`Edit ${h.name}`} aria-label={`Edit hub ${h.name}`}
+                  style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', padding: 3, display: 'inline-flex', borderRadius: 4 }}>
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
                   </svg>
                 </button>
-                <button onClick={() => void deleteHub(h.id)} title="Delete hub" aria-label={`Delete hub ${h.name}`}
-                  style={{ background: 'transparent', border: 'none', color: '#475569', fontSize: 12, lineHeight: 1, cursor: 'pointer', padding: '0 2px' }}>×</button>
+                <button className="cm-hub-action cm-hub-del" onClick={() => void deleteHub(h.id)} title={`Delete ${h.name}`} aria-label={`Delete hub ${h.name}`}
+                  style={{ background: 'transparent', border: 'none', color: '#475569', fontSize: 13, lineHeight: 1, cursor: 'pointer', padding: '3px 4px', borderRadius: 4 }}>×</button>
               </span>
             );
           })}
