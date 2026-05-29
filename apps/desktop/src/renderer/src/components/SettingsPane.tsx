@@ -144,8 +144,9 @@ export default function SettingsPane() {
             return (
               <label key={m} style={{
                 display: 'block', cursor: 'pointer',
-                background: selected ? '#1a1a2e' : '#0d0d16',
-                border: `1px solid ${selected ? info.accent : '#1f2937'}`,
+                background: selected ? 'rgba(26,26,46,0.5)' : 'rgba(13,13,22,0.35)',
+                backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+                border: `1px solid ${selected ? info.accent : 'rgba(31,41,55,0.7)'}`,
                 borderRadius: 6, padding: '12px 14px',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
@@ -178,8 +179,9 @@ export default function SettingsPane() {
             return (
               <label key={p} style={{
                 display: 'block', cursor: 'pointer',
-                background: selected ? '#1a1a2e' : '#0d0d16',
-                border: `1px solid ${selected ? '#818cf8' : '#1f2937'}`,
+                background: selected ? 'rgba(26,26,46,0.5)' : 'rgba(13,13,22,0.35)',
+                backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+                border: `1px solid ${selected ? '#818cf8' : 'rgba(31,41,55,0.7)'}`,
                 borderRadius: 6, padding: '12px 14px',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
@@ -204,7 +206,8 @@ export default function SettingsPane() {
         </div>
 
         <div style={{
-          background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 6,
+          background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+          border: '1px solid rgba(31,41,55,0.7)', borderRadius: 6,
           padding: 14, marginBottom: 28,
         }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
@@ -286,7 +289,9 @@ function ModelSelect({ choices, value, onChange }: {
       value={choices.includes(value) ? value : choices[0]}
       onChange={e => onChange(e.target.value)}
       style={{
-        width: '100%', background: '#1a1a2e', border: '1px solid #1f2937', borderRadius: 4,
+        width: '100%', background: 'rgba(26,26,46,0.45)',
+        backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+        border: '1px solid rgba(31,41,55,0.7)', borderRadius: 4,
         padding: '6px 8px', color: '#e2e8f0', fontSize: 12,
         fontFamily: 'ui-monospace, Consolas, monospace', outline: 'none',
       }}
@@ -309,7 +314,9 @@ function KeyField({ label, placeholder, value, onChange }: {
         onChange={e => onChange(e.target.value)}
         style={{
           width: '100%', boxSizing: 'border-box',
-          background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 5,
+          background: 'rgba(13,13,22,0.45)',
+          backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+          border: '1px solid rgba(31,41,55,0.7)', borderRadius: 5,
           padding: '8px 10px', color: '#e2e8f0', fontSize: 12,
           fontFamily: 'ui-monospace, Consolas, monospace', outline: 'none',
         }}

@@ -57,7 +57,7 @@ contextBridge.exposeInMainWorld('api', {
     notes: {
       list:    (conceptId: number) => ipcRenderer.invoke('conceptNotes:list', conceptId),
       create:  (args: { conceptId: number; heading: string; body?: string }) => ipcRenderer.invoke('conceptNotes:create', args),
-      update:  (args: { id: number; heading?: string; body?: string }) => ipcRenderer.invoke('conceptNotes:update', args),
+      update:  (args: { id: number; heading?: string; body?: string; linkedAnnotationId?: number | null }) => ipcRenderer.invoke('conceptNotes:update', args),
       delete:  (id: number) => ipcRenderer.invoke('conceptNotes:delete', id),
       reorder: (args: { conceptId: number; orderedIds: number[] }) => ipcRenderer.invoke('conceptNotes:reorder', args),
     },

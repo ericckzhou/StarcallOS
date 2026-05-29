@@ -326,6 +326,10 @@ body::after {
 .rel-opt { transition: background-color 110ms ease; }
 .rel-opt:hover, .rel-opt:focus-visible { background: rgba(129, 140, 248, 0.18); }
 
+/* User tag chips: the remove (×) reveals on hover/focus to keep the chip clean. */
+.tag-chip .tag-x { opacity: 0; transition: opacity 110ms ease; width: 0; overflow: hidden; }
+.tag-chip:hover .tag-x, .tag-chip:focus-within .tag-x { opacity: 1; width: auto; }
+
 /* Spinner for in-progress icon buttons (e.g. Regenerate). */
 .spin { transform-box: fill-box; transform-origin: center; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

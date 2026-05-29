@@ -23,11 +23,27 @@ const IMP_COLOR: Record<string, string> = {
   peripheral: '#6b7280', reference_only: '#374151',
 };
 
-// Quick-pick relationship phrasings — click one to seed the reason, then edit.
-const RELATION_OPTIONS = [
-  'Builds on', 'Depends on', 'Contrasts with', 'Generalizes',
-  'Specializes', 'Enables', 'Part of', 'Causes', 'Analogous to',
-];
+interface EvidenceOption {
+  index: number;
+  page: number;
+  kind: string;
+  label: string;
+  quote?: string;
+}
+
+function evidenceReason(ev: EvidenceOption): string {
+  const text = (ev.quote || ev.label || ev.kind || '').trim().replace(/\s+/g, ' ').slice(0, 110);
+  return `p.${ev.page}: ${text}`;
+}
+
+// Clip to n chars, appending an ellipsis when the text was actually truncated.
+function clip(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+function evidenceTitle(ev: EvidenceOption): string {
+  return clip(`p.${ev.page} ${(ev.quote || ev.label || ev.kind || '').trim()}`, 64);
+}
 
 // Typeahead concept linker. Selecting a concept does NOT immediately add it —
 // the user must first state WHY the two concepts relate; that reason is stored
@@ -39,8 +55,14 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
   const [activeIdx, setActiveIdx] = useState(0);
   // A link awaiting its reason. editIndex = index in `value` being edited, or
   // null when it's a brand-new link.
-  const [pending, setPending] = useState<{ name: string; reason: string; editIndex: number | null } | null>(null);
-  const [relOpen, setRelOpen] = useState(false);
+  const [pending, setPending] = useState<{ name: string; targetId: number | null; reason: string; editIndex: number | null; evLabel?: string } | null>(null);
+  const [evOpen, setEvOpen] = useState(false);
+  const [evOptions, setEvOptions] = useState<EvidenceOption[]>([]);
+  const [evLoading, setEvLoading] = useState(false);
+  // Target concept's highlights + notes, used to resolve an evidence span back
+  // to the note linked to its backing highlight (if any).
+  const [targetHighlights, setTargetHighlights] = useState<Array<{ id: number; page: number; selected_text: string }>>([]);
+  const [targetNotes, setTargetNotes] = useState<Array<{ id: number; heading: string; body: string; linked_annotation_id: number | null }>>([]);
   const queryIdRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
@@ -63,16 +85,94 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [input, conceptId, value]);
 
+  // Bumped when evidence changes elsewhere (e.g. a highlight is added in the
+  // source viewer) so the open selector refreshes instead of going stale.
+  const [evRefreshTick, setEvRefreshTick] = useState(0);
+  useEffect(() => {
+    const handler = () => setEvRefreshTick(t => t + 1);
+    window.addEventListener('starcall:evidenceChanged', handler);
+    return () => window.removeEventListener('starcall:evidenceChanged', handler);
+  }, []);
+
+  // Load the linked (target) concept's evidence spans so the reason can point
+  // at one of them. Re-runs whenever the pending link's target changes.
+  const targetId = pending?.targetId ?? null;
+  useEffect(() => {
+    if (targetId == null) { setEvOptions([]); setTargetHighlights([]); setTargetNotes([]); return; }
+    let cancelled = false;
+    setEvLoading(true);
+    (async () => {
+      const meta = await window.api.concepts.sourceEvidence(targetId);
+      if (cancelled) return;
+      setEvOptions(((meta?.evidence ?? []) as EvidenceOption[]));
+      if (meta?.sourceId != null) {
+        const anns = await window.api.sources.annotations.list(meta.sourceId);
+        if (cancelled) return;
+        // Include source-wide highlights too — a note may link to either.
+        setTargetHighlights(anns
+          .filter(a => a.type === 'highlight' && (a.concept_id === targetId || a.scope === 'source'))
+          .map(a => ({ id: a.id, page: a.page, selected_text: a.selected_text })));
+      } else {
+        setTargetHighlights([]);
+      }
+      const notes = await window.api.concepts.notes.list(targetId);
+      if (cancelled) return;
+      setTargetNotes((notes as Array<{ id: number; heading: string; body: string; linked_annotation_id: number | null }>));
+    })().catch(() => {
+      if (!cancelled) { setEvOptions([]); setTargetHighlights([]); setTargetNotes([]); }
+    }).finally(() => { if (!cancelled) setEvLoading(false); });
+    return () => { cancelled = true; };
+  }, [targetId, evRefreshTick]);
+
+  // Resolve an evidence span to the note linked to its backing highlight, if
+  // any. Highlights create evidence spans (kind 'highlight') carrying the
+  // selected text; a note may link to that highlight via linked_annotation_id.
+  function noteTextForEvidence(ev: EvidenceOption): string | null {
+    const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+    const evq = norm(ev.quote ?? '');
+    if (!evq) return null;
+    // Match the backing highlight on the same page. Use containment (either
+    // direction) so a truncated evidence quote still matches its highlight.
+    const hl = targetHighlights.find(a => {
+      if (a.page !== ev.page) return false;
+      const at = norm(a.selected_text);
+      return !!at && (at === evq || at.includes(evq) || evq.includes(at));
+    });
+    if (!hl) return null;
+    const note = targetNotes.find(n => n.linked_annotation_id === hl.id);
+    if (!note) return null;
+    const txt = (note.body?.trim() || note.heading?.trim() || '');
+    return txt || null;
+  }
+
+  // Close the editor when the surrounding concept changes (e.g. switching tabs
+  // from Timothy to Corinthians) — otherwise a stale pending link from the
+  // previous concept would render as a self-relationship on the new one.
+  useEffect(() => {
+    setPending(null);
+    setInput('');
+    setHits([]);
+    setOpen(false);
+    setEvOpen(false);
+  }, [conceptId]);
+
   function beginAdd(h: Hit) {
-    setPending({ name: h.name, reason: '', editIndex: null });
+    setPending({ name: h.name, targetId: h.id, reason: '', editIndex: null });
     setInput(''); setHits([]); setOpen(false);
     setTimeout(() => reasonRef.current?.focus(), 0);
   }
 
-  function beginEdit(i: number) {
+  async function beginEdit(i: number) {
     const link = value[i];
-    setPending({ name: link.name, reason: link.reason, editIndex: i });
+    setPending({ name: link.name, targetId: null, reason: link.reason, editIndex: i });
     setTimeout(() => reasonRef.current?.focus(), 0);
+    // Existing links only store the name — resolve the target id so its
+    // evidence spans can populate the selector.
+    try {
+      const rows = await window.api.concepts.searchByPrefix({ conceptId, prefix: link.name, limit: 8 });
+      const exact = (rows as Hit[]).find(h => h.name.toLowerCase() === link.name.toLowerCase());
+      if (exact) setPending(p => (p && p.editIndex === i ? { ...p, targetId: exact.id } : p));
+    } catch { /* selector simply stays empty if resolution fails */ }
   }
 
   function confirmPending() {
@@ -107,6 +207,14 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
   function renderReasonBox() {
     if (!pending) return null;
     const ready = pending.reason.trim().length > 0;
+    // On reopen we only have the stored reason (which may be a note's text).
+    // Reverse-match it to an evidence span so the selector shows that span's
+    // TITLE, not the note text.
+    const r = pending.reason.trim();
+    const matchedEv = r
+      ? evOptions.find(ev => evidenceReason(ev) === r || noteTextForEvidence(ev) === r)
+      : undefined;
+    const matchedLabel = matchedEv ? evidenceTitle(matchedEv) : null;
     return (
       <div style={{ border: '1px solid #4338ca', borderRadius: 8, padding: 10, background: 'rgba(13,13,22,0.86)', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ fontSize: 12, color: '#c7d2fe' }}>
@@ -115,47 +223,64 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
         <div style={{ position: 'relative' }}>
           <button
             type="button"
-            onClick={() => setRelOpen(o => !o)}
-            onBlur={() => setTimeout(() => setRelOpen(false), 120)}
+            onClick={() => setEvOpen(o => !o)}
+            onBlur={() => setTimeout(() => setEvOpen(false), 120)}
+            disabled={evOptions.length === 0}
+            title={evOptions.length === 0 ? `${pending.name} has no evidence spans to link to` : `Link to an evidence span in ${pending.name}`}
             style={{
               width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               background: 'transparent', border: '1px solid #263244', borderRadius: 4,
-              padding: '5px 8px', color: '#c7d2fe', fontSize: 11, cursor: 'pointer',
+              padding: '5px 8px', color: evOptions.length === 0 ? '#475569' : '#c7d2fe', fontSize: 11,
+              cursor: evOptions.length === 0 ? 'not-allowed' : 'pointer',
             }}
           >
-            <span>Relationship type…</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: (pending.evLabel || matchedLabel) ? '#e0e7ff' : undefined }}>
+              {evLoading
+                ? 'Loading evidence…'
+                : pending.evLabel
+                  ? pending.evLabel
+                  : matchedLabel
+                    ? matchedLabel
+                    : evOptions.length === 0
+                      ? `No evidence in ${pending.name}`
+                      : `Link to evidence in ${pending.name}…`}
+            </span>
             <span style={{ color: '#6b7280' }}>▾</span>
           </button>
-          {relOpen && (
+          {evOpen && evOptions.length > 0 && (
             <div
               role="listbox"
               style={{
                 position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 2, zIndex: 20,
-                background: 'rgba(13,13,22,0.6)', backdropFilter: 'blur(12px)', border: '1px solid #312e81', borderRadius: 6,
+                background: 'rgba(13,13,22,0.6)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+                border: '1px solid #312e81', borderRadius: 6,
                 maxHeight: 240, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
               }}
             >
-              {RELATION_OPTIONS.map(opt => (
+              {evOptions.map(ev => (
                 <button
-                  key={opt}
+                  key={ev.index}
                   type="button"
                   className="rel-opt"
                   onMouseDown={e => e.preventDefault()}
                   onClick={() => {
-                    setPending(p => {
-                      if (!p) return p;
-                      const base = p.reason.trim();
-                      return { ...p, reason: base ? `${opt} ${base}` : `${opt} ` };
-                    });
-                    setRelOpen(false);
+                    // Prefer the note linked to this span's highlight; fall back
+                    // to the evidence title.
+                    const reason = noteTextForEvidence(ev) ?? evidenceReason(ev);
+                    const evLabel = evidenceTitle(ev);
+                    setPending(p => (p ? { ...p, reason, evLabel } : p));
+                    setEvOpen(false);
                     setTimeout(() => reasonRef.current?.focus(), 0);
                   }}
                   style={{
-                    display: 'block', width: '100%', textAlign: 'left', background: 'transparent',
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', background: 'transparent',
                     border: 'none', padding: '6px 10px', fontSize: 11, color: '#e2e8f0', cursor: 'pointer',
                   }}
                 >
-                  {opt}
+                  <span style={{ flexShrink: 0, color: '#818cf8', fontWeight: 700 }}>p.{ev.page}</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {(ev.quote || ev.label || ev.kind || '').trim() || '(no text)'}
+                  </span>
                 </button>
               ))}
             </div>
@@ -169,7 +294,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); confirmPending(); }
             else if (e.key === 'Escape') { e.preventDefault(); setPending(null); }
           }}
-          placeholder={`How does this relate to ${pending.name}? — builds on, contrasts with, depends on…`}
+          placeholder={`Pick an evidence span in ${pending.name} above, or write why they relate…`}
           rows={3}
           style={{ background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '7px 9px', color: '#e2e8f0', fontSize: 12, lineHeight: 1.5, resize: 'vertical', outline: 'none', fontFamily: 'inherit' }}
         />

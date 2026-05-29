@@ -76,6 +76,7 @@ export interface Concept {
   why_exists: string;
   what_breaks: string;
   where_reappears: string[];
+  tags: string[];               // user-authored free-text tags (header chips)
   chunk_ids: number[];
   section_path: string[];       // where first defined in the document
   exam_value: number;           // 0–1: likelihood of appearing in an assessment
@@ -198,6 +199,7 @@ export interface ConceptNote {
   position: number;
   heading: string;
   body: string;
+  linked_annotation_id: number | null;
   created_at: string;
   updated_at: string;
 }

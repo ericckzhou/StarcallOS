@@ -104,7 +104,7 @@ export default function ParseRunsPanel({ sourceId }: Props) {
                 onClick={() => setExpanded(isOpen ? null : r.id)}
                 style={{
                   display: 'block', width: '100%', textAlign: 'left',
-                  background: isOpen ? '#1a1a2e' : 'transparent',
+                  background: isOpen ? 'rgba(26,26,46,0.45)' : 'transparent',
                   border: 'none', padding: '10px 16px', cursor: 'pointer',
                   borderLeft: `3px solid ${statusColor}`,
                 }}
@@ -142,7 +142,7 @@ export default function ParseRunsPanel({ sourceId }: Props) {
               </button>
 
               {isOpen && (
-                <div style={{ padding: '8px 16px 14px 22px', background: '#0d0d16', borderTop: '1px dashed #1f2937', fontSize: 11, color: '#9ca3af', lineHeight: 1.6 }}>
+                <div style={{ padding: '8px 16px 14px 22px', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', borderTop: '1px dashed #1f2937', fontSize: 11, color: '#9ca3af', lineHeight: 1.6 }}>
                   {r.error_msg && (
                     <div style={{
                       marginBottom: 10, padding: '8px 10px', borderRadius: 4,

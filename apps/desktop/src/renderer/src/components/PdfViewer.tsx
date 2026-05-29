@@ -55,6 +55,19 @@ const CONCEPT_ANNOTATION_COLORS = [
   '#c084fc',
 ];
 
+// Highlight swatches — light-to-mid darkness (readable as a highlighter over
+// text), cycled deterministically rather than randomized.
+const HIGHLIGHT_PALETTE = [
+  '#fcd34d', // amber
+  '#f87171', // red
+  '#6ee7b7', // green
+  '#60a5fa', // blue
+  '#a78bfa', // violet
+  '#f472b6', // pink
+  '#2dd4bf', // teal
+  '#fb923c', // orange
+];
+
 interface SavedPdfViewState {
   page: number;
   scrollTop: number;
@@ -79,6 +92,9 @@ interface Props {
   conceptName: string;
   stabilityKey?: string;
   onResizeMouseDown?: (e: React.MouseEvent<HTMLElement>) => void;
+  // External request to scroll to a page (e.g. a note linked to a highlight).
+  // The nonce lets repeated jumps to the same page re-fire.
+  jumpTarget?: { page: number; nonce: number } | null;
 }
 
 function normalizeSelectedText(text: string): string {
@@ -203,7 +219,7 @@ function notePositionFromClientPoint(
   };
 }
 
-export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResizeMouseDown }: Props) {
+export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResizeMouseDown, jumpTarget }: Props) {
   const [data, setData] = useState<SourceEvidence | null>(null);
   const [textBody, setTextBody] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -228,6 +244,14 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
   const [fitScale, setFitScale] = useState<number>(1.0);
   const [intrinsicPageSize, setIntrinsicPageSize] = useState<{ width: number; height: number } | null>(null);
   const renderScale = fitScale * userZoom;
+
+  // Source search. PDF results are matching pages; text results are match
+  // offsets into textBody. null = no active search.
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Array<{ page: number; snippet: string; offset?: number }> | null>(null);
+  const [searching, setSearching] = useState(false);
+  const pageTextCacheRef = useRef<Map<number, string>>(new Map());
+  const textMatchRefs = useRef<Map<number, HTMLElement>>(new Map());
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -285,6 +309,10 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
     setAnnotationEditor(null);
     setNoteMode(false);
     setIntrinsicPageSize(null);
+    setSearchQuery('');
+    setSearchResults(null);
+    pageTextCacheRef.current.clear();
+    textMatchRefs.current.clear();
     fitScaleInitializedRef.current = false;
     pageRefs.current.clear();
     measuredPagesRef.current.clear();
@@ -590,6 +618,187 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
     }
   }
 
+  // External jump request (e.g. clicking a note's linked highlight). Retries
+  // across animation frames until the target page wrapper is mounted, then
+  // aligns it to the top using the same rect-delta math as scrollToPage.
+  const jumpNonce = jumpTarget?.nonce;
+  useEffect(() => {
+    if (!pdfDoc || !jumpTarget) return;
+    const target = clampPage(jumpTarget.page, pdfDoc.numPages);
+    let done = false;
+    let attempts = 0;
+    const tryJump = () => {
+      if (done) return;
+      const el = pageRefs.current.get(target);
+      const container = scrollContainerRef.current;
+      if (el && container) {
+        const delta = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
+        container.scrollTop += delta;
+        setPage(target);
+        currentPageRef.current = target;
+        currentPageOffsetRef.current = 0;
+        currentPageOffsetRatioRef.current = 0;
+        done = true;
+        return;
+      }
+      attempts += 1;
+      if (attempts < 180) window.requestAnimationFrame(tryJump);
+    };
+    window.requestAnimationFrame(tryJump);
+    return () => { done = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpNonce, pdfDoc]);
+
+  function clearSearch(): void {
+    setSearchQuery('');
+    setSearchResults(null);
+  }
+
+  function snippetAround(text: string, idx: number, qLen: number): string {
+    const start = Math.max(0, idx - 32);
+    const end = Math.min(text.length, idx + qLen + 48);
+    return `${start > 0 ? '…' : ''}${text.slice(start, end).trim()}${end < text.length ? '…' : ''}`;
+  }
+
+  async function runSearch(): Promise<void> {
+    const q = searchQuery.trim();
+    if (!q) { setSearchResults(null); return; }
+    const ql = q.toLowerCase();
+    setSearching(true);
+    try {
+      if (data?.isPdf && pdfDoc) {
+        const results: Array<{ page: number; snippet: string }> = [];
+        for (let p = 1; p <= pdfDoc.numPages; p++) {
+          let text = pageTextCacheRef.current.get(p);
+          if (text == null) {
+            const pg = await pdfDoc.getPage(p);
+            const tc = await pg.getTextContent();
+            text = tc.items.map(it => ('str' in it ? (it as { str: string }).str : '')).join(' ');
+            pageTextCacheRef.current.set(p, text);
+          }
+          const idx = text.toLowerCase().indexOf(ql);
+          if (idx >= 0) results.push({ page: p, snippet: snippetAround(text, idx, q.length) });
+        }
+        setSearchResults(results);
+      } else if (textBody != null) {
+        // Text source: collect match offsets so the results list can scroll to
+        // each highlighted hit in the rendered body.
+        const lower = textBody.toLowerCase();
+        const results: Array<{ page: number; snippet: string; offset: number }> = [];
+        let from = 0;
+        let matchIdx = 0;
+        while (results.length < 500) {
+          const idx = lower.indexOf(ql, from);
+          if (idx < 0) break;
+          results.push({ page: 1, offset: matchIdx, snippet: snippetAround(textBody, idx, q.length) });
+          from = idx + ql.length;
+          matchIdx += 1;
+        }
+        setSearchResults(results);
+      }
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function scrollToTextMatch(matchIndex: number): void {
+    const el = textMatchRefs.current.get(matchIndex);
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+
+  function renderSearchBar(): React.ReactNode {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <input
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') void runSearch(); if (e.key === 'Escape') clearSearch(); }}
+          placeholder="Search source…"
+          style={{
+            width: 150, height: 28, boxSizing: 'border-box',
+            background: 'rgba(17,24,39,0.45)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+            border: '1px solid #263244', borderRadius: 4, padding: '0 8px',
+            color: '#e2e8f0', fontSize: 11, outline: 'none',
+          }}
+        />
+        <button onClick={() => void runSearch()} title="Search" disabled={searching} style={navBtnStyle}>
+          {searching ? '…' : '⌕'}
+        </button>
+        {searchResults != null && (
+          <button onClick={clearSearch} title="Clear search" style={navBtnStyle}>×</button>
+        )}
+      </div>
+    );
+  }
+
+  function renderSearchPanel(): React.ReactNode {
+    if (searchResults == null) return null;
+    const isPdf = !!data?.isPdf;
+    return (
+      <div style={{
+        borderBottom: '1px solid rgba(31,41,55,0.75)',
+        background: 'rgba(4,6,26,0.5)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
+        maxHeight: 220, overflowY: 'auto',
+      }}>
+        <div style={{ padding: '6px 12px', fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          {searchResults.length === 0
+            ? 'No matches'
+            : isPdf
+              ? `${searchResults.length} page${searchResults.length === 1 ? '' : 's'} match`
+              : `${searchResults.length} match${searchResults.length === 1 ? '' : 'es'}`}
+        </div>
+        {searchResults.map((r, i) => (
+          <button
+            key={isPdf ? `p${r.page}` : `m${r.offset}`}
+            className="rel-opt"
+            onClick={() => { if (isPdf) scrollToPage(r.page); else scrollToTextMatch(r.offset ?? i); }}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left', background: 'transparent',
+              border: 'none', borderTop: '1px solid rgba(31,41,55,0.4)', cursor: 'pointer',
+              padding: '7px 12px', color: '#cbd5e1', fontSize: 12,
+            }}
+          >
+            {isPdf && <span style={{ color: '#818cf8', fontWeight: 700, marginRight: 8 }}>p.{r.page}</span>}
+            <span style={{ color: '#94a3b8' }}>{r.snippet}</span>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  // Render the plain-text body, wrapping search matches in <mark> nodes whose
+  // refs let the results list scroll to each hit.
+  function renderTextBody(): React.ReactNode {
+    const body = textBody ?? '(empty)';
+    const q = searchQuery.trim();
+    if (searchResults == null || !q) return body;
+    textMatchRefs.current.clear();
+    const ql = q.toLowerCase();
+    const lower = body.toLowerCase();
+    const out: React.ReactNode[] = [];
+    let from = 0;
+    let matchIdx = 0;
+    let idx = lower.indexOf(ql, from);
+    while (idx >= 0) {
+      if (idx > from) out.push(body.slice(from, idx));
+      const capture = matchIdx;
+      out.push(
+        <mark
+          key={`m${capture}`}
+          ref={(el: HTMLElement | null) => { if (el) textMatchRefs.current.set(capture, el); else textMatchRefs.current.delete(capture); }}
+          style={{ background: 'rgba(250,204,21,0.4)', color: '#fde68a', borderRadius: 2 }}
+        >
+          {body.slice(idx, idx + q.length)}
+        </mark>,
+      );
+      from = idx + ql.length;
+      matchIdx += 1;
+      idx = lower.indexOf(ql, from);
+    }
+    if (from < body.length) out.push(body.slice(from));
+    return out;
+  }
+
   function zoomIn():   void { captureCurrentAnchor(); setUserZoom(z => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2))); }
   function zoomOut():  void { captureCurrentAnchor(); setUserZoom(z => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2))); }
   function zoomReset(): void {
@@ -612,13 +821,14 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
   if (!data.isPdf) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-        <Header data={data} conceptName={conceptName} extras={null} />
+        <Header data={data} conceptName={conceptName} extras={renderSearchBar()} />
+        {renderSearchPanel()}
         <pre style={{
           flex: 1, margin: 0, padding: 20, overflow: 'auto',
           background: '#0d0d16', color: '#d1d5db', fontSize: 12, lineHeight: 1.6,
           whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'ui-monospace, Consolas, monospace',
         }}>
-          {textBody ?? '(empty)'}
+          {renderTextBody()}
         </pre>
       </div>
     );
@@ -683,7 +893,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
   function cancelEvidenceEdit(): void { setEvEditingIndex(null); setEvDraft(null); }
   function renderEvidenceEditor(): React.ReactNode {
     if (!evDraft) return null;
-    const inp: React.CSSProperties = { background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '5px 7px', color: '#e2e8f0', fontSize: 11, outline: 'none', boxSizing: 'border-box' };
+    const inp: React.CSSProperties = { background: 'rgba(17,24,39,0.45)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid #263244', borderRadius: 4, padding: '5px 7px', color: '#e2e8f0', fontSize: 11, outline: 'none', boxSizing: 'border-box' };
     return (
       <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(17,24,39,0.72)', background: 'rgba(13,13,22,0.5)', display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -753,7 +963,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
       type: 'highlight',
       createdFrom: 'manual_selection',
       page: highlightAction.page,
-      color: conceptAnnotationColor(conceptId),
+      color: HIGHLIGHT_PALETTE[annotations.filter(a => a.type === 'highlight').length % HIGHLIGHT_PALETTE.length],
       selectedText: highlightAction.selectedText,
       label: '',
       noteBody: '',
@@ -763,6 +973,21 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
       rotation: highlightAction.rotation,
     });
     setAnnotations(prev => [...prev, created]);
+    // Each highlight also becomes a concept evidence span so it shows in the
+    // Evidence rail (and can back tasks/grading), not just as a page overlay.
+    try {
+      const updatedEvidence = await window.api.concepts.addEvidence({
+        conceptId,
+        page: highlightAction.page,
+        kind: 'highlight',
+        label: 'Highlight',
+        quote: highlightAction.selectedText,
+      });
+      if (updatedEvidence) setData(updatedEvidence as SourceEvidence);
+      window.dispatchEvent(new Event('starcall:evidenceChanged'));
+    } catch (e) {
+      console.error('[PdfViewer] highlight→evidence failed', e);
+    }
     setHighlightAction(null);
     window.getSelection()?.removeAllRanges();
   }
@@ -799,7 +1024,8 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
     const updated = await window.api.sources.annotations.update({ id, ...patch });
     if (!updated) return;
     setAnnotations(prev => prev.map(a => a.id === id ? updated : a));
-    setAnnotationEditor({ annotation: updated, anchor: annotationEditor?.anchor ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 } });
+    // Saving from the popover closes (minimizes) it.
+    setAnnotationEditor(null);
   }
 
   async function moveAnnotation(id: number, rects: PdfAnnotationRect[], pageSize: { width: number; height: number }): Promise<void> {
@@ -821,6 +1047,17 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
     setAnnotations(prev => prev.filter(a => a.id !== annotation.id));
     setPendingDeletedAnnotations(prev => [...prev.filter(a => a.id !== annotation.id), deleted]);
     setAnnotationEditor(null);
+    // A highlight created a matching evidence span — remove it too so the
+    // Evidence rail doesn't keep showing a deleted highlight. Restored on undo.
+    if (annotation.type === 'highlight') {
+      try {
+        const updated = await window.api.concepts.deleteEvidenceSpan({
+          conceptId, page: annotation.page, kind: 'highlight', quote: annotation.selected_text,
+        });
+        if (updated) setData(updated as SourceEvidence);
+        window.dispatchEvent(new Event('starcall:evidenceChanged'));
+      } catch (e) { console.error('[PdfViewer] highlight evidence cleanup failed', e); }
+    }
     const timerId = window.setTimeout(() => {
       pendingDeleteTimersRef.current.delete(annotation.id);
       setPendingDeletedAnnotations(prev => prev.filter(a => a.id !== annotation.id));
@@ -838,6 +1075,16 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
     if (!restored) return;
     setPendingDeletedAnnotations(prev => prev.filter(a => a.id !== annotation.id));
     setAnnotations(prev => [...prev.filter(a => a.id !== annotation.id), restored]);
+    // Re-create the evidence span the highlight had contributed.
+    if (annotation.type === 'highlight') {
+      try {
+        const updated = await window.api.concepts.addEvidence({
+          conceptId, page: annotation.page, kind: 'highlight', label: 'Highlight', quote: annotation.selected_text,
+        });
+        if (updated) setData(updated as SourceEvidence);
+        window.dispatchEvent(new Event('starcall:evidenceChanged'));
+      } catch (e) { console.error('[PdfViewer] highlight evidence restore failed', e); }
+    }
   }
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -916,7 +1163,16 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {evEditingIndex === -2 && renderEvidenceEditor()}
               {visibleEvidenceList.map((e, i) => {
-                const color = KIND_COLOR[e.kind] ?? '#6b7280';
+                // Highlight evidence mirrors its on-page highlight color (each
+                // highlight gets a random light shade); other kinds use the
+                // kind palette.
+                const color = e.kind === 'highlight'
+                  ? (annotations.find(a =>
+                      a.type === 'highlight' &&
+                      a.page === e.page &&
+                      normalizeSelectedText(a.selected_text) === normalizeSelectedText(e.quote ?? ''),
+                    )?.color ?? KIND_COLOR.chunk)
+                  : (KIND_COLOR[e.kind] ?? '#6b7280');
                 const selected = e.page === page;
                 if (evEditingIndex === e.index && e.index >= 0) {
                   return <div key={`edit-${e.index}`}>{renderEvidenceEditor()}</div>;
@@ -1046,8 +1302,11 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
               Page {page} / {totalPages}
             </span>
             <button onClick={goNextEvidence} title="Next evidence page" style={navBtnEvidenceStyle}>Ev »</button>
+            <span style={{ width: 8 }} />
+            {renderSearchBar()}
           </>
         } />
+        {renderSearchPanel()}
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
@@ -1479,7 +1738,9 @@ function AnnotationPopover({
         top: Math.min(anchor.y, window.innerHeight - 250),
         width: 280,
         zIndex: 55,
-        background: '#0d0d16',
+        background: 'rgba(13,13,22,0.72)',
+        backdropFilter: 'blur(14px)',
+        WebkitBackdropFilter: 'blur(14px)',
         border: '1px solid #312e81',
         borderRadius: 6,
         boxShadow: '0 16px 50px rgba(0,0,0,0.55)',
@@ -1512,7 +1773,7 @@ function AnnotationPopover({
           <div style={{ fontSize: 10, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             Selected text
           </div>
-          <div style={{ maxHeight: 80, overflowY: 'auto', color: '#cbd5e1', fontSize: 12, lineHeight: 1.45, marginBottom: 10, padding: 8, background: '#111827', border: '1px solid #1f2937', borderRadius: 4 }}>
+          <div style={{ maxHeight: 80, overflowY: 'auto', color: '#cbd5e1', fontSize: 12, lineHeight: 1.45, marginBottom: 10, padding: 8, background: 'rgba(17,24,39,0.4)', border: '1px solid #1f2937', borderRadius: 4 }}>
             {annotation.selected_text || '(empty selection)'}
           </div>
           <input
@@ -1632,7 +1893,9 @@ const floatingActionStyle: React.CSSProperties = {
 const popoverInputStyle: React.CSSProperties = {
   width: '100%',
   boxSizing: 'border-box',
-  background: '#111827',
+  background: 'rgba(17,24,39,0.45)',
+  backdropFilter: 'blur(6px)',
+  WebkitBackdropFilter: 'blur(6px)',
   border: '1px solid #263244',
   borderRadius: 4,
   color: '#e2e8f0',

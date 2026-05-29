@@ -7,6 +7,7 @@ interface ConceptNoteRow {
   position: number;
   heading: string;
   body: string;
+  linked_annotation_id: number | bigint | null;
   created_at: string;
   updated_at: string;
 }
@@ -18,6 +19,7 @@ function rowToNote(row: ConceptNoteRow): ConceptNote {
     position: row.position,
     heading: row.heading,
     body: row.body,
+    linked_annotation_id: row.linked_annotation_id == null ? null : Number(row.linked_annotation_id),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -56,7 +58,7 @@ export function createNote(
 export function updateNote(
   db: DatabaseSync,
   id: number,
-  patch: { heading?: string; body?: string },
+  patch: { heading?: string; body?: string; linkedAnnotationId?: number | null },
 ): ConceptNote | null {
   const existing = db
     .prepare('SELECT * FROM concept_notes WHERE id = ?')
@@ -67,12 +69,15 @@ export function updateNote(
     ? (patch.heading.trim() || 'Untitled note')
     : existing.heading;
   const body = patch.body !== undefined ? patch.body : existing.body;
+  const linkedAnnotationId = patch.linkedAnnotationId !== undefined
+    ? patch.linkedAnnotationId
+    : (existing.linked_annotation_id == null ? null : Number(existing.linked_annotation_id));
 
   db.prepare(
     `UPDATE concept_notes
-       SET heading = ?, body = ?, updated_at = CURRENT_TIMESTAMP
+       SET heading = ?, body = ?, linked_annotation_id = ?, updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
-  ).run(heading, body, id);
+  ).run(heading, body, linkedAnnotationId, id);
 
   const row = db
     .prepare('SELECT * FROM concept_notes WHERE id = ?')
@@ -100,14 +105,20 @@ export function reorderNotes(
       throw new Error(`note ${id} does not belong to concept ${conceptId}`);
     }
   }
-  if (orderedIds.length !== owned.length) {
-    throw new Error(`reorder expects all ${owned.length} notes, got ${orderedIds.length}`);
+  // Reject duplicates, but DON'T require every owned id: some notes are
+  // intentionally hidden from the reordering UI (the __paper__ scratchpad).
+  // Owned notes not in the list keep their rows and are packed after the
+  // explicitly ordered ones.
+  if (new Set(orderedIds).size !== orderedIds.length) {
+    throw new Error('reorder received duplicate note ids');
   }
+  const listed = new Set(orderedIds);
+  const finalOrder = [...orderedIds, ...owned.filter(id => !listed.has(id))];
 
   db.exec('BEGIN');
   try {
     const stmt = db.prepare('UPDATE concept_notes SET position = ? WHERE id = ?');
-    orderedIds.forEach((id, idx) => stmt.run(idx, id));
+    finalOrder.forEach((id, idx) => stmt.run(idx, id));
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');

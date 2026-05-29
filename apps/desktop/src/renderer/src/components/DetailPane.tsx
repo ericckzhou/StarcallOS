@@ -69,6 +69,7 @@ const EVIDENCE_KIND_COLOR: Record<string, string> = {
   relation:   '#a855f7',
   chunk:      '#818cf8',
   first_page: '#6b7280',
+  highlight:  '#facc15',
 };
 const SOURCE_PREVIEW_KEY = 'starcall.layout.sourcePreviewOpen';
 const SOURCE_PREVIEW_NOTES_WIDTH_KEY = 'starcall.layout.sourcePreviewNotesWidth';
@@ -93,6 +94,32 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   const [sourcePreviewOpen, setSourcePreviewOpen] = useState(() => localStorage.getItem(SOURCE_PREVIEW_KEY) === 'true');
   const [sourcePreviewNotesWidth, setSourcePreviewNotesWidth] = useState(() => Number(localStorage.getItem(SOURCE_PREVIEW_NOTES_WIDTH_KEY)) || 760);
   const sourcePreviewSplitRef = useRef<HTMLDivElement>(null);
+  const [jumpTarget, setJumpTarget] = useState<{ page: number; nonce: number } | null>(null);
+  // Per-concept dismissed evidence-kind chips (a view preference, localStorage).
+  const [dismissedKinds, setDismissedKinds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!concept) { setDismissedKinds([]); return; }
+    try {
+      const raw = localStorage.getItem(`starcall.concept.${concept.id}.dismissedKinds`);
+      setDismissedKinds(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch { setDismissedKinds([]); }
+  }, [concept?.id]);
+  function dismissKind(k: string): void {
+    if (!concept) return;
+    setDismissedKinds(prev => {
+      if (prev.includes(k)) return prev;
+      const next = [...prev, k];
+      localStorage.setItem(`starcall.concept.${concept.id}.dismissedKinds`, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  // Open the source preview (if closed) and scroll the PDF to a page — used
+  // when a note's linked highlight chip is clicked.
+  function handleJumpToAnnotation(page: number): void {
+    setSourcePreviewOpen(true);
+    setJumpTarget({ page, nonce: Date.now() });
+  }
 
   useEffect(() => {
     if (!concept) return;
@@ -258,6 +285,10 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
     const set = new Set(evidenceKinds);
     if (equations.length > 0) set.add('equation');
     else set.delete('equation');
+    // 'highlight' spans exist for the Evidence rail but add noise as a header
+    // chip — every highlight would surface one.
+    set.delete('highlight');
+    for (const k of dismissedKinds) set.delete(k);
     return [...set];
   })();
   const TAB_LABELS = {
@@ -268,7 +299,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   };
   const activeTabContent = (
     <>
-      {tab === 'overview' && <OverviewTab concept={concept} misconceptions={misconceptions} equations={equations} onEquationsChange={setEquations} />}
+      {tab === 'overview' && <OverviewTab concept={concept} misconceptions={misconceptions} equations={equations} onEquationsChange={setEquations} onJumpToAnnotation={handleJumpToAnnotation} />}
       {tab === 'paper' && <PaperTab conceptId={concept.id} />}
       {tab === 'challenge' && (
         <ChallengeTab
@@ -318,14 +349,9 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
               <EditableTitle concept={concept} compact />
               <ImportancePill concept={concept} compact />
               {headerKinds.map(k => (
-                <span key={k} style={{
-                  fontSize: 10, padding: '2px 7px', borderRadius: 3,
-                  border: `1px solid ${EVIDENCE_KIND_COLOR[k] ?? '#374151'}`,
-                  color: EVIDENCE_KIND_COLOR[k] ?? '#6b7280',
-                  textTransform: 'uppercase', letterSpacing: '0.05em',
-                  flexShrink: 0,
-                }}>{k.replace(/_/g, ' ')}</span>
+                <KindChip key={k} kind={k} onDismiss={() => dismissKind(k)} />
               ))}
+              <TagBar concept={concept} />
               <span style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 10px', borderRadius: 12, background: `${STAGE_COLORS[stage]}22`, color: STAGE_COLORS[stage], fontWeight: 600, flexShrink: 0 }}>
                 {STAGES[stage]}
               </span>
@@ -351,6 +377,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
             conceptName={concept.name}
             stabilityKey={tab}
             onResizeMouseDown={beginSourcePreviewResize}
+            jumpTarget={jumpTarget}
           />
         </section>
       </main>
@@ -369,13 +396,9 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
           <EditableTitle concept={concept} />
           <ImportancePill concept={concept} />
           {headerKinds.map(k => (
-            <span key={k} style={{
-              fontSize: 10, padding: '2px 7px', borderRadius: 3,
-              border: `1px solid ${EVIDENCE_KIND_COLOR[k] ?? '#374151'}`,
-              color: EVIDENCE_KIND_COLOR[k] ?? '#6b7280',
-              textTransform: 'uppercase', letterSpacing: '0.05em',
-            }}>{k.replace(/_/g, ' ')}</span>
+            <KindChip key={k} kind={k} onDismiss={() => dismissKind(k)} />
           ))}
+          <TagBar concept={concept} />
           <span style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 10px', borderRadius: 12, background: `${STAGE_COLORS[stage]}22`, color: STAGE_COLORS[stage], fontWeight: 600 }}>
             {STAGES[stage]}
           </span>
@@ -495,11 +518,12 @@ function PaperTab({ conceptId }: { conceptId: number }) {
   );
 }
 
-function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: {
+function OverviewTab({ concept, misconceptions, equations, onEquationsChange, onJumpToAnnotation }: {
   concept: Concept;
   misconceptions: Misconception[];
   equations: Equation[];
   onEquationsChange: (equations: Equation[]) => void;
+  onJumpToAnnotation: (page: number) => void;
 }) {
   const [local, setLocal] = useState({
     definition_text: concept.definition_text || '',
@@ -1132,7 +1156,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
         </Section>
       )}
 
-      <UserNotesSection conceptId={concept.id} />
+      <UserNotesSection conceptId={concept.id} sourceId={concept.source_id} onJumpToAnnotation={onJumpToAnnotation} />
 
       {/* ChatGPT prompt generator — paste to external LLM if you don't want to spend on enrich */}
       <div style={{
@@ -1577,6 +1601,106 @@ function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task:
 }
 
 const IMPORTANCE_ORDER = ['foundational', 'core', 'supporting', 'peripheral', 'reference_only'];
+
+// Auto-derived evidence-kind chip (HEADING/CHUNK/…). Read-only label, but
+// dismissible via a hover-revealed × (a per-concept view preference).
+function KindChip({ kind, onDismiss }: { kind: string; onDismiss: () => void }) {
+  const color = EVIDENCE_KIND_COLOR[kind] ?? '#6b7280';
+  return (
+    <span className="tag-chip" style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      fontSize: 10, padding: '2px 7px', borderRadius: 3,
+      border: `1px solid ${EVIDENCE_KIND_COLOR[kind] ?? '#374151'}`,
+      color, textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0,
+    }}>
+      {kind.replace(/_/g, ' ')}
+      <button
+        className="tag-x"
+        onClick={onDismiss}
+        title={`Hide the ${kind} chip on this concept`}
+        style={{ background: 'transparent', border: 'none', color, cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0 }}
+      >×</button>
+    </span>
+  );
+}
+
+// User-authored free-text tags. Renders as removable chips (hover → ×) plus a
+// "+ tag" affordance. Persists via updateFields and keeps the shared concept
+// ref in sync, mirroring ImportancePill.
+function TagBar({ concept }: { concept: Concept }) {
+  const [tags, setTags] = useState<string[]>(concept.tags ?? []);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { setTags(concept.tags ?? []); }, [concept.id, concept.tags]);
+
+  function persist(next: string[]) {
+    setTags(next);
+    concept.tags = next; // keep the shared ref current until the next refetch
+    void window.api.concepts.updateFields({ conceptId: concept.id, tags: next });
+  }
+  function commitDraft() {
+    const t = draft.trim();
+    setAdding(false);
+    setDraft('');
+    if (!t) return;
+    if (tags.some(x => x.toLowerCase() === t.toLowerCase())) return;
+    persist([...tags, t]);
+  }
+  function removeTag(t: string) {
+    persist(tags.filter(x => x !== t));
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }}>
+      {tags.map(t => (
+        <span key={t} className="tag-chip" style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontSize: 10, padding: '2px 6px', borderRadius: 3,
+          border: '1px solid #4338ca', color: '#c7d2fe', background: 'rgba(49,46,129,0.32)',
+          letterSpacing: '0.03em', flexShrink: 0,
+        }}>
+          {t}
+          <button
+            className="tag-x"
+            onClick={() => removeTag(t)}
+            title={`Remove tag "${t}"`}
+            style={{ background: 'transparent', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0 }}
+          >×</button>
+        </span>
+      ))}
+      {adding ? (
+        <input
+          ref={inputRef}
+          autoFocus
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { e.preventDefault(); commitDraft(); }
+            else if (e.key === 'Escape') { e.preventDefault(); setAdding(false); setDraft(''); }
+          }}
+          onBlur={commitDraft}
+          placeholder="tag…"
+          style={{
+            width: 80, fontSize: 10, padding: '2px 6px', borderRadius: 3,
+            background: 'rgba(17,24,39,0.45)', border: '1px solid #4338ca',
+            color: '#e2e8f0', outline: 'none',
+          }}
+        />
+      ) : (
+        <button
+          onClick={() => setAdding(true)}
+          title="Add a tag"
+          style={{
+            fontSize: 10, padding: '2px 6px', borderRadius: 3,
+            border: '1px dashed #374151', background: 'transparent',
+            color: '#a5b4fc', cursor: 'pointer', flexShrink: 0,
+          }}
+        >+ tag</button>
+      )}
+    </div>
+  );
+}
 
 // Click-to-edit importance tag: click the pill → pick a new importance → saves.
 function ImportancePill({ concept, compact = false }: { concept: Concept; compact?: boolean }) {

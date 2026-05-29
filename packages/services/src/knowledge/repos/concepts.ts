@@ -24,6 +24,7 @@ interface ConceptRow {
   misconception_risk: number;
   centrality_score: number;
   created_at: string;
+  tags_json?: string;
   evidence_json?: string;
   reviewed_at?: string | null;
 }
@@ -39,6 +40,7 @@ function rowToConcept(row: ConceptRow): Concept {
     why_exists: row.why_exists,
     what_breaks: row.what_breaks,
     where_reappears: JSON.parse(row.where_reappears) as string[],
+    tags: row.tags_json ? (JSON.parse(row.tags_json) as string[]) : [],
     chunk_ids: JSON.parse(row.chunk_ids) as number[],
     section_path: JSON.parse(row.section_path) as string[],
     exam_value: row.exam_value,
@@ -50,7 +52,7 @@ function rowToConcept(row: ConceptRow): Concept {
 
 export function createConcept(
   db: DatabaseSync,
-  input: Omit<Concept, 'id' | 'created_at'>,
+  input: Omit<Concept, 'id' | 'created_at' | 'tags'>,
 ): Concept {
   const result = db
     .prepare(
@@ -123,6 +125,10 @@ export function deleteConceptEvidenceSpan(
   const kindMatch = (s: { source: string }): string =>
     s.source === 'heading' ? 'heading'
     : s.source === 'definition_pattern' ? 'definition'
+    : s.source === 'equation' ? 'equation'
+    : s.source === 'relation' ? 'relation'
+    : s.source === 'first_page' ? 'first_page'
+    : s.source === 'highlight' ? 'highlight'
     : 'chunk';
   const next = spans.filter(s =>
     !(s.page === page && kindMatch(s) === kind && (s.quote ?? '') === quote),
@@ -142,13 +148,14 @@ export function updateConceptFields(
     what_breaks?: string;
     where_reappears?: Array<string | { name: string; reason?: string }>;
     importance?: string;
+    tags?: string[];
   },
 ): Concept | null {
   const current = getConceptById(db, id);
   if (!current) return null;
   db.prepare(
     `UPDATE concepts
-     SET definition_text = ?, why_exists = ?, what_breaks = ?, where_reappears = ?, importance = ?
+     SET definition_text = ?, why_exists = ?, what_breaks = ?, where_reappears = ?, importance = ?, tags_json = ?
      WHERE id = ?`,
   ).run(
     fields.definition_text ?? current.definition_text,
@@ -156,6 +163,7 @@ export function updateConceptFields(
     fields.what_breaks     ?? current.what_breaks,
     JSON.stringify(fields.where_reappears ?? current.where_reappears),
     fields.importance      ?? current.importance,
+    JSON.stringify(fields.tags ?? current.tags),
     id,
   );
   return getConceptById(db, id);
@@ -651,7 +659,7 @@ export function setConceptReviewed(db: DatabaseSync, conceptId: number, reviewed
 
 // ─── Evidence aggregator (for source-viewer pane) ────────────────────────────
 
-export type SourceEvidenceKind = 'chunk' | 'equation' | 'relation' | 'heading' | 'definition' | 'first_page';
+export type SourceEvidenceKind = 'chunk' | 'equation' | 'relation' | 'heading' | 'definition' | 'first_page' | 'highlight';
 
 export interface SourceEvidence {
   // Stable position in the concept's evidence_json store (-1 = synthetic
@@ -678,6 +686,7 @@ function deriveEvidenceKind(source: string): SourceEvidenceKind {
     : source === 'equation' ? 'equation'
     : source === 'relation' ? 'relation'
     : source === 'first_page' ? 'first_page'
+    : source === 'highlight' ? 'highlight'
     : 'chunk';
 }
 

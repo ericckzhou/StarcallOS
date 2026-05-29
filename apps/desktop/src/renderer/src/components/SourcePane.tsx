@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 export type Source = {
@@ -33,6 +33,13 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
   const [textTitle, setTextTitle] = useState('');
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === 'true');
   const [processSummaries, setProcessSummaries] = useState<Record<number, string>>({});
+  // Deleting a source cascades away concepts/evidence/XP, so we defer the real
+  // delete behind a 5s undo window instead of a confirm popup. Nothing is
+  // destroyed until the timer fires — undo just cancels it and restores the row.
+  const [pendingDeletes, setPendingDeletes] = useState<{ source: Source; index: number }[]>([]);
+  const deleteTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => () => { for (const t of deleteTimers.current.values()) clearTimeout(t); }, []);
 
   useEffect(() => {
     localStorage.setItem(COLLAPSED_KEY, String(collapsed));
@@ -97,14 +104,35 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
     closeTextModal();
   }
 
-  async function handleDelete(e: React.MouseEvent, sourceId: number) {
+  function handleDelete(e: React.MouseEvent, sourceId: number) {
     e.stopPropagation();
-    await window.api.sources.delete(sourceId);
+    if (deleteTimers.current.has(sourceId)) return;
+    const index = sources.findIndex(s => s.id === sourceId);
+    const source = sources[index];
+    if (!source) return;
+    // Optimistically remove from the list; the DB row survives until the timer.
     onSourcesChange(sources.filter(s => s.id !== sourceId));
-    // Deleting a source cascades away its concepts + evidence_records, so XP,
-    // challenge counts, and the review queue all change — tell them to refetch.
-    window.dispatchEvent(new Event('starcall:progressChanged'));
-    window.dispatchEvent(new Event('starcall:review-queue-stale'));
+    setPendingDeletes(prev => [...prev, { source, index }]);
+    const timer = setTimeout(() => {
+      deleteTimers.current.delete(sourceId);
+      setPendingDeletes(prev => prev.filter(p => p.source.id !== sourceId));
+      void window.api.sources.delete(sourceId).then(() => {
+        // The cascade changes XP, challenge counts, and the review queue —
+        // tell the rest of the app to refetch.
+        window.dispatchEvent(new Event('starcall:progressChanged'));
+        window.dispatchEvent(new Event('starcall:review-queue-stale'));
+      });
+    }, 5000);
+    deleteTimers.current.set(sourceId, timer);
+  }
+
+  function undoDelete(entry: { source: Source; index: number }) {
+    const timer = deleteTimers.current.get(entry.source.id);
+    if (timer) { clearTimeout(timer); deleteTimers.current.delete(entry.source.id); }
+    setPendingDeletes(prev => prev.filter(p => p.source.id !== entry.source.id));
+    const next = [...sources];
+    next.splice(Math.min(entry.index, next.length), 0, entry.source);
+    onSourcesChange(next);
   }
 
   async function handleExtract(e: React.MouseEvent, sourceId: number) {
@@ -218,6 +246,25 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
           );
         })}
       </div>
+      {pendingDeletes.length > 0 && (
+        <div style={{ padding: '8px 10px', borderTop: '1px solid rgba(31,41,55,0.75)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {pendingDeletes.map(entry => (
+            <div key={`pending-${entry.source.id}`} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: 'rgba(13,13,22,0.6)', border: '1px solid #1f2937', borderRadius: 6,
+              padding: '7px 9px', fontSize: 11, color: '#94a3b8',
+            }}>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={entry.source.title ?? entry.source.filename}>
+                Deleted “{entry.source.title ?? entry.source.filename}”.
+              </span>
+              <button
+                onClick={() => undoDelete(entry)}
+                style={{ background: '#1e1b4b', border: '1px solid #6366f1', borderRadius: 4, color: '#c7d2fe', cursor: 'pointer', fontSize: 11, fontWeight: 700, padding: '3px 9px' }}
+              >Undo</button>
+            </div>
+          ))}
+        </div>
+      )}
       {textModal && createPortal((
         <div
           onMouseDown={handleTextBackdropClick}

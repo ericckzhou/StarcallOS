@@ -211,6 +211,7 @@ export interface UpdateConceptFieldsArgs {
   what_breaks?: string;
   where_reappears?: Array<string | ConstellationLink>;
   importance?: string;
+  tags?: string[];
 }
 
 export interface EnrichedConcept {
@@ -462,7 +463,7 @@ export interface IpcApi {
     notes: {
       list:    (conceptId: number) => Promise<ConceptNote[]>;
       create:  (args: { conceptId: number; heading: string; body?: string }) => Promise<ConceptNote>;
-      update:  (args: { id: number; heading?: string; body?: string }) => Promise<ConceptNote | null>;
+      update:  (args: { id: number; heading?: string; body?: string; linkedAnnotationId?: number | null }) => Promise<ConceptNote | null>;
       delete:  (id: number) => Promise<{ ok: true }>;
       reorder: (args: { conceptId: number; orderedIds: number[] }) => Promise<ConceptNote[]>;
     };

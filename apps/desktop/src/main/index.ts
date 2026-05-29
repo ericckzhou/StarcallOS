@@ -530,8 +530,8 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CONCEPT_NOTES_CREATE, (_e, args: { conceptId: number; heading: string; body?: string }) =>
     createNote(db, args.conceptId, { heading: args.heading, body: args.body }),
   );
-  ipcMain.handle(IPC.CONCEPT_NOTES_UPDATE, (_e, args: { id: number; heading?: string; body?: string }) =>
-    updateNote(db, args.id, { heading: args.heading, body: args.body }),
+  ipcMain.handle(IPC.CONCEPT_NOTES_UPDATE, (_e, args: { id: number; heading?: string; body?: string; linkedAnnotationId?: number | null }) =>
+    updateNote(db, args.id, { heading: args.heading, body: args.body, linkedAnnotationId: args.linkedAnnotationId }),
   );
   ipcMain.handle(IPC.CONCEPT_NOTES_DELETE, (_e, id: number) => {
     deleteNote(db, id);
