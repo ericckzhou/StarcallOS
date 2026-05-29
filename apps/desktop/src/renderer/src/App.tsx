@@ -6,6 +6,7 @@ import CandidateReview from './components/CandidateReview';
 import ReviewQueue from './components/ReviewQueue';
 import ProfilePane, { Avatar } from './components/ProfilePane';
 import ParseRunsPanel from './components/ParseRunsPanel';
+import ConstellationMap from './components/ConstellationMap';
 import { loadProfile, xpToNext, type Profile, type StudyProgress } from './components/profile';
 
 type Tab = 'concepts' | 'candidates' | 'runs';
@@ -16,7 +17,7 @@ function loadInitialTab(): Tab {
   const stored = localStorage.getItem(SOURCE_TAB_KEY);
   return (stored && (VALID_TABS as string[]).includes(stored)) ? (stored as Tab) : 'candidates';
 }
-type TopLevel = 'sources' | 'review' | 'profile';
+type TopLevel = 'sources' | 'review' | 'map' | 'profile';
 
 export default function App() {
   const [topLevel, setTopLevel] = useState<TopLevel>('sources');
@@ -140,6 +141,7 @@ export default function App() {
         <div style={{ display: 'flex', height: '100%' }}>
           {topBtn('sources',  'Sources')}
           {topBtn('review',   'Review')}
+          {topBtn('map',      'Map')}
         </div>
         <button
           onClick={() => { setTopLevel('profile'); setSelectedConcept(null); }}
@@ -175,6 +177,11 @@ export default function App() {
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
           <ProfilePane profile={profile} progress={progress} onProfileChange={setProfile} />
         </div>
+      ) : topLevel === 'map' ? (
+        <ConstellationMap
+          profile={profile}
+          onConceptChanged={() => setConceptsRefreshKey(k => k + 1)}
+        />
       ) : topLevel === 'review' ? (
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
           <ReviewQueue

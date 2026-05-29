@@ -44,6 +44,8 @@ export const IPC = {
   CONCEPTS_ENRICH:         'concepts:enrich',
   CONCEPTS_UPDATE_FIELDS:  'concepts:updateFields',
   CONCEPTS_SEARCH_BY_PREFIX: 'concepts:searchByPrefix',
+  CONCEPTS_GRAPH:            'concepts:graph',
+  CONCEPTS_GET:             'concepts:get',
   CONCEPTS_RENAME:           'concepts:rename',
   CONCEPTS_DELETE:         'concepts:delete',
   CONCEPTS_DELETE_EVIDENCE_SPAN: 'concepts:deleteEvidenceSpan',
@@ -183,12 +185,19 @@ export interface UpdatePdfAnnotationArgs {
   rotation?: number | null;
 }
 
+// A constellation link: the linked concept name plus the user's reason for the
+// link. Legacy data may still contain bare strings (no reason captured yet).
+export interface ConstellationLink {
+  name: string;
+  reason: string;
+}
+
 export interface UpdateConceptFieldsArgs {
   conceptId: number;
   definition_text?: string;
   why_exists?: string;
   what_breaks?: string;
-  where_reappears?: string[];
+  where_reappears?: Array<string | ConstellationLink>;
 }
 
 export interface EnrichedConcept {
@@ -303,6 +312,39 @@ export interface LlmFilterSetArgs {
   keepTerms: string[] | null;
 }
 
+export interface ConstellationGraphNode {
+  id: number;
+  name: string;
+  slug: string;
+  source_id: number;
+  source_filename?: string;
+  importance: string;
+  mastery_stage: number;
+  degree: number;
+}
+
+export interface ConstellationGraphEdge {
+  a: number;
+  b: number;
+  kind: 'constellation' | 'relation';
+  label?: string;
+  // true = one-way (a → b); false = mutual / bidirectional (a ↔ b).
+  directed?: boolean;
+}
+
+export interface ConstellationGraph {
+  nodes: ConstellationGraphNode[];
+  edges: ConstellationGraphEdge[];
+  stats: {
+    nodeCount: number;
+    edgeCount: number;
+    danglingConstellations: number;
+    unresolvedRelations: number;
+    duplicateEdges: number;
+    capped: boolean;
+  };
+}
+
 export interface StudyProgress {
   total_xp: number;
   level: number;
@@ -358,6 +400,8 @@ export interface IpcApi {
     delete: (conceptId: number) => Promise<{ ok: true }>;
     deleteEvidenceSpan: (args: { conceptId: number; page: number; kind: string; quote: string }) => Promise<ConceptSourceEvidence | null>;
     searchByPrefix: (args: { conceptId: number; prefix: string; limit?: number }) => Promise<Array<{ id: number; name: string; importance: string }>>;
+    graph: () => Promise<ConstellationGraph>;
+    get: (conceptId: number) => Promise<Concept | null>;
     rename: (args: { conceptId: number; name: string }) => Promise<Concept | null>;
     notes: {
       list:    (conceptId: number) => Promise<ConceptNote[]>;

@@ -3,7 +3,7 @@ import type { Concept } from './ConceptPane';
 import LatexMath from './LatexMath';
 import PdfViewer from './PdfViewer';
 import UserNotesSection from './UserNotesSection';
-import WhereItReappearsEditor from './WhereItReappearsEditor';
+import WhereItReappearsEditor, { type ConstellationLink } from './WhereItReappearsEditor';
 import type { Profile } from './profile';
 
 type Task = { id: number; kind: string; prompt: string; difficulty: number };
@@ -510,9 +510,18 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
     why_exists:      concept.why_exists      || '',
     what_breaks:     concept.what_breaks     || '',
   });
-  const normalizeReappears = (v: Concept['where_reappears']): string[] =>
-    Array.isArray(v) ? v : (typeof v === 'string' && v.trim() !== '' ? [v] : []);
-  const [constellations, setConstellations] = useState<string[]>(() => normalizeReappears(concept.where_reappears));
+  // Accepts legacy bare-string links and the current { name, reason } shape.
+  const normalizeReappears = (v: Concept['where_reappears']): ConstellationLink[] => {
+    const arr = Array.isArray(v) ? v : (typeof v === 'string' && v.trim() !== '' ? [v] : []);
+    return (arr as Array<unknown>)
+      .map(raw => {
+        if (typeof raw === 'string') return { name: raw, reason: '' };
+        const o = raw as { name?: string; reason?: string };
+        return o && typeof o.name === 'string' ? { name: o.name, reason: o.reason ?? '' } : null;
+      })
+      .filter((l): l is ConstellationLink => l != null && l.name.trim() !== '');
+  };
+  const [constellations, setConstellations] = useState<ConstellationLink[]>(() => normalizeReappears(concept.where_reappears));
   const [enriching, setEnriching] = useState(false);
   const [savingField, setSavingField] = useState<string | null>(null);
   const [enrichErr, setEnrichErr] = useState<string | null>(null);
@@ -1024,7 +1033,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
             setConstellations(next);
             // Keep the parent's concept reference in sync so other surfaces
             // see the new list immediately on the next render.
-            concept.where_reappears = next;
+            concept.where_reappears = next as unknown as Concept['where_reappears'];
             void window.api.concepts.updateFields({
               conceptId: concept.id,
               where_reappears: next,

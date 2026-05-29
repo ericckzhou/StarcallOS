@@ -7,3 +7,6 @@ dist/
 .env.local
 out/
 .DS_Store
+
+# Local Claude Code skill/config (not project code)
+.claude/

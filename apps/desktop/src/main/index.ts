@@ -5,6 +5,7 @@ import {
   openDb,
   listSources, createSource, updateSourceStatus, getSourceById, deleteSource,
   listConceptsBySource, getConceptById, listReviewQueue, searchConceptsByPrefixForConcept, renameConcept,
+  buildConstellationGraph,
   listConceptSourceEvidence, updateConceptFields, deleteConcept, deleteConceptEvidenceSpan,
   enrichConceptDefinition,
   listTasksByConcept, getMastery, listMisconceptionsByConcept,
@@ -555,6 +556,8 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CONCEPTS_SEARCH_BY_PREFIX, (_e, args: { conceptId: number; prefix: string; limit?: number }) => {
     return searchConceptsByPrefixForConcept(db, args.conceptId, args.prefix, args.limit ?? 8);
   });
+  ipcMain.handle(IPC.CONCEPTS_GRAPH, () => buildConstellationGraph(db));
+  ipcMain.handle(IPC.CONCEPTS_GET, (_e, id: number) => getConceptById(db, id) ?? null);
   ipcMain.handle(IPC.CONCEPTS_RENAME, (_e, args: { conceptId: number; name: string }) => {
     return renameConcept(db, args.conceptId, args.name);
   });

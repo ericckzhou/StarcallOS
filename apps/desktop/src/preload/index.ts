@@ -38,10 +38,12 @@ contextBridge.exposeInMainWorld('api', {
     deleteEvidenceSpan: (args: { conceptId: number; page: number; kind: string; quote: string }) =>
       ipcRenderer.invoke('concepts:deleteEvidenceSpan', args),
     enrich: (conceptId: number) => ipcRenderer.invoke('concepts:enrich', conceptId),
-    updateFields: (args: { conceptId: number; definition_text?: string; why_exists?: string; what_breaks?: string; where_reappears?: string[] }) =>
+    updateFields: (args: { conceptId: number; definition_text?: string; why_exists?: string; what_breaks?: string; where_reappears?: Array<string | { name: string; reason: string }> }) =>
       ipcRenderer.invoke('concepts:updateFields', args),
     searchByPrefix: (args: { conceptId: number; prefix: string; limit?: number }) =>
       ipcRenderer.invoke('concepts:searchByPrefix', args),
+    graph: () => ipcRenderer.invoke('concepts:graph'),
+    get: (conceptId: number) => ipcRenderer.invoke('concepts:get', conceptId),
     rename: (args: { conceptId: number; name: string }) =>
       ipcRenderer.invoke('concepts:rename', args),
     notes: {
