@@ -58,6 +58,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   const [hubColor, setHubColor] = useState(HUB_PALETTE[0]);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [editHub, setEditHub] = useState<{ id: number; name: string; color: string; description: string } | null>(null);
+  const [hubsExpanded, setHubsExpanded] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
 
@@ -438,8 +439,18 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
         </div>
       )}
       {!selectMode && hubs.length > 0 && (
-        <div style={{ padding: '6px 10px', borderBottom: '1px solid #1f2937', display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 2 }}>hubs</span>
+        <div style={{ borderBottom: '1px solid #1f2937' }}>
+          <button
+            onClick={() => setHubsExpanded(v => !v)}
+            title={hubsExpanded ? 'Hide hubs' : 'Show hubs'}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', padding: '6px 10px', cursor: 'pointer', color: '#4b5563', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em' }}
+          >
+            <span style={{ display: 'inline-block', transform: (hubsExpanded || hubFilter != null) ? 'rotate(90deg)' : 'none', transition: 'transform 120ms' }}>▸</span>
+            hubs ({hubs.length})
+            {hubFilter != null && <span style={{ marginLeft: 'auto', color: '#818cf8', textTransform: 'none', letterSpacing: 0 }}>filtered</span>}
+          </button>
+        {(hubsExpanded || hubFilter != null) && (
+        <div style={{ padding: '0 10px 8px', display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
           {hubs.map(h => {
             const on = hubFilter === h.id;
             return (
@@ -463,6 +474,8 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           {hubFilter != null && (
             <button onClick={() => setHubFilter(null)} style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 3, padding: '1px 6px', fontSize: 10, color: '#9ca3af', cursor: 'pointer' }}>clear</button>
           )}
+        </div>
+        )}
         </div>
       )}
       {editHub && (
