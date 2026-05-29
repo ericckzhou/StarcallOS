@@ -39,6 +39,12 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('concepts:setReviewed', args),
     deleteEvidenceSpan: (args: { conceptId: number; page: number; kind: string; quote: string }) =>
       ipcRenderer.invoke('concepts:deleteEvidenceSpan', args),
+    addEvidence: (args: { conceptId: number; page: number; kind: string; label: string; quote?: string }) =>
+      ipcRenderer.invoke('concepts:addEvidence', args),
+    updateEvidence: (args: { conceptId: number; index: number; page?: number; kind?: string; label?: string; quote?: string }) =>
+      ipcRenderer.invoke('concepts:updateEvidence', args),
+    deleteEvidence: (args: { conceptId: number; index: number }) =>
+      ipcRenderer.invoke('concepts:deleteEvidence', args),
     enrich: (conceptId: number) => ipcRenderer.invoke('concepts:enrich', conceptId),
     updateFields: (args: { conceptId: number; definition_text?: string; why_exists?: string; what_breaks?: string; where_reappears?: Array<string | { name: string; reason: string }> }) =>
       ipcRenderer.invoke('concepts:updateFields', args),

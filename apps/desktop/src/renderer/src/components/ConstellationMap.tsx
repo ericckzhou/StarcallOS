@@ -538,10 +538,6 @@ function MapLegend() {
         mastery ring
       </span>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'radial-gradient(circle, #fff 30%, #60a5fa 100%)', display: 'inline-block' }} />
-        color = source
-      </span>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
         <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'radial-gradient(circle, rgba(129,140,248,0.5), rgba(129,140,248,0))', display: 'inline-block' }} />
         hub nebula
       </span>

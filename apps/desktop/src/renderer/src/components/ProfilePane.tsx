@@ -307,12 +307,22 @@ function ActivityHeatmap({ activity }: { activity: DailyActivity[] }) {
     weeks.push(week);
   }
 
-  // Month labels: mark the first week whose first cell lands in a new month.
-  const monthLabels = weeks.map((w, i) => {
-    const m = w[0].month;
-    const prev = i > 0 ? weeks[i - 1][0].month : -1;
-    return m !== prev ? MONTH_NAMES[m] : '';
-  });
+  // Month labels: label the first week of each month, but skip the leading
+  // partial month and enforce a min column gap so adjacent labels (each wider
+  // than one cell) never overlap — e.g. "May"/"Jun" colliding at the start.
+  const MIN_LABEL_GAP = 3;
+  const monthLabels: string[] = [];
+  let lastLabeled = -MIN_LABEL_GAP;
+  for (let i = 0; i < weeks.length; i++) {
+    const m = weeks[i][0].month;
+    const prev = i > 0 ? weeks[i - 1][0].month : m;
+    if (i > 0 && m !== prev && i - lastLabeled >= MIN_LABEL_GAP) {
+      monthLabels.push(MONTH_NAMES[m]);
+      lastLabeled = i;
+    } else {
+      monthLabels.push('');
+    }
+  }
 
   return (
     <div style={{ marginTop: 14, overflowX: 'auto' }}>
@@ -402,13 +412,13 @@ function SourceChallengeChart({ counts }: { counts: { source_id: number; source_
       {counts.map((c, i) => {
         const color = SOURCE_PALETTE[i % SOURCE_PALETTE.length];
         return (
-          <div key={c.source_id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div key={c.source_id} className="csbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div title={c.source_title} style={{ width: 150, flexShrink: 0, fontSize: 12, color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 7 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
               {c.source_title}
             </div>
             <div style={{ flex: 1, minWidth: 0, height: 14, background: 'rgba(31,41,55,0.55)', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ width: `${(c.count / max) * 100}%`, height: '100%', background: color, borderRadius: 4, transition: 'width 360ms ease' }} />
+              <div className="csbar-fill" style={{ width: `${(c.count / max) * 100}%`, height: '100%', background: color, borderRadius: 4, animationDelay: `${i * 90}ms` }} />
             </div>
             <div style={{ width: 28, flexShrink: 0, textAlign: 'right', fontSize: 12, color: '#e2e8f0', fontVariantNumeric: 'tabular-nums' }}>{c.count}</div>
           </div>

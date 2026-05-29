@@ -50,6 +50,9 @@ export const IPC = {
   CONCEPTS_DELETE:         'concepts:delete',
   CONCEPTS_SET_REVIEWED:   'concepts:setReviewed',
   CONCEPTS_DELETE_EVIDENCE_SPAN: 'concepts:deleteEvidenceSpan',
+  CONCEPTS_ADD_EVIDENCE:    'concepts:addEvidence',
+  CONCEPTS_UPDATE_EVIDENCE: 'concepts:updateEvidence',
+  CONCEPTS_DELETE_EVIDENCE: 'concepts:deleteEvidence',
   CONCEPT_NOTES_LIST:     'conceptNotes:list',
   CONCEPT_NOTES_CREATE:   'conceptNotes:create',
   CONCEPT_NOTES_UPDATE:   'conceptNotes:update',
@@ -162,7 +165,7 @@ export interface ConceptSourceEvidence {
   filename: string;
   pageCount: number | null;
   isPdf: boolean;
-  evidence: Array<{ page: number; kind: string; label: string; quote?: string }>;
+  evidence: Array<{ index: number; page: number; kind: string; label: string; quote?: string }>;
 }
 
 export interface CreatePdfAnnotationArgs {
@@ -447,6 +450,9 @@ export interface IpcApi {
     delete: (conceptId: number) => Promise<{ ok: true }>;
     setReviewed: (args: { conceptId: number; reviewed: boolean }) => Promise<{ ok: true }>;
     deleteEvidenceSpan: (args: { conceptId: number; page: number; kind: string; quote: string }) => Promise<ConceptSourceEvidence | null>;
+    addEvidence: (args: { conceptId: number; page: number; kind: string; label: string; quote?: string }) => Promise<ConceptSourceEvidence | null>;
+    updateEvidence: (args: { conceptId: number; index: number; page?: number; kind?: string; label?: string; quote?: string }) => Promise<ConceptSourceEvidence | null>;
+    deleteEvidence: (args: { conceptId: number; index: number }) => Promise<ConceptSourceEvidence | null>;
     searchByPrefix: (args: { conceptId: number; prefix: string; limit?: number }) => Promise<Array<{ id: number; name: string; importance: string }>>;
     graph: () => Promise<ConstellationGraph>;
     get: (conceptId: number) => Promise<Concept | null>;

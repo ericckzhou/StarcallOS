@@ -9,11 +9,14 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl as unknown as string;
 
 interface Evidence {
+  index: number;
   page: number;
   kind: string;
   label: string;
   quote?: string;
 }
+
+const EVIDENCE_KINDS = ['chunk', 'definition', 'heading', 'equation', 'relation'] as const;
 
 interface SourceEvidence {
   sourceId: number;
@@ -214,6 +217,9 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
   const [annotationEditor, setAnnotationEditor] = useState<AnnotationEditor | null>(null);
   const [noteMode, setNoteMode] = useState(false);
   const [evidenceRailCollapsed, setEvidenceRailCollapsed] = useState(() => localStorage.getItem(EVIDENCE_RAIL_KEY) === 'true');
+  // Evidence editor: -2 = adding a new span, >=0 = editing that storage index.
+  const [evEditingIndex, setEvEditingIndex] = useState<number | null>(null);
+  const [evDraft, setEvDraft] = useState<{ page: string; kind: string; label: string; quote: string } | null>(null);
   const [showSourceAnnotations, setShowSourceAnnotations] = useState(() => localStorage.getItem(SHOW_SOURCE_ANNOTATIONS_KEY) === 'true');
   const [userZoom, setUserZoom] = useState<number>(() => {
     const stored = Number(localStorage.getItem(ZOOM_KEY));
@@ -636,15 +642,57 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
     const next = evidencePages.find(p => p > page);
     if (next != null) scrollToPage(next);
   }
-  async function deleteEvidenceSpan(targetPage: number, kind: string, quote: string): Promise<void> {
+  async function deleteEvidence(index: number): Promise<void> {
     try {
-      const updated = await window.api.concepts.deleteEvidenceSpan({
-        conceptId, page: targetPage, kind, quote,
-      });
-      if (updated) setData(updated);
+      const updated = await window.api.concepts.deleteEvidence({ conceptId, index });
+      if (updated) setData(updated as SourceEvidence);
     } catch (e) {
-      console.error('[PdfViewer] deleteEvidenceSpan failed', e);
+      console.error('[PdfViewer] deleteEvidence failed', e);
     }
+  }
+  async function saveEvidenceDraft(): Promise<void> {
+    if (!evDraft) return;
+    const payload = { page: Number(evDraft.page) || 1, kind: evDraft.kind, label: evDraft.label.trim() || evDraft.kind, quote: evDraft.quote.trim() || undefined };
+    try {
+      const updated = evEditingIndex === -2
+        ? await window.api.concepts.addEvidence({ conceptId, ...payload })
+        : await window.api.concepts.updateEvidence({ conceptId, index: evEditingIndex, ...payload });
+      if (updated) setData(updated as SourceEvidence);
+    } catch (e) {
+      console.error('[PdfViewer] saveEvidenceDraft failed', e);
+    } finally {
+      setEvEditingIndex(null);
+      setEvDraft(null);
+    }
+  }
+  function openEvidenceEditor(e: Evidence): void {
+    setEvEditingIndex(e.index);
+    setEvDraft({ page: String(e.page), kind: EVIDENCE_KINDS.includes(e.kind as typeof EVIDENCE_KINDS[number]) ? e.kind : 'chunk', label: e.label, quote: e.quote ?? '' });
+  }
+  function openEvidenceAdd(): void {
+    setEvEditingIndex(-2);
+    setEvDraft({ page: String(page || 1), kind: 'chunk', label: '', quote: '' });
+  }
+  function cancelEvidenceEdit(): void { setEvEditingIndex(null); setEvDraft(null); }
+  function renderEvidenceEditor(): React.ReactNode {
+    if (!evDraft) return null;
+    const inp: React.CSSProperties = { background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '5px 7px', color: '#e2e8f0', fontSize: 11, outline: 'none', boxSizing: 'border-box' };
+    return (
+      <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(17,24,39,0.72)', background: 'rgba(13,13,22,0.5)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input value={evDraft.page} onChange={e => setEvDraft(d => d ? { ...d, page: e.target.value } : d)} placeholder="pg" inputMode="numeric" style={{ ...inp, width: 46, flexShrink: 0 }} />
+          <select value={evDraft.kind} onChange={e => setEvDraft(d => d ? { ...d, kind: e.target.value } : d)} style={{ ...inp, flexShrink: 0, cursor: 'pointer' }}>
+            {EVIDENCE_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
+          </select>
+          <input value={evDraft.label} onChange={e => setEvDraft(d => d ? { ...d, label: e.target.value } : d)} placeholder="label" style={{ ...inp, flex: 1, minWidth: 0 }} />
+        </div>
+        <textarea value={evDraft.quote} onChange={e => setEvDraft(d => d ? { ...d, quote: e.target.value } : d)} placeholder="quote (optional)" rows={2} style={{ ...inp, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.45 }} />
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+          <button onClick={() => void saveEvidenceDraft()} style={{ background: '#312e81', border: '1px solid #6366f1', borderRadius: 4, padding: '4px 12px', color: '#e0e7ff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Save</button>
+          <button onClick={cancelEvidenceEdit} title="Cancel" aria-label="Cancel" style={{ width: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, color: '#94a3b8', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}>×</button>
+        </div>
+      </div>
+    );
   }
 
   function handleSelectionMouseUp(e: React.MouseEvent<HTMLDivElement>): void {
@@ -831,13 +879,23 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
                 <div style={{ fontSize: 10, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                   Evidence ({data.evidence.length})
                 </div>
-                <button
-                  onClick={() => { captureCurrentAnchor(); setEvidenceRailCollapsed(true); }}
-                  title="Minimize evidence rail"
-                  style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '2px 7px', color: '#6b7280', fontSize: 11, cursor: 'pointer' }}
-                >
-                  ‹
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    onClick={openEvidenceAdd}
+                    title="Add evidence"
+                    aria-label="Add evidence"
+                    style={{ background: '#1e1b4b', border: '1px solid #4338ca', borderRadius: 4, padding: '2px 8px', color: '#c7d2fe', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    +
+                  </button>
+                  <button
+                    onClick={() => { captureCurrentAnchor(); setEvidenceRailCollapsed(true); }}
+                    title="Minimize evidence rail"
+                    style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '2px 7px', color: '#6b7280', fontSize: 11, cursor: 'pointer' }}
+                  >
+                    ‹
+                  </button>
+                </div>
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#9ca3af', cursor: 'pointer' }}>
                 <input
@@ -849,11 +907,16 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
               </label>
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
+              {evEditingIndex === -2 && renderEvidenceEditor()}
               {visibleEvidenceList.map((e, i) => {
                 const color = KIND_COLOR[e.kind] ?? '#6b7280';
                 const selected = e.page === page;
+                if (evEditingIndex === e.index && e.index >= 0) {
+                  return <div key={`edit-${e.index}`}>{renderEvidenceEditor()}</div>;
+                }
+                const editable = e.index >= 0;
                 return (
-                  <div key={i} style={{
+                  <div key={i} className="ev-row" style={{
                     display: 'flex', alignItems: 'stretch',
                     background: selected ? 'rgba(129, 140, 248, 0.12)' : 'transparent',
                     borderLeft: `3px solid ${selected ? color : 'transparent'}`,
@@ -862,7 +925,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
                     <button
                       onClick={() => scrollToPage(e.page)}
                       style={{
-                        flex: 1, textAlign: 'left',
+                        flex: 1, textAlign: 'left', minWidth: 0,
                         background: 'transparent', border: 'none',
                         padding: '8px 12px', cursor: 'pointer',
                       }}
@@ -879,20 +942,35 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
                         </div>
                       )}
                     </button>
-                    <button
-                      onClick={() => void deleteEvidenceSpan(e.page, e.kind, e.quote ?? '')}
-                      title="Remove this evidence span from the concept"
-                      style={{
-                        background: 'transparent', border: 'none', color: '#4b5563',
-                        padding: '0 8px', fontSize: 14, cursor: 'pointer',
-                      }}
-                    >
-                      ×
-                    </button>
+                    {editable && (
+                      <button
+                        className="ev-action"
+                        onClick={() => openEvidenceEditor(e)}
+                        title="Edit evidence"
+                        aria-label="Edit evidence"
+                        style={{ flexShrink: 0, background: 'transparent', border: 'none', color: '#94a3b8', padding: '0 5px', display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                      </button>
+                    )}
+                    {editable && (
+                      <button
+                        className="ev-action ev-del"
+                        onClick={() => void deleteEvidence(e.index)}
+                        title="Remove this evidence"
+                        aria-label="Remove this evidence"
+                        style={{
+                          flexShrink: 0, background: 'transparent', border: 'none', color: '#f87171',
+                          padding: '0 9px', fontSize: 15, lineHeight: 1, cursor: 'pointer',
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
                 );
               })}
-              {visibleEvidenceList.length === 0 && (
+              {visibleEvidenceList.length === 0 && evEditingIndex !== -2 && (
                 <div style={{ padding: 20, color: '#374151', fontSize: 11, textAlign: 'center' }}>
                   No evidence to show. Uncheck "Evidence pages only" to see more.
                 </div>

@@ -240,7 +240,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
               display: 'flex',
               flexDirection: 'column',
               gap: 12,
-              background: 'rgba(8, 13, 30, 0.66)',
+              background: 'rgba(8, 13, 30, 0.3)',
               border: '1px solid rgba(129, 140, 248, 0.28)',
               borderRadius: 10,
               padding: 18,
@@ -268,11 +268,12 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
                   border: '1px solid rgba(148, 163, 184, 0.22)',
                   borderRadius: 6,
                   color: '#94a3b8',
-                  fontSize: 14,
+                  fontSize: 16,
+                  lineHeight: 1,
                   cursor: 'pointer',
                 }}
               >
-                x
+                ×
               </button>
             </div>
             <input
@@ -316,17 +317,21 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                 <button
                   onClick={closeTextModal}
+                  title="Cancel"
+                  aria-label="Cancel"
                   style={{
+                    width: 32,
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                     background: 'rgba(15, 23, 42, 0.28)',
                     border: '1px solid rgba(148, 163, 184, 0.24)',
                     borderRadius: 6,
-                    padding: '6px 14px',
+                    padding: '6px 0',
                     color: '#94a3b8',
-                    fontSize: 12,
+                    fontSize: 15, lineHeight: 1,
                     cursor: 'pointer',
                   }}
                 >
-                  Cancel
+                  ×
                 </button>
                 <button
                   onClick={handleAddText}

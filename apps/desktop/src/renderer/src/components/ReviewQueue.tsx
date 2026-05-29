@@ -197,6 +197,8 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
     return [...items].sort((a, b) => (b.compression_stage - a.compression_stage) || cmpName(a, b));
   }, [items, sortMode]);
 
+  const activeSourceKey = localStorage.getItem(LAST_SOURCE_KEY) ?? '';
+
   const groupedItems = useMemo<QueueGroup[]>(() => {
     const groups = new Map<string, QueueGroup>();
     for (const item of displayedItems) {
@@ -353,36 +355,38 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
             </button>
           </div>
         ))}
-        {groupedItems.map(group => (
+        {groupedItems.map(group => {
+          const isActive = group.key === activeSourceKey;
+          return (
           <div key={group.key}>
             <button
               onClick={() => toggleGroup(group.key)}
-              title={`${collapsedGroups.has(group.key) ? 'Expand' : 'Collapse'} ${group.title}`}
+              title={`${collapsedGroups.has(group.key) ? 'Expand' : 'Collapse'} ${group.title}${isActive ? ' · currently active source' : ''}`}
               style={{
               position: 'sticky', top: 0, zIndex: 2,
               padding: '8px 20px 7px',
               borderBottom: '1px solid #1f2937',
-              borderLeft: '2px solid #a78bfa',
+              borderLeft: `2px solid ${isActive ? '#818cf8' : '#2a2f45'}`,
               borderRight: 'none',
               borderTop: 'none',
               width: '100%',
-              background: 'transparent',
+              background: isActive ? 'rgba(129, 140, 248, 0.12)' : 'transparent',
               display: 'flex', alignItems: 'center', gap: 8,
               cursor: 'pointer',
               textAlign: 'left',
             }}>
-              <span style={{ width: 12, color: '#64748b', fontSize: 11, flexShrink: 0 }}>
+              <span style={{ width: 12, color: isActive ? '#a5b4fc' : '#64748b', fontSize: 11, flexShrink: 0 }}>
                 {collapsedGroups.has(group.key) ? '>' : 'v'}
               </span>
               <div style={{
                 minWidth: 0, flex: 1,
-                fontSize: 10, fontWeight: 800, color: '#e2e8f0',
+                fontSize: 10, fontWeight: 800, color: isActive ? '#c7d2fe' : '#e2e8f0',
                 textTransform: 'uppercase', letterSpacing: '0.09em',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
                 {group.title}
               </div>
-              <span style={{ fontSize: 10, color: '#64748b', flexShrink: 0 }}>
+              <span style={{ fontSize: 10, color: isActive ? '#818cf8' : '#64748b', flexShrink: 0 }}>
                 {group.items.length}
               </span>
             </button>
@@ -424,19 +428,20 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                         title="Mark reviewed (remove from queue)"
                         aria-label={`Mark ${c.name} reviewed`}
                         style={{
-                          height: 20, padding: '0 8px',
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                          width: 20, height: 20,
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                           background: actionsVisible ? 'rgba(34, 197, 94, 0.12)' : 'transparent',
                           border: actionsVisible ? '1px solid rgba(34, 197, 94, 0.5)' : '1px solid transparent',
                           borderRadius: 4,
                           color: '#22c55e',
-                          fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
+                          fontSize: 12,
                           lineHeight: 1, cursor: 'pointer',
+                          flexShrink: 0,
                           opacity: actionsVisible ? 1 : 0.25,
                           transition: 'opacity 120ms ease, background 120ms ease, border-color 120ms ease',
                         }}
                       >
-                        ✓ Done
+                        ✓
                       </button>
                       <button
                         onClick={e => {
@@ -493,7 +498,8 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
               );
             })}
           </div>
-        ))}
+          );
+        })}
       </div>
     </aside>
   );

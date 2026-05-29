@@ -8,7 +8,8 @@ import {
   buildConstellationGraph,
   listHubs, createHub, updateHub, deleteHub, addMembers, removeMember, listAllMemberships,
   listConceptSourceEvidence, updateConceptFields, deleteConcept, deleteConceptEvidenceSpan,
-  setConceptReviewed,
+  setConceptReviewed, addConceptEvidence, updateConceptEvidence, deleteConceptEvidenceByIndex,
+  type SourceEvidenceKind,
   enrichConceptDefinition,
   listTasksByConcept, getMastery, listMisconceptionsByConcept,
   listNotesByConcept, createNote, updateNote, deleteNote, reorderNotes,
@@ -580,6 +581,12 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     deleteConceptEvidenceSpan(db, args.conceptId, args.page, args.kind, args.quote);
     return listConceptSourceEvidence(db, args.conceptId);
   });
+  ipcMain.handle(IPC.CONCEPTS_ADD_EVIDENCE, (_e, args: { conceptId: number; page: number; kind: SourceEvidenceKind; label: string; quote?: string }) =>
+    addConceptEvidence(db, args.conceptId, { page: args.page, kind: args.kind, label: args.label, quote: args.quote }));
+  ipcMain.handle(IPC.CONCEPTS_UPDATE_EVIDENCE, (_e, args: { conceptId: number; index: number; page?: number; kind?: SourceEvidenceKind; label?: string; quote?: string }) =>
+    updateConceptEvidence(db, args.conceptId, args.index, { page: args.page, kind: args.kind, label: args.label, quote: args.quote }));
+  ipcMain.handle(IPC.CONCEPTS_DELETE_EVIDENCE, (_e, args: { conceptId: number; index: number }) =>
+    deleteConceptEvidenceByIndex(db, args.conceptId, args.index));
   ipcMain.handle(IPC.REVIEW_QUEUE_LIST, (_e, limit?: number) => listReviewQueue(db, limit ?? 50));
 
   ipcMain.handle(IPC.CONCEPTS_SOURCE_EVIDENCE, (_e, conceptId: number) => listConceptSourceEvidence(db, conceptId));

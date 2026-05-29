@@ -286,6 +286,40 @@ body::after {
   }
 }
 
+/* Challenges-by-source bars: grow in from the left (staggered per row), with a
+   soft sheen sweep and a hover lift. */
+.csbar-fill {
+  transform-origin: left center;
+  animation: csbar-grow 0.65s cubic-bezier(0.22, 0.7, 0.3, 1) both;
+  position: relative;
+  overflow: hidden;
+}
+@keyframes csbar-grow {
+  0% { transform: scaleX(0); opacity: 0.4; }
+  100% { transform: scaleX(1); opacity: 1; }
+}
+.csbar-fill::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+  transform: translateX(-100%);
+  animation: csbar-sheen 1.6s ease 0.4s;
+}
+@keyframes csbar-sheen { to { transform: translateX(100%); } }
+.csbar-row { transition: transform 140ms ease; }
+.csbar-row:hover { transform: translateX(2px); }
+.csbar-row:hover .csbar-fill { filter: brightness(1.15); }
+@media (prefers-reduced-motion: reduce) {
+  .csbar-fill, .csbar-fill::after { animation: none !important; }
+  .csbar-row { transition: none !important; }
+}
+
+/* Evidence rail row actions: visible but muted, full on hover/focus. */
+.ev-action { opacity: 0.55; transition: opacity 130ms ease, color 130ms ease; }
+.ev-row:hover .ev-action, .ev-row:focus-within .ev-action { opacity: 1; }
+.ev-action:hover { color: #e2e8f0; }
+.ev-action.ev-del:hover { color: #fca5a5; }
+
 /* Spinner for in-progress icon buttons (e.g. Regenerate). */
 .spin { transform-box: fill-box; transform-origin: center; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

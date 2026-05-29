@@ -24,6 +24,8 @@ interface ConceptRow {
   misconception_risk: number;
   centrality_score: number;
   created_at: string;
+  evidence_json?: string;
+  reviewed_at?: string | null;
 }
 
 function rowToConcept(row: ConceptRow): Concept {
@@ -650,10 +652,53 @@ export function setConceptReviewed(db: DatabaseSync, conceptId: number, reviewed
 export type SourceEvidenceKind = 'chunk' | 'equation' | 'relation' | 'heading' | 'definition' | 'first_page';
 
 export interface SourceEvidence {
+  // Stable position in the concept's evidence_json store (-1 = synthetic
+  // first-page fallback, not editable). Used by the UI for edit/delete.
+  index: number;
   page: number;
   kind: SourceEvidenceKind;
   label: string;
   quote?: string;
+}
+
+interface EvidenceSpan {
+  source: string;
+  quote?: string;
+  page: number;
+  pattern?: string;
+  kind?: SourceEvidenceKind;
+  label?: string;
+}
+
+function deriveEvidenceKind(source: string): SourceEvidenceKind {
+  return source === 'heading' ? 'heading'
+    : source === 'definition_pattern' ? 'definition'
+    : source === 'equation' ? 'equation'
+    : source === 'relation' ? 'relation'
+    : source === 'first_page' ? 'first_page'
+    : 'chunk';
+}
+
+function evidenceKindToSource(kind: SourceEvidenceKind): string {
+  return kind === 'definition' ? 'definition_pattern' : kind;
+}
+
+function parseEvidenceSpans(json: string | undefined | null): EvidenceSpan[] {
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json);
+    return Array.isArray(arr) ? (arr as EvidenceSpan[]) : [];
+  } catch { return []; }
+}
+
+function spanToEvidence(s: EvidenceSpan, index: number): SourceEvidence {
+  return {
+    index,
+    page: s.page,
+    kind: s.kind ?? deriveEvidenceKind(s.source),
+    label: s.label ?? (s.source ? s.source.replace(/_/g, ' ') : 'evidence'),
+    quote: s.quote,
+  };
 }
 
 export interface ConceptSourceEvidence {
@@ -676,11 +721,43 @@ export function listConceptSourceEvidence(db: DatabaseSync, conceptId: number): 
     .get(sourceId) as { file_path: string; filename: string; page_count: number | null } | undefined;
   if (!src) return null;
 
-  const evidence: SourceEvidence[] = [];
-
-  // Always anchor to first page seen for this concept
   const concept = rowToConcept(c);
-  // chunk_ids refer to semantic_chunks
+  let spans = parseEvidenceSpans(c.evidence_json);
+
+  // Seed once from derived sources (chunks / equations / relations / matching
+  // candidate) when the concept has no stored evidence yet. Thereafter
+  // evidence_json is the authoritative, user-editable store.
+  if (spans.length === 0) {
+    spans = buildDerivedEvidenceSpans(db, concept, sourceId);
+    if (spans.length > 0) {
+      db.prepare('UPDATE concepts SET evidence_json = ? WHERE id = ?')
+        .run(JSON.stringify(spans), conceptId);
+    }
+  }
+
+  let evidence: SourceEvidence[] = spans.map(spanToEvidence);
+  if (evidence.length === 0) {
+    evidence = [{ index: -1, page: 1, kind: 'first_page', label: 'first page' }];
+  }
+  // Sort by page for display; the stable `index` keeps edit/delete aligned to
+  // storage order regardless of display order.
+  evidence.sort((a, b) => a.page - b.page || a.kind.localeCompare(b.kind));
+
+  return {
+    sourceId,
+    filePath: src.file_path,
+    filename: src.filename,
+    pageCount: src.page_count,
+    isPdf: src.file_path.toLowerCase().endsWith('.pdf'),
+    evidence,
+  };
+}
+
+// Aggregate evidence from derived sources. Used only to seed evidence_json the
+// first time; after that the stored spans are authoritative.
+function buildDerivedEvidenceSpans(db: DatabaseSync, concept: Concept, sourceId: number): EvidenceSpan[] {
+  const spans: EvidenceSpan[] = [];
+
   if (concept.chunk_ids.length > 0) {
     const placeholders = concept.chunk_ids.map(() => '?').join(',');
     const chunkRows = db
@@ -693,26 +770,19 @@ export function listConceptSourceEvidence(db: DatabaseSync, conceptId: number): 
       }>;
     for (const r of chunkRows) {
       for (let p = r.page_start; p <= r.page_end; p++) {
-        evidence.push({
-          page: p,
-          kind: 'chunk',
-          label: r.block_type,
-          quote: r.claim ?? r.example_quote ?? undefined,
-        });
+        spans.push({ source: 'chunk', kind: 'chunk', label: r.block_type, quote: r.claim ?? r.example_quote ?? undefined, page: p });
       }
     }
   }
 
-  // Equations attached to this concept name
   const normalizedName = concept.name.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9\s-]/g, '').trim();
   const equations = db
     .prepare('SELECT page, latex FROM equation_candidates WHERE source_id = ? AND attached_term = ? ORDER BY page')
     .all(sourceId, normalizedName) as Array<{ page: number; latex: string }>;
   for (const eq of equations) {
-    evidence.push({ page: eq.page, kind: 'equation', label: 'equation', quote: eq.latex });
+    spans.push({ source: 'equation', kind: 'equation', label: 'equation', quote: eq.latex, page: eq.page });
   }
 
-  // Relations mentioning this concept name as from or to
   const relations = db
     .prepare(
       `SELECT page, from_term, to_term, relation_kind, quote
@@ -724,78 +794,74 @@ export function listConceptSourceEvidence(db: DatabaseSync, conceptId: number): 
       page: number; from_term: string; to_term: string; relation_kind: string; quote: string;
     }>;
   for (const r of relations) {
-    evidence.push({
-      page: r.page, kind: 'relation',
-      label: `${r.from_term} → ${r.relation_kind} → ${r.to_term}`,
-      quote: r.quote,
-    });
+    spans.push({ source: 'relation', kind: 'relation', label: `${r.from_term} → ${r.relation_kind} → ${r.to_term}`, quote: r.quote, page: r.page });
   }
 
-  // Concept candidate evidence (if a candidate with the same normalized name still exists).
-  // Side effect: lazy backfill — if the concept's own evidence_json is empty
-  // but a matching candidate has evidence, write it onto the concept so future
-  // reads don't depend on the candidate still being there.
   const candidateRow = db
     .prepare('SELECT evidence FROM concept_candidates WHERE source_id = ? AND normalized = ? LIMIT 1')
     .get(sourceId, normalizedName) as { evidence: string } | undefined;
   if (candidateRow) {
-    try {
-      const spans = JSON.parse(candidateRow.evidence) as Array<{ source: string; quote: string; page: number; pattern?: string }>;
-      for (const s of spans) {
-        const kind: SourceEvidenceKind = s.source === 'heading' ? 'heading'
-          : s.source === 'definition_pattern' ? 'definition'
-          : 'chunk';
-        evidence.push({ page: s.page, kind, label: s.source.replace(/_/g, ' '), quote: s.quote });
-      }
-      // Backfill: if concept has no preserved evidence, snapshot the
-      // candidate's evidence onto it so the data survives the next promote/wipe.
-      const existing = db
-        .prepare('SELECT evidence_json FROM concepts WHERE id = ?')
-        .get(conceptId) as { evidence_json?: string } | undefined;
-      const isEmpty = !existing?.evidence_json || existing.evidence_json === '[]' || existing.evidence_json === '';
-      if (isEmpty) {
-        db.prepare('UPDATE concepts SET evidence_json = ? WHERE id = ?')
-          .run(candidateRow.evidence, conceptId);
-      }
-    } catch { /* tolerate malformed */ }
+    for (const s of parseEvidenceSpans(candidateRow.evidence)) {
+      const kind = deriveEvidenceKind(s.source);
+      spans.push({ source: s.source, kind, label: s.source.replace(/_/g, ' '), quote: s.quote, page: s.page });
+    }
   }
 
-  // Concept's own preserved evidence (populated at promotion time so we
-  // still have page/quote spans after the candidate row is deleted).
-  const conceptRow = db
-    .prepare('SELECT evidence_json FROM concepts WHERE id = ?')
-    .get(conceptId) as { evidence_json?: string } | undefined;
-  if (conceptRow?.evidence_json) {
-    try {
-      const spans = JSON.parse(conceptRow.evidence_json) as Array<{ source: string; quote: string; page: number; pattern?: string }>;
-      for (const s of spans) {
-        const kind: SourceEvidenceKind = s.source === 'heading' ? 'heading'
-          : s.source === 'definition_pattern' ? 'definition'
-          : 'chunk';
-        evidence.push({ page: s.page, kind, label: s.source.replace(/_/g, ' '), quote: s.quote });
-      }
-    } catch { /* tolerate malformed */ }
-  }
+  return spans;
+}
 
-  // If nothing else, at least the first page
-  const firstPage = concept.chunk_ids.length > 0
-    ? (evidence[0]?.page ?? 1)
-    : 1;
-  if (evidence.length === 0) {
-    evidence.push({ page: firstPage, kind: 'first_page', label: 'first page' });
-  }
+// ── Evidence CRUD (evidence_json is authoritative once seeded) ──────────────
+function seededSpans(db: DatabaseSync, conceptId: number, c: ConceptRow): EvidenceSpan[] {
+  let spans = parseEvidenceSpans(c.evidence_json);
+  if (spans.length === 0) spans = buildDerivedEvidenceSpans(db, rowToConcept(c), Number(c.source_id));
+  return spans;
+}
 
-  // Sort by page; collapse duplicates of (page, kind, label) but keep distinct quotes
-  evidence.sort((a, b) => a.page - b.page || a.kind.localeCompare(b.kind));
+export function addConceptEvidence(
+  db: DatabaseSync,
+  conceptId: number,
+  item: { page: number; kind: SourceEvidenceKind; label: string; quote?: string },
+): ConceptSourceEvidence | null {
+  const c = db.prepare('SELECT * FROM concepts WHERE id = ?').get(conceptId) as ConceptRow | undefined;
+  if (!c) return null;
+  const spans = seededSpans(db, conceptId, c);
+  spans.push({ source: evidenceKindToSource(item.kind), kind: item.kind, label: item.label, quote: item.quote, page: item.page });
+  db.prepare('UPDATE concepts SET evidence_json = ? WHERE id = ?').run(JSON.stringify(spans), conceptId);
+  return listConceptSourceEvidence(db, conceptId);
+}
 
-  return {
-    sourceId,
-    filePath: src.file_path,
-    filename: src.filename,
-    pageCount: src.page_count,
-    isPdf: src.file_path.toLowerCase().endsWith('.pdf'),
-    evidence,
+export function updateConceptEvidence(
+  db: DatabaseSync,
+  conceptId: number,
+  index: number,
+  fields: { page?: number; kind?: SourceEvidenceKind; label?: string; quote?: string },
+): ConceptSourceEvidence | null {
+  const c = db.prepare('SELECT * FROM concepts WHERE id = ?').get(conceptId) as ConceptRow | undefined;
+  if (!c) return null;
+  const spans = seededSpans(db, conceptId, c);
+  if (index < 0 || index >= spans.length) return listConceptSourceEvidence(db, conceptId);
+  const cur = spans[index];
+  spans[index] = {
+    ...cur,
+    page: fields.page ?? cur.page,
+    quote: fields.quote !== undefined ? fields.quote : cur.quote,
+    kind: fields.kind ?? cur.kind ?? deriveEvidenceKind(cur.source),
+    label: fields.label ?? cur.label,
+    source: fields.kind ? evidenceKindToSource(fields.kind) : cur.source,
   };
+  db.prepare('UPDATE concepts SET evidence_json = ? WHERE id = ?').run(JSON.stringify(spans), conceptId);
+  return listConceptSourceEvidence(db, conceptId);
+}
+
+export function deleteConceptEvidenceByIndex(db: DatabaseSync, conceptId: number, index: number): ConceptSourceEvidence | null {
+  const c = db.prepare('SELECT * FROM concepts WHERE id = ?').get(conceptId) as ConceptRow | undefined;
+  if (!c) return null;
+  const spans = seededSpans(db, conceptId, c);
+  if (index >= 0 && index < spans.length) {
+    spans.splice(index, 1);
+    db.prepare('UPDATE concepts SET evidence_json = ? WHERE id = ?').run(JSON.stringify(spans), conceptId);
+  }
+  return listConceptSourceEvidence(db, conceptId);
 }
 
 export function listRequirementsFor(db: DatabaseSync, conceptId: number): Concept[] {
