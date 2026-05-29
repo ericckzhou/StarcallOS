@@ -583,6 +583,7 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
   const [hoverEdge, setHoverEdge] = useState<{ x: number; y: number; text: string } | null>(null);
   const [showHubs, setShowHubs] = useState(true);
   const [focusedHub, setFocusedHub] = useState<number | null>(null);
+  const [conceptQuery, setConceptQuery] = useState('');
   const [editHub, setEditHub] = useState<{ id: number; name: string; color: string; description: string } | null>(null);
 
   const openNode = useCallback(async (id: number) => {
@@ -637,6 +638,13 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
   }, [view, conceptHubs]);
   const visibleHubs = hubs.filter(h => visibleHubIds.has(h.id));
 
+  const conceptList = useMemo(() => {
+    const q = conceptQuery.trim().toLowerCase();
+    return [...view.nodes]
+      .filter(n => q === '' || n.name.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [view, conceptQuery]);
+
   // Hub nebulae — recomputed each render so the clouds track the live layout.
   const clusters: Cluster[] = [];
   if (showHubs && hubs.length > 0) {
@@ -659,37 +667,32 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
 
   return (
     <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative', zIndex: Z.graph }}>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
-        <div style={{
-          padding: '10px 16px', borderBottom: '1px solid rgba(31,41,55,0.72)',
-          background: 'rgba(4,6,26,0.4)', backdropFilter: 'blur(14px)',
-          display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
-        }}>
-          <SourceSelect
-            sources={sources}
-            selectedSource={selectedSource}
-            color={sourceColor.get(selectedSource ?? -1) ?? '#94a3b8'}
-            onChange={setSelectedSource}
-          />
-          <span style={{ fontSize: 11, color: '#6b7280' }}>drag · scroll to zoom · drag bg to pan</span>
-          {hubs.length > 0 && (
-            <button
-              onClick={() => setShowHubs(v => !v)}
-              title={showHubs ? 'Hide hub nebulae' : 'Show hub nebulae'}
-              aria-pressed={showHubs}
-              style={{ background: showHubs ? '#1e1b4b' : 'transparent', border: `1px solid ${showHubs ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '3px 9px', color: showHubs ? '#c7d2fe' : '#6b7280', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}
-            >
-              Hubs
-            </button>
-          )}
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, color: '#94a3b8' }}>
-            <MapLegend />
+      {sources.length > 0 && (
+        <aside style={{ width: 240, flexShrink: 0, borderRight: '1px solid #1f2937', display: 'flex', flexDirection: 'column', background: 'rgba(4,6,26,0.55)', minHeight: 0 }}>
+          <div style={{ padding: '10px 10px 8px', borderBottom: '1px solid #1f2937' }}>
+            <SourceSelect sources={sources} selectedSource={selectedSource} color={sourceColor.get(selectedSource ?? -1) ?? '#94a3b8'} onChange={setSelectedSource} />
           </div>
-        </div>
-
-        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'radial-gradient(circle at 50% 40%, rgba(30,27,75,0.42), rgba(2,6,23,0.18))' }}>
-          {showGraph && visibleHubs.length > 0 && (
-            <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 5, width: 204, maxHeight: '72%', overflowY: 'auto', background: 'rgba(4,6,26,0.82)', border: '1px solid #1f2937', borderRadius: 8, padding: 8, backdropFilter: 'blur(8px)' }}>
+          <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937' }}>
+            <input value={conceptQuery} onChange={e => setConceptQuery(e.target.value)} placeholder="Search concepts…"
+              style={{ width: '100%', boxSizing: 'border-box', background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '6px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }} />
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+            {conceptList.length === 0 ? (
+              <div style={{ padding: 16, fontSize: 11, color: '#475569', textAlign: 'center' }}>{view.nodes.length === 0 ? 'No concepts on this map.' : 'No matches.'}</div>
+            ) : conceptList.map(n => {
+              const isSel = selected?.id === n.id;
+              return (
+                <button key={n.id} onClick={() => void openNode(n.id)}
+                  onMouseEnter={() => onHoverEnter(n.id)} onMouseLeave={() => onHoverLeave(n.id)} title={n.name}
+                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: isSel ? '#1a1a2e' : 'transparent', border: 'none', borderLeft: `2px solid ${isSel ? (sourceColor.get(n.source_id) ?? '#374151') : 'transparent'}`, padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid #111827' }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: sourceColor.get(n.source_id) ?? '#6b7280', flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: isSel ? '#e2e8f0' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
+                </button>
+              );
+            })}
+          </div>
+          {visibleHubs.length > 0 && (
+            <div style={{ borderTop: '1px solid #1f2937', padding: 8, maxHeight: '42%', overflowY: 'auto', flexShrink: 0 }}>
               <div style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Hubs</div>
               {visibleHubs.map(h => (
                 <div key={h.id} className="cm-hub-chip" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 4px', borderRadius: 6, background: focusedHub === h.id ? 'rgba(129,140,248,0.14)' : 'transparent' }}>
@@ -730,6 +733,31 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
               )}
             </div>
           )}
+        </aside>
+      )}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+        <div style={{
+          padding: '10px 16px', borderBottom: '1px solid rgba(31,41,55,0.72)',
+          background: 'rgba(4,6,26,0.4)', backdropFilter: 'blur(14px)',
+          display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
+        }}>
+          <span style={{ fontSize: 11, color: '#6b7280' }}>drag · scroll to zoom · drag bg to pan</span>
+          {hubs.length > 0 && (
+            <button
+              onClick={() => setShowHubs(v => !v)}
+              title={showHubs ? 'Hide hub nebulae' : 'Show hub nebulae'}
+              aria-pressed={showHubs}
+              style={{ background: showHubs ? '#1e1b4b' : 'transparent', border: `1px solid ${showHubs ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '3px 9px', color: showHubs ? '#c7d2fe' : '#6b7280', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}
+            >
+              Hubs
+            </button>
+          )}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, color: '#94a3b8' }}>
+            <MapLegend />
+          </div>
+        </div>
+
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'radial-gradient(circle at 50% 40%, rgba(30,27,75,0.42), rgba(2,6,23,0.18))' }}>
           {loading && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 13 }}>Loading map…</div>
           )}
