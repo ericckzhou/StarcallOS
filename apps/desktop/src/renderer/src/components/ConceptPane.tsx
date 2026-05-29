@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 type Hub = { id: number; name: string; color: string; member_count: number; description: string };
-const HUB_PALETTE = ['#818cf8', '#f472b6', '#34d399', '#fbbf24', '#22d3ee', '#fb7185', '#a78bfa', '#4ade80'];
 
 export type Concept = {
   id: number;
@@ -51,11 +50,13 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   const [conceptHubs, setConceptHubs] = useState<Map<number, number[]>>(new Map());
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [hubModalOpen, setHubModalOpen] = useState(false);
-  const [hubName, setHubName] = useState('');
-  const [hubDesc, setHubDesc] = useState('');
-  const [hubColor, setHubColor] = useState(HUB_PALETTE[0]);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  // Concept bulk-delete is deferred behind a 5s undo (hard delete + cascade,
+  // so we only call the IPC once the timer fires).
+  const [pendingConceptDelete, setPendingConceptDelete] = useState<{ items: Concept[]; masteries: Array<[number, number]> } | null>(null);
+  const conceptDeleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDeleteRef = useRef<{ items: Concept[]; masteries: Array<[number, number]> } | null>(null);
+  pendingDeleteRef.current = pendingConceptDelete;
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
 
@@ -150,14 +151,15 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   }
   function exitSelect() { setSelectMode(false); setSelectedIds(new Set()); setAddMenuOpen(false); }
 
-  async function createHubFromSelection() {
-    const name = hubName.trim();
-    if (!name || selectedIds.size === 0) return;
-    await window.api.hubs.create({ name, color: hubColor, description: hubDesc.trim(), conceptIds: [...selectedIds] });
-    setHubModalOpen(false); setHubName(''); setHubDesc(''); setHubColor(HUB_PALETTE[0]);
-    exitSelect();
-    refreshHubs();
-  }
+  // Esc exits select mode (the explicit Done button was removed; navigating
+  // away unmounts this pane and clears selection automatically).
+  useEffect(() => {
+    if (!selectMode) return;
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') exitSelect(); }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectMode]);
+
   async function addSelectionToHub(hubId: number) {
     if (selectedIds.size === 0) return;
     await window.api.hubs.addMembers({ hubId, conceptIds: [...selectedIds] });
@@ -165,18 +167,57 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
     exitSelect();
     refreshHubs();
   }
-  async function deleteSelectedConcepts() {
-    const ids = [...selectedIds];
-    if (ids.length === 0) return;
-    await Promise.all(ids.map(id => window.api.concepts.delete(id)));
-    const removed = new Set(ids);
-    setConcepts(prev => prev.filter(c => !removed.has(c.id)));
-    setMasteries(prev => { const n = new Map(prev); ids.forEach(id => n.delete(id)); return n; });
-    exitSelect();
+  // Perform the actual (hard) delete + notify the rest of the app.
+  function commitConceptDelete(ids: number[]) {
+    for (const id of ids) void window.api.concepts.delete(id);
     for (const id of ids) window.dispatchEvent(new CustomEvent('starcall:concept-deleted', { detail: { conceptId: id } }));
     window.dispatchEvent(new Event('starcall:review-queue-stale'));
     window.dispatchEvent(new Event('starcall:progressChanged'));
   }
+
+  function deleteSelectedConcepts() {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    // Commit any already-pending delete first so they don't stack.
+    if (conceptDeleteTimer.current) {
+      clearTimeout(conceptDeleteTimer.current);
+      conceptDeleteTimer.current = null;
+      if (pendingDeleteRef.current) commitConceptDelete(pendingDeleteRef.current.items.map(c => c.id));
+    }
+    const removed = new Set(ids);
+    const items = concepts.filter(c => removed.has(c.id));
+    const ms = items
+      .filter(c => masteries.has(c.id))
+      .map(c => [c.id, masteries.get(c.id)!] as [number, number]);
+    // Optimistically remove; the DB delete waits for the 5s undo window.
+    setConcepts(prev => prev.filter(c => !removed.has(c.id)));
+    setMasteries(prev => { const n = new Map(prev); ids.forEach(id => n.delete(id)); return n; });
+    exitSelect();
+    setPendingConceptDelete({ items, masteries: ms });
+    conceptDeleteTimer.current = setTimeout(() => {
+      conceptDeleteTimer.current = null;
+      setPendingConceptDelete(null);
+      commitConceptDelete(ids);
+    }, 5000);
+  }
+
+  function undoConceptDelete() {
+    if (conceptDeleteTimer.current) { clearTimeout(conceptDeleteTimer.current); conceptDeleteTimer.current = null; }
+    const entry = pendingConceptDelete;
+    if (!entry) return;
+    setConcepts(prev => [...prev, ...entry.items].sort((a, b) =>
+      a.importance < b.importance ? -1 : a.importance > b.importance ? 1 : a.name.localeCompare(b.name),
+    ));
+    setMasteries(prev => { const n = new Map(prev); for (const [id, st] of entry.masteries) n.set(id, st); return n; });
+    setPendingConceptDelete(null);
+  }
+
+  // Flush a pending delete on unmount (e.g. tab switch) so it commits rather
+  // than silently vanishing while the concept lingers in the DB.
+  useEffect(() => () => {
+    if (conceptDeleteTimer.current) clearTimeout(conceptDeleteTimer.current);
+    if (pendingDeleteRef.current) commitConceptDelete(pendingDeleteRef.current.items.map(c => c.id));
+  }, []);
 
   const masteredCount = [...masteries.values()].filter(s => s >= 3).length;
   const selectedConcept = selectedId != null ? concepts.find(c => c.id === selectedId) : null;
@@ -384,11 +425,6 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
       {selectMode && (
         <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937', background: 'rgba(30,27,75,0.45)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', position: 'relative' }}>
           <button
-            onClick={exitSelect}
-            title="Exit selection"
-            style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '3px 7px', color: '#9ca3af', fontSize: 10, cursor: 'pointer', fontWeight: 700 }}
-          >Done</button>
-          <button
             onClick={toggleSelectAll}
             title={allDisplayedSelected ? 'Deselect all shown' : 'Select all shown'}
             aria-label={allDisplayedSelected ? 'Deselect all' : 'Select all'}
@@ -400,18 +436,12 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             }}
           >{allDisplayedSelected ? '✓' : '☐'}</button>
           <span style={{ fontSize: 11, color: '#c7d2fe', fontWeight: 700 }}>{selectedIds.size} selected</span>
-          <button
-            onClick={() => { if (selectedIds.size) { setHubName(''); setHubDesc(''); setHubModalOpen(true); } }}
-            disabled={selectedIds.size === 0}
-            style={{ marginLeft: 'auto', background: selectedIds.size ? '#312e81' : '#111827', border: `1px solid ${selectedIds.size ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '3px 8px', color: selectedIds.size ? '#e0e7ff' : '#475569', fontSize: 10, fontWeight: 700, cursor: selectedIds.size ? 'pointer' : 'not-allowed' }}
-          >
-            + Hub
-          </button>
           {hubs.length > 0 && (
             <button
               onClick={() => selectedIds.size && setAddMenuOpen(o => !o)}
               disabled={selectedIds.size === 0}
-              style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '3px 8px', color: selectedIds.size ? '#c7d2fe' : '#475569', fontSize: 10, cursor: selectedIds.size ? 'pointer' : 'not-allowed' }}
+              title="Add selected concepts to a hub"
+              style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '3px 8px', color: selectedIds.size ? '#c7d2fe' : '#475569', fontSize: 10, cursor: selectedIds.size ? 'pointer' : 'not-allowed' }}
             >
               Add to ▾
             </button>
@@ -423,6 +453,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             aria-label="Delete selected concepts"
             style={{
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              marginLeft: hubs.length > 0 ? undefined : 'auto',
               padding: '3px 9px', fontSize: 13, lineHeight: 1,
               background: selectedIds.size ? 'rgba(127,29,29,0.3)' : 'transparent',
               border: `1px solid ${selectedIds.size ? '#ef4444' : '#1f2937'}`,
@@ -442,38 +473,6 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
               ))}
             </div>
           )}
-        </div>
-      )}
-      {hubModalOpen && (
-        <div style={{ borderBottom: '1px solid #1f2937', padding: 12, display: 'flex', flexDirection: 'column', gap: 8, background: 'rgba(13,13,22,0.92)' }}>
-          <div style={{ fontSize: 11, color: '#c7d2fe', fontWeight: 800 }}>New Hub from {selectedIds.size} concept{selectedIds.size === 1 ? '' : 's'}</div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input
-              autoFocus value={hubName}
-              onChange={e => setHubName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void createHubFromSelection(); } else if (e.key === 'Escape') setHubModalOpen(false); }}
-              placeholder="Hub name"
-              style={{ flex: 1, minWidth: 0, background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #263244', borderRadius: 4, padding: '7px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
-            />
-            <input
-              type="color" value={hubColor} onChange={e => setHubColor(e.target.value)}
-              aria-label="Hub color" title="Hub color"
-              style={{ width: 34, height: 32, padding: 0, border: '1px solid #263244', borderRadius: 4, background: '#111827', cursor: 'pointer', flexShrink: 0 }}
-            />
-          </div>
-          <input
-            value={hubDesc}
-            onChange={e => setHubDesc(e.target.value)}
-            placeholder="Short description (optional)"
-            style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 4, padding: '6px 8px', color: '#cbd5e1', fontSize: 11, outline: 'none' }}
-          />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => void createHubFromSelection()} disabled={!hubName.trim()}
-              style={{ background: hubName.trim() ? '#312e81' : '#111827', border: `1px solid ${hubName.trim() ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '6px 12px', color: hubName.trim() ? '#e0e7ff' : '#475569', fontSize: 12, fontWeight: 700, cursor: hubName.trim() ? 'pointer' : 'not-allowed' }}>
-              Create
-            </button>
-            <button onClick={() => setHubModalOpen(false)} title="Cancel" aria-label="Cancel" style={{ width: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '6px 0', color: '#94a3b8', fontSize: 15, lineHeight: 1, cursor: 'pointer' }}>×</button>
-          </div>
         </div>
       )}
       <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937', display: 'flex', gap: 5, flexWrap: 'wrap' }}>
@@ -502,6 +501,21 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           );
         })}
       </div>
+      {pendingConceptDelete && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, margin: '8px 10px',
+          background: 'rgba(13,13,22,0.6)', border: '1px solid #1f2937', borderRadius: 6,
+          padding: '8px 10px', fontSize: 11, color: '#94a3b8',
+        }}>
+          <span style={{ flex: 1 }}>
+            Deleted {pendingConceptDelete.items.length} concept{pendingConceptDelete.items.length === 1 ? '' : 's'}.
+          </span>
+          <button
+            onClick={undoConceptDelete}
+            style={{ background: '#1e1b4b', border: '1px solid #6366f1', borderRadius: 4, color: '#c7d2fe', cursor: 'pointer', fontSize: 11, fontWeight: 700, padding: '3px 9px' }}
+          >Undo</button>
+        </div>
+      )}
       <div className="concept-scroll" style={{ flex: 1, overflowY: 'auto' }}>
         {displayed.length === 0 && (
           <div style={{ padding: 20, color: '#374151', fontSize: 12, textAlign: 'center' }}>

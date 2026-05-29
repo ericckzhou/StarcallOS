@@ -3,6 +3,10 @@ import type { StarHub } from '@starcall/shared';
 
 interface MemberLite { id: number; name: string; source_filename?: string }
 
+// New hubs default to a random palette color rather than always the same purple.
+const HUB_PALETTE = ['#818cf8', '#f472b6', '#34d399', '#fbbf24', '#22d3ee', '#fb7185', '#a78bfa', '#4ade80', '#60a5fa', '#fb923c'];
+const randomHubColor = () => HUB_PALETTE[Math.floor(Math.random() * HUB_PALETTE.length)];
+
 // Top-level hub manager: lists every star hub (even ones whose source was
 // deleted) with inline rename/recolor/description, member removal, and delete.
 export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
@@ -12,7 +16,7 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<{ name: string; color: string; description: string }>({ name: '', color: '#818cf8', description: '' });
   const [creating, setCreating] = useState(false);
-  const [newHub, setNewHub] = useState<{ name: string; color: string; description: string }>({ name: '', color: '#818cf8', description: '' });
+  const [newHub, setNewHub] = useState<{ name: string; color: string; description: string }>(() => ({ name: '', color: randomHubColor(), description: '' }));
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -61,7 +65,7 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
     const name = newHub.name.trim();
     if (!name) return;
     await window.api.hubs.create({ name, color: newHub.color, description: newHub.description.trim() });
-    setNewHub({ name: '', color: '#818cf8', description: '' });
+    setNewHub({ name: '', color: randomHubColor(), description: '' });
     setCreating(false);
     refresh();
     notify();
@@ -74,7 +78,7 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
           <h1 style={{ fontSize: 18, fontWeight: 800, margin: 0, color: '#e2e8f0' }}>Star Hubs</h1>
           <span style={{ fontSize: 12, color: '#6b7280' }}>{hubs.length} hub{hubs.length === 1 ? '' : 's'}</span>
           <button
-            onClick={() => setCreating(v => !v)}
+            onClick={() => setCreating(v => { const open = !v; if (open) setNewHub(h => ({ ...h, color: randomHubColor() })); return open; })}
             style={{ marginLeft: 'auto', background: '#312e81', border: '1px solid #6366f1', borderRadius: 6, padding: '6px 12px', color: '#e0e7ff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
           >+ New hub</button>
         </div>
