@@ -442,7 +442,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           );
         })}
       </div>
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div className="concept-scroll" style={{ flex: 1, overflowY: 'auto' }}>
         {displayed.length === 0 && (
           <div style={{ padding: 20, color: '#374151', fontSize: 12, textAlign: 'center' }}>
             {concepts.length === 0

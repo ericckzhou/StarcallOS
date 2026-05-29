@@ -184,6 +184,18 @@ body::after {
 .cm-hub-action:hover { color: #e2e8f0; }
 .cm-hub-del:hover { color: #fecaca; }
 
+/* Concept list scroll wheel: thinner, quieter than the global 10px bar so the
+   dense concept rails (Map + Sources) read as a clean list, not a chrome. */
+.concept-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.concept-scroll::-webkit-scrollbar-track { background: transparent; border: none; }
+.concept-scroll::-webkit-scrollbar-thumb {
+  background: #232a3a;
+  border: none;
+  border-radius: 3px;
+}
+.concept-scroll::-webkit-scrollbar-thumb:hover { background: #312e81; }
+.concept-scroll { scrollbar-width: thin; scrollbar-color: #232a3a transparent; }
+
 /* Concept importance filter chips: base + hover (active state set inline). */
 .cp-filter {
   border: 1px solid #1f2937;

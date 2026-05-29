@@ -533,18 +533,20 @@ function SourceSelect({ sources, selectedSource, color, onChange }: {
 }) {
   if (sources.length === 0) return null;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, flexShrink: 0 }} aria-hidden="true" />
-      <select
-        value={selectedSource ?? ''}
-        onChange={e => onChange(Number(e.target.value))}
-        aria-label="Source to view on the constellation map"
-        title="Choose which source's constellation to view (linked concepts from other sources are shown automatically)"
-        style={{ background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '4px 8px', color: '#e2e8f0', fontSize: 11, outline: 'none', maxWidth: 260, cursor: 'pointer' }}
-      >
-        {sources.map(s => <option key={s.id} value={s.id}>{s.filename}</option>)}
-      </select>
-      <span style={{ fontSize: 10, color: '#475569' }}>+ linked sources shown</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+        <span style={{ position: 'absolute', left: 8, width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0, pointerEvents: 'none' }} aria-hidden="true" />
+        <select
+          value={selectedSource ?? ''}
+          onChange={e => onChange(Number(e.target.value))}
+          aria-label="Source to view on the constellation map"
+          title="Choose which source's constellation to view (linked concepts from other sources are shown automatically)"
+          style={{ width: '100%', boxSizing: 'border-box', background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '6px 8px 6px 22px', color: '#e2e8f0', fontSize: 11, outline: 'none', cursor: 'pointer', textOverflow: 'ellipsis' }}
+        >
+          {sources.map(s => <option key={s.id} value={s.id}>{s.filename}</option>)}
+        </select>
+      </div>
+      <span style={{ fontSize: 9, color: '#475569' }}>+ linked sources shown automatically</span>
     </div>
   );
 }
@@ -676,7 +678,7 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
             <input value={conceptQuery} onChange={e => setConceptQuery(e.target.value)} placeholder="Search concepts…"
               style={{ width: '100%', boxSizing: 'border-box', background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '6px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }} />
           </div>
-          <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+          <div className="concept-scroll" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
             {conceptList.length === 0 ? (
               <div style={{ padding: 16, fontSize: 11, color: '#475569', textAlign: 'center' }}>{view.nodes.length === 0 ? 'No concepts on this map.' : 'No matches.'}</div>
             ) : conceptList.map(n => {
