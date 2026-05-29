@@ -92,7 +92,8 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                     onBlur={saveName}
                     onKeyDown={e => { if (e.key === 'Enter') saveName(); }}
                     style={{
-                      width: '100%', maxWidth: 420, background: '#111827',
+                      width: '100%', maxWidth: 420,
+                      background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
                       border: '1px solid #263244', borderRadius: 6,
                       color: '#e2e8f0', padding: '8px 10px', fontSize: 16,
                       fontWeight: 700,

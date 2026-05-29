@@ -912,6 +912,10 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange, on
             void window.api.concepts.updateFields({
               conceptId: concept.id,
               where_reappears: next,
+            }).then(() => {
+              // The Map derives edges from constellations — tell it to refetch
+              // so deleted links drop off without a reload.
+              window.dispatchEvent(new Event('starcall:graphChanged'));
             });
           }}
         />
@@ -1269,7 +1273,7 @@ function EditableSection({ title, value, saving, onChange, onSave, placeholder }
         rows={Math.max(2, Math.min(8, Math.ceil((value.length || placeholder.length) / 70)))}
         style={{
           width: '100%', boxSizing: 'border-box', resize: 'vertical',
-          background: value ? '#111827' : '#0d0d16',
+          background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
           border: `1px solid ${dirty ? '#818cf8' : '#1f2937'}`,
           borderRadius: 4, padding: '8px 10px',
           color: value ? '#c4cfe4' : '#6b7280',
@@ -1624,6 +1628,15 @@ function KindChip({ kind, onDismiss }: { kind: string; onDismiss: () => void }) 
   );
 }
 
+// Tag colors are a global, name-keyed preference (the same tag looks the same
+// on every concept). Purely cosmetic, so stored in localStorage.
+const TAG_COLORS_KEY = 'starcall.tagColors';
+const DEFAULT_TAG_COLOR = '#818cf8';
+function loadTagColors(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(TAG_COLORS_KEY) || '{}') as Record<string, string>; }
+  catch { return {}; }
+}
+
 // User-authored free-text tags. Renders as removable chips (hover → ×) plus a
 // "+ tag" affordance. Persists via updateFields and keeps the shared concept
 // ref in sync, mirroring ImportancePill.
@@ -1631,33 +1644,58 @@ function TagBar({ concept }: { concept: Concept }) {
   const [tags, setTags] = useState<string[]>(concept.tags ?? []);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [allTags, setAllTags] = useState<string[]>([]);
+  const [tagColors, setTagColors] = useState<Record<string, string>>(loadTagColors);
+  const [newColor, setNewColor] = useState(DEFAULT_TAG_COLOR);
+  const colorOf = (t: string) => tagColors[t.toLowerCase()] ?? DEFAULT_TAG_COLOR;
+  function rememberColor(name: string, color: string) {
+    const next = { ...loadTagColors(), [name.toLowerCase()]: color };
+    localStorage.setItem(TAG_COLORS_KEY, JSON.stringify(next));
+    setTagColors(next);
+  }
   useEffect(() => { setTags(concept.tags ?? []); }, [concept.id, concept.tags]);
+  // Existing tags across all concepts, refreshed when the picker opens.
+  useEffect(() => {
+    if (!adding) return;
+    let cancelled = false;
+    window.api.concepts.allTags().then(t => { if (!cancelled) setAllTags(t); }).catch(() => {});
+    setTagColors(loadTagColors());
+    return () => { cancelled = true; };
+  }, [adding]);
 
   function persist(next: string[]) {
     setTags(next);
     concept.tags = next; // keep the shared ref current until the next refetch
     void window.api.concepts.updateFields({ conceptId: concept.id, tags: next });
   }
-  function commitDraft() {
-    const t = draft.trim();
-    setAdding(false);
+  function addTag(t: string, color?: string) {
+    const v = t.trim();
+    if (!v) return;
+    // Only set a color for a brand-new tag; existing tags keep their color.
+    if (color && !(v.toLowerCase() in loadTagColors())) rememberColor(v, color);
+    if (!tags.some(x => x.toLowerCase() === v.toLowerCase())) persist([...tags, v]);
     setDraft('');
-    if (!t) return;
-    if (tags.some(x => x.toLowerCase() === t.toLowerCase())) return;
-    persist([...tags, t]);
+    setNewColor(DEFAULT_TAG_COLOR);
+    setAdding(false);
   }
   function removeTag(t: string) {
     persist(tags.filter(x => x !== t));
   }
 
+  const applied = new Set(tags.map(t => t.toLowerCase()));
+  const suggestions = allTags.filter(t =>
+    !applied.has(t.toLowerCase()) && t.toLowerCase().includes(draft.trim().toLowerCase()),
+  );
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0 }}>
-      {tags.map(t => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, position: 'relative' }}>
+      {tags.map(t => {
+        const c = colorOf(t);
+        return (
         <span key={t} className="tag-chip" style={{
           display: 'inline-flex', alignItems: 'center', gap: 4,
           fontSize: 10, padding: '2px 6px', borderRadius: 3,
-          border: '1px solid #4338ca', color: '#c7d2fe', background: 'rgba(49,46,129,0.32)',
+          border: `1px solid ${c}`, color: '#e2e8f0', background: `${c}33`,
           letterSpacing: '0.03em', flexShrink: 0,
         }}>
           {t}
@@ -1665,38 +1703,79 @@ function TagBar({ concept }: { concept: Concept }) {
             className="tag-x"
             onClick={() => removeTag(t)}
             title={`Remove tag "${t}"`}
-            style={{ background: 'transparent', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0 }}
+            style={{ background: 'transparent', border: 'none', color: c, cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0 }}
           >×</button>
         </span>
-      ))}
-      {adding ? (
-        <input
-          ref={inputRef}
-          autoFocus
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter') { e.preventDefault(); commitDraft(); }
-            else if (e.key === 'Escape') { e.preventDefault(); setAdding(false); setDraft(''); }
-          }}
-          onBlur={commitDraft}
-          placeholder="tag…"
+        );
+      })}
+      <button
+        onClick={() => setAdding(v => !v)}
+        title="Add a tag"
+        style={{
+          fontSize: 10, padding: '2px 6px', borderRadius: 3,
+          border: '1px dashed #374151', background: 'transparent',
+          color: '#a5b4fc', cursor: 'pointer', flexShrink: 0,
+        }}
+      >+ tag</button>
+      {adding && (
+        <div
+          onMouseDown={e => e.preventDefault()}
           style={{
-            width: 80, fontSize: 10, padding: '2px 6px', borderRadius: 3,
-            background: 'rgba(17,24,39,0.45)', border: '1px solid #4338ca',
-            color: '#e2e8f0', outline: 'none',
+            position: 'absolute', top: '100%', left: 0, zIndex: 40, marginTop: 4, minWidth: 180, maxWidth: 260,
+            background: 'rgba(13,13,22,0.92)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+            border: '1px solid #312e81', borderRadius: 6, boxShadow: '0 16px 50px rgba(0,0,0,0.55)', padding: 4,
           }}
-        />
-      ) : (
-        <button
-          onClick={() => setAdding(true)}
-          title="Add a tag"
-          style={{
-            fontSize: 10, padding: '2px 6px', borderRadius: 3,
-            border: '1px dashed #374151', background: 'transparent',
-            color: '#a5b4fc', cursor: 'pointer', flexShrink: 0,
-          }}
-        >+ tag</button>
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+            <input
+              type="color"
+              value={newColor}
+              onChange={e => setNewColor(e.target.value)}
+              title="Color for a new tag"
+              style={{ width: 26, height: 26, padding: 0, border: '1px solid #263244', borderRadius: 4, background: 'transparent', cursor: 'pointer', flexShrink: 0 }}
+            />
+            <input
+              autoFocus
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); addTag(draft, newColor); }
+                else if (e.key === 'Escape') { e.preventDefault(); setAdding(false); setDraft(''); }
+              }}
+              placeholder="Pick or type a new tag…"
+              style={{
+                flex: 1, minWidth: 0, boxSizing: 'border-box', fontSize: 11, padding: '5px 7px', borderRadius: 4,
+                background: 'rgba(17,24,39,0.5)', border: '1px solid #263244', color: '#e2e8f0', outline: 'none',
+              }}
+            />
+          </div>
+          <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+            {suggestions.map(t => (
+              <button
+                key={t}
+                className="rel-opt"
+                onClick={() => addTag(t)}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '5px 8px', color: '#c7d2fe', fontSize: 11 }}
+              >
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: colorOf(t), flexShrink: 0 }} />
+                {t}
+              </button>
+            ))}
+            {draft.trim() && !allTags.some(t => t.toLowerCase() === draft.trim().toLowerCase()) && (
+              <button
+                className="rel-opt"
+                onClick={() => addTag(draft, newColor)}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '5px 8px', color: '#a5b4fc', fontSize: 11 }}
+              >
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: newColor, flexShrink: 0 }} />
+                + create “{draft.trim()}”
+              </button>
+            )}
+            {suggestions.length === 0 && !draft.trim() && (
+              <div style={{ padding: '5px 8px', fontSize: 10, color: '#6b7280' }}>No other tags yet — type to create one.</div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

@@ -296,7 +296,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
           }}
           placeholder={`Pick an evidence span in ${pending.name} above, or write why they relate…`}
           rows={3}
-          style={{ background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '7px 9px', color: '#e2e8f0', fontSize: 12, lineHeight: 1.5, resize: 'vertical', outline: 'none', fontFamily: 'inherit' }}
+          style={{ background: 'rgba(13,13,22,0.4)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid #263244', borderRadius: 4, padding: '7px 9px', color: '#e2e8f0', fontSize: 12, lineHeight: 1.5, resize: 'vertical', outline: 'none', fontFamily: 'inherit' }}
         />
         <div style={{ display: 'flex', gap: 8 }}>
           <button
@@ -389,7 +389,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
               onBlur={() => setTimeout(() => setOpen(false), 120)}
               placeholder="Type to link any concept..."
               style={{
-                width: '100%', background: '#0d0d16', border: '1px solid #1f2937',
+                width: '100%', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid #1f2937',
                 borderRadius: 4, padding: '6px 10px', color: '#e2e8f0', fontSize: 12,
                 outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
               }}

@@ -39,7 +39,22 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
   const [pendingDeletes, setPendingDeletes] = useState<{ source: Source; index: number }[]>([]);
   const deleteTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
-  useEffect(() => () => { for (const t of deleteTimers.current.values()) clearTimeout(t); }, []);
+  // On unmount (e.g. switching to Review/Map within the 5s undo window), FLUSH
+  // pending source deletes instead of cancelling them — otherwise the source is
+  // dropped from the list optimistically but never deleted in the DB, leaving
+  // its concepts/map orphaned.
+  const pendingDeletesRef = useRef(pendingDeletes);
+  pendingDeletesRef.current = pendingDeletes;
+  useEffect(() => () => {
+    for (const t of deleteTimers.current.values()) clearTimeout(t);
+    if (pendingDeletesRef.current.length > 0) {
+      for (const { source } of pendingDeletesRef.current) {
+        void window.api.sources.delete(source.id);
+      }
+      window.dispatchEvent(new Event('starcall:progressChanged'));
+      window.dispatchEvent(new Event('starcall:review-queue-stale'));
+    }
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(COLLAPSED_KEY, String(collapsed));

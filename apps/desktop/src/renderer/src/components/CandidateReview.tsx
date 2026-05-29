@@ -643,7 +643,8 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               placeholder="Search title…  ( / )"
               style={{
                 width: 160, boxSizing: 'border-box',
-                background: '#111827', border: '1px solid #263244', borderRadius: 3,
+                background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+                border: '1px solid #263244', borderRadius: 3,
                 padding: '3px 22px 3px 8px', color: '#e2e8f0', fontSize: 11, outline: 'none',
               }}
             />

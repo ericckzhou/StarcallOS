@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('concepts:updateFields', args),
     searchByPrefix: (args: { conceptId: number; prefix: string; limit?: number }) =>
       ipcRenderer.invoke('concepts:searchByPrefix', args),
+    allTags: () => ipcRenderer.invoke('concepts:allTags'),
     graph: () => ipcRenderer.invoke('concepts:graph'),
     get: (conceptId: number) => ipcRenderer.invoke('concepts:get', conceptId),
     rename: (args: { conceptId: number; name: string }) =>

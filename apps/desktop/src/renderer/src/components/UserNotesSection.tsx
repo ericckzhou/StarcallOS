@@ -39,6 +39,18 @@ export default function UserNotesSection({ conceptId, sourceId, onJumpToAnnotati
   // Soft-delete with a 5s undo window instead of a confirm popup.
   const [pendingDeletes, setPendingDeletes] = useState<Note[]>([]);
   const deleteTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  // Refetch when a note's linked highlight/evidence changes elsewhere (e.g.
+  // deleting evidence in the source rail clears a note's link).
+  const [refreshTick, setRefreshTick] = useState(0);
+  useEffect(() => {
+    const handler = () => setRefreshTick(t => t + 1);
+    window.addEventListener('starcall:notesChanged', handler);
+    window.addEventListener('starcall:evidenceChanged', handler);
+    return () => {
+      window.removeEventListener('starcall:notesChanged', handler);
+      window.removeEventListener('starcall:evidenceChanged', handler);
+    };
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -46,7 +58,7 @@ export default function UserNotesSection({ conceptId, sourceId, onJumpToAnnotati
       setNotes((rows as Note[]).filter(n => n.heading !== PAPER_NOTE_HEADING));
       setLoading(false);
     });
-  }, [conceptId]);
+  }, [conceptId, refreshTick]);
 
   // Highlights this note can link to: this concept's highlights plus any
   // source-wide highlights (all are visible in this concept's source viewer).
@@ -65,7 +77,7 @@ export default function UserNotesSection({ conceptId, sourceId, onJumpToAnnotati
       setHighlights(opts);
     }).catch(() => { if (!cancelled) setHighlights([]); });
     return () => { cancelled = true; };
-  }, [sourceId, conceptId]);
+  }, [sourceId, conceptId, refreshTick]);
 
   async function addNote() {
     const created = await window.api.concepts.notes.create({
@@ -280,7 +292,7 @@ function NoteRow({
         rows={Math.max(2, Math.min(8, Math.ceil((body.length || 70) / 70)))}
         style={{
           width: '100%',
-          background: body ? '#111827' : '#0d0d16',
+          background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
           border: `1px solid ${bodyDirty ? '#818cf8' : '#1f2937'}`,
           borderRadius: 4,
           padding: '8px 10px',

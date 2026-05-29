@@ -44,6 +44,7 @@ export const IPC = {
   CONCEPTS_ENRICH:         'concepts:enrich',
   CONCEPTS_UPDATE_FIELDS:  'concepts:updateFields',
   CONCEPTS_SEARCH_BY_PREFIX: 'concepts:searchByPrefix',
+  CONCEPTS_ALL_TAGS:        'concepts:allTags',
   CONCEPTS_GRAPH:            'concepts:graph',
   CONCEPTS_GET:             'concepts:get',
   CONCEPTS_RENAME:           'concepts:rename',
@@ -166,7 +167,7 @@ export interface ConceptSourceEvidence {
   filename: string;
   pageCount: number | null;
   isPdf: boolean;
-  evidence: Array<{ index: number; page: number; kind: string; label: string; quote?: string }>;
+  evidence: Array<{ index: number; page: number; kind: string; label: string; quote?: string; annotationId?: number }>;
 }
 
 export interface CreatePdfAnnotationArgs {
@@ -453,10 +454,11 @@ export interface IpcApi {
     delete: (conceptId: number) => Promise<{ ok: true }>;
     setReviewed: (args: { conceptId: number; reviewed: boolean }) => Promise<{ ok: true }>;
     deleteEvidenceSpan: (args: { conceptId: number; page: number; kind: string; quote: string }) => Promise<ConceptSourceEvidence | null>;
-    addEvidence: (args: { conceptId: number; page: number; kind: string; label: string; quote?: string }) => Promise<ConceptSourceEvidence | null>;
+    addEvidence: (args: { conceptId: number; page: number; kind: string; label: string; quote?: string; annotationId?: number }) => Promise<ConceptSourceEvidence | null>;
     updateEvidence: (args: { conceptId: number; index: number; page?: number; kind?: string; label?: string; quote?: string }) => Promise<ConceptSourceEvidence | null>;
     deleteEvidence: (args: { conceptId: number; index: number }) => Promise<ConceptSourceEvidence | null>;
     searchByPrefix: (args: { conceptId: number; prefix: string; limit?: number }) => Promise<Array<{ id: number; name: string; importance: string }>>;
+    allTags: () => Promise<string[]>;
     graph: () => Promise<ConstellationGraph>;
     get: (conceptId: number) => Promise<Concept | null>;
     rename: (args: { conceptId: number; name: string }) => Promise<Concept | null>;

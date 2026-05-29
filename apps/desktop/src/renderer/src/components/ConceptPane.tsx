@@ -136,6 +136,18 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
       return next;
     });
   }
+  // Select all currently-shown concepts (respects the active filter/search);
+  // toggles to deselect-all when everything visible is already selected.
+  const allDisplayedSelected = displayed.length > 0 && displayed.every(c => selectedIds.has(c.id));
+  function toggleSelectAll() {
+    const ids = displayed.map(c => c.id);
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allDisplayedSelected) { for (const id of ids) next.delete(id); }
+      else { for (const id of ids) next.add(id); }
+      return next;
+    });
+  }
   function exitSelect() { setSelectMode(false); setSelectedIds(new Set()); setAddMenuOpen(false); }
 
   async function createHubFromSelection() {
@@ -376,6 +388,17 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             title="Exit selection"
             style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '3px 7px', color: '#9ca3af', fontSize: 10, cursor: 'pointer', fontWeight: 700 }}
           >Done</button>
+          <button
+            onClick={toggleSelectAll}
+            title={allDisplayedSelected ? 'Deselect all shown' : 'Select all shown'}
+            aria-label={allDisplayedSelected ? 'Deselect all' : 'Select all'}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 20,
+              background: allDisplayedSelected ? 'rgba(129,140,248,0.25)' : 'transparent',
+              border: `1px solid ${allDisplayedSelected ? '#6366f1' : '#374151'}`, borderRadius: 4,
+              color: allDisplayedSelected ? '#c7d2fe' : '#9ca3af', fontSize: 11, lineHeight: 1, cursor: 'pointer',
+            }}
+          >{allDisplayedSelected ? '✓' : '☐'}</button>
           <span style={{ fontSize: 11, color: '#c7d2fe', fontWeight: 700 }}>{selectedIds.size} selected</span>
           <button
             onClick={() => { if (selectedIds.size) { setHubName(''); setHubDesc(''); setHubModalOpen(true); } }}

@@ -117,28 +117,43 @@ function useConstellationGraph() {
   }, []);
   useEffect(() => { refreshHubs(); }, [refreshHubs]);
 
-  useEffect(() => {
-    setLoading(true);
+  // Initial source selection runs only once; later refetches (e.g. after a
+  // constellation edit) just update the graph data and keep the user's view.
+  const didInitSourceRef = useRef(false);
+  const loadGraph = useCallback(() => {
     window.api.concepts.graph().then(g => {
       const data = g as Graph;
       setGraph(data);
-      const present = new Set(data.nodes.map(n => n.source_id));
-      // Default to the source you were most recently previewing in the Sources
-      // tab, if it's still on the map; otherwise fall back to the largest source.
-      const lastRaw = localStorage.getItem(LAST_SOURCE_KEY);
-      const last = lastRaw != null ? Number(lastRaw) : NaN;
-      if (Number.isFinite(last) && present.has(last)) {
-        setSelectedSource(last);
-      } else {
-        const counts = new Map<number, number>();
-        for (const n of data.nodes) counts.set(n.source_id, (counts.get(n.source_id) ?? 0) + 1);
-        let best: number | null = null, bestN = -1;
-        for (const [sid, c] of counts) if (c > bestN) { bestN = c; best = sid; }
-        setSelectedSource(best);
+      if (!didInitSourceRef.current) {
+        didInitSourceRef.current = true;
+        const present = new Set(data.nodes.map(n => n.source_id));
+        // Default to the source you were most recently previewing in the
+        // Sources tab, if it's still on the map; else the largest source.
+        const lastRaw = localStorage.getItem(LAST_SOURCE_KEY);
+        const last = lastRaw != null ? Number(lastRaw) : NaN;
+        if (Number.isFinite(last) && present.has(last)) {
+          setSelectedSource(last);
+        } else {
+          const counts = new Map<number, number>();
+          for (const n of data.nodes) counts.set(n.source_id, (counts.get(n.source_id) ?? 0) + 1);
+          let best: number | null = null, bestN = -1;
+          for (const [sid, c] of counts) if (c > bestN) { bestN = c; best = sid; }
+          setSelectedSource(best);
+        }
       }
       setLoading(false);
     });
   }, []);
+
+  useEffect(() => { setLoading(true); loadGraph(); }, [loadGraph]);
+
+  // Refetch when constellations/edges change elsewhere so deleted links drop
+  // off the map without a manual reload.
+  useEffect(() => {
+    const handler = () => loadGraph();
+    window.addEventListener('starcall:graphChanged', handler);
+    return () => window.removeEventListener('starcall:graphChanged', handler);
+  }, [loadGraph]);
 
   const sources = useMemo<SourceMeta[]>(() => {
     if (!graph) return [];
@@ -146,9 +161,11 @@ function useConstellationGraph() {
     for (const n of graph.nodes) {
       if (!seen.has(n.source_id)) seen.set(n.source_id, n.source_filename ?? `Source ${n.source_id}`);
     }
+    // Color by source_id (stable) rather than array index, so deleting a
+    // concept/source never reshuffles the remaining sources' colors.
     return [...seen.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([id, filename], i) => ({ id, filename, color: SOURCE_PALETTE[i % SOURCE_PALETTE.length] }));
+      .map(([id, filename]) => ({ id, filename, color: SOURCE_PALETTE[Math.abs(id) % SOURCE_PALETTE.length] }));
   }, [graph]);
   const sourceColor = useMemo(() => new Map(sources.map(s => [s.id, s.color])), [sources]);
   const sourceName = useMemo(() => new Map(sources.map(s => [s.id, s.filename])), [sources]);
@@ -550,7 +567,7 @@ function SourceSelect({ sources, selectedSource, color, onChange }: {
           onChange={e => onChange(Number(e.target.value))}
           aria-label="Source to view on the constellation map"
           title="Choose which source's constellation to view (linked concepts from other sources are shown automatically)"
-          style={{ width: '100%', boxSizing: 'border-box', background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '6px 8px 6px 22px', color: '#e2e8f0', fontSize: 11, outline: 'none', cursor: 'pointer', textOverflow: 'ellipsis' }}
+          style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid #263244', borderRadius: 4, padding: '6px 8px 6px 22px', color: '#e2e8f0', fontSize: 11, outline: 'none', cursor: 'pointer', textOverflow: 'ellipsis' }}
         >
           {sources.map(s => <option key={s.id} value={s.id}>{s.filename}</option>)}
         </select>
@@ -618,13 +635,14 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
     refreshHubs();
   }
 
-  // A hub focus dims everything outside that hub's members (like hover, but pinned).
+  // A hub focus dims everything outside that hub's members (like hover, but
+  // pinned). When the Hubs toggle is off, no dimming — show all star nodes.
   const focusSet = useMemo(() => {
-    if (focusedHub == null) return null;
+    if (!showHubs || focusedHub == null) return null;
     const s = new Set<number>();
     for (const [cid, hs] of conceptHubs) if (hs.includes(focusedHub)) s.add(cid);
     return s;
-  }, [focusedHub, conceptHubs]);
+  }, [showHubs, focusedHub, conceptHubs]);
 
   const neighbors = useMemo(() => {
     if (hoverNode == null) return null;
@@ -647,7 +665,6 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
     for (const n of view.nodes) for (const hid of (conceptHubs.get(n.id) ?? [])) s.add(hid);
     return s;
   }, [view, conceptHubs]);
-  const visibleHubs = hubs.filter(h => visibleHubIds.has(h.id));
 
   const conceptList = useMemo(() => {
     const q = conceptQuery.trim().toLowerCase();
@@ -697,11 +714,15 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
           <div style={{ padding: '10px 10px 8px', borderBottom: '1px solid #1f2937' }}>
             <SourceSelect sources={sources} selectedSource={selectedSource} color={sourceColor.get(selectedSource ?? -1) ?? '#94a3b8'} onChange={setSelectedSource} />
           </div>
-          {visibleHubs.length > 0 && (
+          {hubs.length > 0 && (
             <div style={{ borderBottom: '1px solid #1f2937', padding: 8, maxHeight: '42%', overflowY: 'auto', flexShrink: 0 }}>
               <div style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Hubs</div>
-              {visibleHubs.map(h => (
-                <div key={h.id} className="cm-hub-chip" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 4px', borderRadius: 6, background: focusedHub === h.id ? 'rgba(129,140,248,0.14)' : 'transparent' }}>
+              {hubs.map(h => {
+                // Show ALL hubs (not just ones on this source) so hubs whose
+                // source was deleted are still editable/deletable. Dim off-view.
+                const onView = visibleHubIds.has(h.id);
+                return (
+                <div key={h.id} className="cm-hub-chip" title={onView ? undefined : `${h.name} — not on this source`} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 4px', borderRadius: 6, opacity: onView ? 1 : 0.55, background: focusedHub === h.id ? 'rgba(129,140,248,0.14)' : 'transparent' }}>
                   <button onClick={() => setFocusedHub(f => (f === h.id ? null : h.id))} title={`Focus ${h.name} · ${h.member_count} concept${h.member_count === 1 ? '' : 's'}`}
                     style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', cursor: 'pointer', color: focusedHub === h.id ? '#e2e8f0' : '#cbd5e1', fontSize: 11, padding: 0, textAlign: 'left' }}>
                     <span style={{ width: 9, height: 9, borderRadius: '50%', background: h.color, flexShrink: 0 }} />
@@ -715,7 +736,8 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
                   <button className="cm-hub-action cm-hub-del" onClick={() => void deleteHub(h.id)} title={`Delete ${h.name}`} aria-label={`Delete hub ${h.name}`}
                     style={{ background: 'transparent', border: 'none', color: '#475569', fontSize: 13, lineHeight: 1, cursor: 'pointer', padding: '2px 3px', borderRadius: 4 }}>×</button>
                 </div>
-              ))}
+                );
+              })}
               {focusedHub != null && (
                 <button onClick={() => setFocusedHub(null)} style={{ marginTop: 6, width: '100%', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: 3, fontSize: 10, color: '#9ca3af', cursor: 'pointer' }}>Clear focus</button>
               )}
@@ -741,7 +763,7 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
           )}
           <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937' }}>
             <input value={conceptQuery} onChange={e => setConceptQuery(e.target.value)} placeholder="Search concepts…"
-              style={{ width: '100%', boxSizing: 'border-box', background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '6px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }} />
+              style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid #263244', borderRadius: 4, padding: '6px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }} />
           </div>
           <div className="concept-scroll" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
             {conceptList.length === 0 ? (
@@ -749,9 +771,9 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
             ) : conceptList.map(n => {
               const isSel = selected?.id === n.id;
               return (
-                <button key={n.id} onClick={() => void openNode(n.id)}
+                <button key={n.id} className="rel-opt" onClick={() => void openNode(n.id)}
                   onMouseEnter={() => onHoverEnter(n.id)} onMouseLeave={() => onHoverLeave(n.id)} title={n.name}
-                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: isSel ? '#1a1a2e' : 'transparent', border: 'none', borderLeft: `2px solid ${isSel ? (sourceColor.get(n.source_id) ?? '#374151') : 'transparent'}`, padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid #111827' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: isSel ? 'rgba(129,140,248,0.18)' : 'transparent', border: 'none', borderLeft: `2px solid ${isSel ? (sourceColor.get(n.source_id) ?? '#374151') : 'transparent'}`, padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid rgba(17,24,39,0.6)' }}>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: sourceColor.get(n.source_id) ?? '#6b7280', flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: isSel ? '#e2e8f0' : '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
                 </button>

@@ -5,6 +5,7 @@ import {
   openDb,
   listSources, createSource, updateSourceStatus, getSourceById, deleteSource,
   listConceptsBySource, getConceptById, listReviewQueue, searchConceptsByPrefixForConcept, renameConcept,
+  listAllConceptTags,
   buildConstellationGraph,
   listHubs, createHub, updateHub, deleteHub, addMembers, removeMember, listAllMemberships,
   listConceptSourceEvidence, updateConceptFields, deleteConcept, deleteConceptEvidenceSpan,
@@ -564,6 +565,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CONCEPTS_SEARCH_BY_PREFIX, (_e, args: { conceptId: number; prefix: string; limit?: number }) => {
     return searchConceptsByPrefixForConcept(db, args.conceptId, args.prefix, args.limit ?? 8);
   });
+  ipcMain.handle(IPC.CONCEPTS_ALL_TAGS, () => listAllConceptTags(db));
   ipcMain.handle(IPC.CONCEPTS_GRAPH, () => buildConstellationGraph(db));
   ipcMain.handle(IPC.HUBS_LIST, () => listHubs(db));
   ipcMain.handle(IPC.HUBS_CREATE, (_e, args: { name: string; color?: string; description?: string; conceptIds?: number[] }) => createHub(db, args));
@@ -582,8 +584,8 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     deleteConceptEvidenceSpan(db, args.conceptId, args.page, args.kind, args.quote);
     return listConceptSourceEvidence(db, args.conceptId);
   });
-  ipcMain.handle(IPC.CONCEPTS_ADD_EVIDENCE, (_e, args: { conceptId: number; page: number; kind: SourceEvidenceKind; label: string; quote?: string }) =>
-    addConceptEvidence(db, args.conceptId, { page: args.page, kind: args.kind, label: args.label, quote: args.quote }));
+  ipcMain.handle(IPC.CONCEPTS_ADD_EVIDENCE, (_e, args: { conceptId: number; page: number; kind: SourceEvidenceKind; label: string; quote?: string; annotationId?: number }) =>
+    addConceptEvidence(db, args.conceptId, { page: args.page, kind: args.kind, label: args.label, quote: args.quote, annotationId: args.annotationId }));
   ipcMain.handle(IPC.CONCEPTS_UPDATE_EVIDENCE, (_e, args: { conceptId: number; index: number; page?: number; kind?: SourceEvidenceKind; label?: string; quote?: string }) =>
     updateConceptEvidence(db, args.conceptId, args.index, { page: args.page, kind: args.kind, label: args.label, quote: args.quote }));
   ipcMain.handle(IPC.CONCEPTS_DELETE_EVIDENCE, (_e, args: { conceptId: number; index: number }) =>

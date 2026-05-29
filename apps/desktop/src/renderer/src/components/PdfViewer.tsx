@@ -851,18 +851,36 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
     annotationsByPage.set(annotation.page, list);
   }
 
-  function goPrevEvidence(): void {
-    const prior = [...evidencePages].reverse().find(p => p < page);
-    if (prior != null) scrollToPage(prior);
-  }
-  function goNextEvidence(): void {
-    const next = evidencePages.find(p => p > page);
-    if (next != null) scrollToPage(next);
-  }
   async function deleteEvidence(index: number): Promise<void> {
+    // Capture the span before deletion so we can find its backing highlight.
+    const span = data?.evidence.find(e => e.index === index);
     try {
       const updated = await window.api.concepts.deleteEvidence({ conceptId, index });
       if (updated) setData(updated as SourceEvidence);
+      // Highlight-backed evidence: also remove the highlight and clear any note
+      // that linked to it (so the note's chip in Overview goes away too).
+      if (span?.kind === 'highlight') {
+        const evq = normalizeSelectedText(span.quote ?? '');
+        const hl = annotations.find(a => {
+          if (a.type !== 'highlight' || a.page !== span.page) return false;
+          const at = normalizeSelectedText(a.selected_text);
+          return !!at && (at === evq || at.includes(evq) || evq.includes(at));
+        });
+        if (hl) {
+          await window.api.sources.annotations.delete(hl.id);
+          setAnnotations(prev => prev.filter(a => a.id !== hl.id));
+          try {
+            const notes = await window.api.concepts.notes.list(conceptId);
+            await Promise.all(
+              (notes as Array<{ id: number; linked_annotation_id: number | null }>)
+                .filter(n => n.linked_annotation_id === hl.id)
+                .map(n => window.api.concepts.notes.update({ id: n.id, linkedAnnotationId: null })),
+            );
+          } catch (e) { console.error('[PdfViewer] clearing note link failed', e); }
+          window.dispatchEvent(new Event('starcall:evidenceChanged'));
+          window.dispatchEvent(new Event('starcall:notesChanged'));
+        }
+      }
     } catch (e) {
       console.error('[PdfViewer] deleteEvidence failed', e);
     }
@@ -982,6 +1000,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
         kind: 'highlight',
         label: 'Highlight',
         quote: highlightAction.selectedText,
+        annotationId: created.id,
       });
       if (updatedEvidence) setData(updatedEvidence as SourceEvidence);
       window.dispatchEvent(new Event('starcall:evidenceChanged'));
@@ -1157,21 +1176,23 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
                   onChange={e => setEvidenceOnly(e.target.checked)}
                   style={{ accentColor: '#818cf8' }}
                 />
-                Evidence pages only ({evidencePages.length})
+                ({evidencePages.length}) related pages only
               </label>
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {evEditingIndex === -2 && renderEvidenceEditor()}
               {visibleEvidenceList.map((e, i) => {
-                // Highlight evidence mirrors its on-page highlight color (each
-                // highlight gets a random light shade); other kinds use the
-                // kind palette.
+                // Highlight evidence mirrors its on-page highlight color. Match
+                // by annotation id (stable across description edits/recolor);
+                // fall back to quote match for legacy spans without an id.
                 const color = e.kind === 'highlight'
-                  ? (annotations.find(a =>
-                      a.type === 'highlight' &&
-                      a.page === e.page &&
-                      normalizeSelectedText(a.selected_text) === normalizeSelectedText(e.quote ?? ''),
-                    )?.color ?? KIND_COLOR.chunk)
+                  ? ((e.annotationId != null
+                      ? annotations.find(a => a.id === e.annotationId)
+                      : annotations.find(a =>
+                          a.type === 'highlight' &&
+                          a.page === e.page &&
+                          normalizeSelectedText(a.selected_text) === normalizeSelectedText(e.quote ?? ''),
+                        ))?.color ?? KIND_COLOR.chunk)
                   : (KIND_COLOR[e.kind] ?? '#6b7280');
                 const selected = e.page === page;
                 if (evEditingIndex === e.index && e.index >= 0) {
@@ -1235,7 +1256,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
               })}
               {visibleEvidenceList.length === 0 && evEditingIndex !== -2 && (
                 <div style={{ padding: 20, color: '#374151', fontSize: 11, textAlign: 'center' }}>
-                  No evidence to show. Uncheck "Evidence pages only" to see more.
+                  No evidence yet. Add a highlight or evidence span to populate this list.
                 </div>
               )}
             </div>
@@ -1297,11 +1318,9 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
               Source-wide
             </label>
             <span style={{ width: 8 }} />
-            <button onClick={goPrevEvidence} title="Previous evidence page" style={navBtnEvidenceStyle}>« Ev</button>
             <span style={{ fontSize: 12, color: '#9ca3af', minWidth: 100, textAlign: 'center' }}>
               Page {page} / {totalPages}
             </span>
-            <button onClick={goNextEvidence} title="Next evidence page" style={navBtnEvidenceStyle}>Ev »</button>
             <span style={{ width: 8 }} />
             {renderSearchBar()}
           </>
@@ -1317,7 +1336,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
             padding: 0, gap: 8,
           }}
         >
-          {pdfDoc && intrinsicPageSize != null && Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
+          {pdfDoc && intrinsicPageSize != null && (evidenceOnly && evidencePages.length > 0 ? evidencePages : Array.from({ length: totalPages }, (_, i) => i + 1)).map(pageNum => (
             <PdfPage
               key={pageNum}
               doc={pdfDoc}

@@ -187,6 +187,22 @@ export function getConceptBySlug(
   return row != null ? rowToConcept(row) : null;
 }
 
+// Distinct user tags across all concepts — powers the +tag picker.
+export function listAllConceptTags(db: DatabaseSync): string[] {
+  const rows = db.prepare('SELECT tags_json FROM concepts').all() as Array<{ tags_json?: string }>;
+  const set = new Set<string>();
+  for (const r of rows) {
+    if (!r.tags_json) continue;
+    try {
+      for (const t of JSON.parse(r.tags_json) as string[]) {
+        const v = String(t).trim();
+        if (v) set.add(v);
+      }
+    } catch { /* skip malformed */ }
+  }
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
 export function listConceptsBySource(db: DatabaseSync, sourceId: number): Concept[] {
   return (
     db
@@ -669,6 +685,9 @@ export interface SourceEvidence {
   kind: SourceEvidenceKind;
   label: string;
   quote?: string;
+  // For highlight-backed evidence: the source annotation id. Lets the UI render
+  // the exact highlight color (and survive description edits / recoloring).
+  annotationId?: number;
 }
 
 interface EvidenceSpan {
@@ -678,6 +697,7 @@ interface EvidenceSpan {
   pattern?: string;
   kind?: SourceEvidenceKind;
   label?: string;
+  annotationId?: number;
 }
 
 function deriveEvidenceKind(source: string): SourceEvidenceKind {
@@ -709,6 +729,7 @@ function spanToEvidence(s: EvidenceSpan, index: number): SourceEvidence {
     kind: s.kind ?? deriveEvidenceKind(s.source),
     label: s.label ?? (s.source ? s.source.replace(/_/g, ' ') : 'evidence'),
     quote: s.quote,
+    annotationId: s.annotationId,
   };
 }
 
@@ -831,12 +852,12 @@ function seededSpans(db: DatabaseSync, conceptId: number, c: ConceptRow): Eviden
 export function addConceptEvidence(
   db: DatabaseSync,
   conceptId: number,
-  item: { page: number; kind: SourceEvidenceKind; label: string; quote?: string },
+  item: { page: number; kind: SourceEvidenceKind; label: string; quote?: string; annotationId?: number },
 ): ConceptSourceEvidence | null {
   const c = db.prepare('SELECT * FROM concepts WHERE id = ?').get(conceptId) as ConceptRow | undefined;
   if (!c) return null;
   const spans = seededSpans(db, conceptId, c);
-  spans.push({ source: evidenceKindToSource(item.kind), kind: item.kind, label: item.label, quote: item.quote, page: item.page });
+  spans.push({ source: evidenceKindToSource(item.kind), kind: item.kind, label: item.label, quote: item.quote, page: item.page, annotationId: item.annotationId });
   db.prepare('UPDATE concepts SET evidence_json = ? WHERE id = ?').run(JSON.stringify(spans), conceptId);
   return listConceptSourceEvidence(db, conceptId);
 }
