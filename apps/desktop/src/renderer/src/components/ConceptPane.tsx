@@ -416,21 +416,31 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           </div>
         </div>
       )}
-      <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-        {['all', ...IMPORTANCE_ORDER].map(imp => (
-          <button
-            key={imp}
-            onClick={() => setFilter(imp)}
-            style={{
-              background: filter === imp ? '#1e1e2e' : 'transparent',
-              border: `1px solid ${filter === imp ? (IMP_COLOR[imp] ?? '#818cf8') : '#1f2937'}`,
-              borderRadius: 3, padding: '2px 6px', fontSize: 10, cursor: 'pointer',
-              color: filter === imp ? (IMP_COLOR[imp] ?? '#818cf8') : '#4b5563',
-            }}
-          >
-            {IMP_LABEL[imp]}
-          </button>
-        ))}
+      <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937', display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+        {['all', ...IMPORTANCE_ORDER].map(imp => {
+          const active = filter === imp;
+          const color = IMP_COLOR[imp] ?? '#818cf8';
+          const count = imp === 'all' ? concepts.length : concepts.filter(c => c.importance === imp).length;
+          return (
+            <button
+              key={imp}
+              className="cp-filter"
+              onClick={() => setFilter(imp)}
+              aria-pressed={active}
+              title={`${IMP_LABEL[imp]} (${count})`}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                borderRadius: 999, padding: '3px 9px', fontSize: 10, cursor: 'pointer',
+                fontWeight: active ? 700 : 500,
+                ...(active ? { background: `${color}22`, borderColor: color, color } : {}),
+              }}
+            >
+              {imp !== 'all' && <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0, opacity: active ? 1 : 0.7 }} />}
+              {IMP_LABEL[imp]}
+              <span style={{ fontSize: 9, color: active ? color : '#475569', fontVariantNumeric: 'tabular-nums' }}>{count}</span>
+            </button>
+          );
+        })}
       </div>
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {displayed.length === 0 && (

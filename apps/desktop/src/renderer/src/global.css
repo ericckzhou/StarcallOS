@@ -184,6 +184,15 @@ body::after {
 .cm-hub-action:hover { color: #e2e8f0; }
 .cm-hub-del:hover { color: #fecaca; }
 
+/* Concept importance filter chips: base + hover (active state set inline). */
+.cp-filter {
+  border: 1px solid #1f2937;
+  background: transparent;
+  color: #64748b;
+  transition: background-color 130ms ease, border-color 130ms ease, color 130ms ease;
+}
+.cp-filter:hover { border-color: #475569; color: #cbd5e1; }
+
 /* Default focus ring tamed for the dark theme. */
 :focus-visible {
   outline: 1px solid #818cf8;
