@@ -628,6 +628,15 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
   const posById = useMemo(() => new Map(sim.map(s => [s.id, s])), [sim]);
   const showGraph = !loading && graph != null && view.nodes.length > 0;
 
+  // Only surface hubs that actually have a member on the current (source-focused)
+  // map — a hub whose concepts are all in other, hidden sources isn't actionable here.
+  const visibleHubIds = useMemo(() => {
+    const s = new Set<number>();
+    for (const n of view.nodes) for (const hid of (conceptHubs.get(n.id) ?? [])) s.add(hid);
+    return s;
+  }, [view, conceptHubs]);
+  const visibleHubs = hubs.filter(h => visibleHubIds.has(h.id));
+
   // Hub nebulae — recomputed each render so the clouds track the live layout.
   const clusters: Cluster[] = [];
   if (showHubs && hubs.length > 0) {
@@ -679,10 +688,10 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
         </div>
 
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'radial-gradient(circle at 50% 40%, rgba(30,27,75,0.42), rgba(2,6,23,0.18))' }}>
-          {showGraph && hubs.length > 0 && (
+          {showGraph && visibleHubs.length > 0 && (
             <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 5, width: 204, maxHeight: '72%', overflowY: 'auto', background: 'rgba(4,6,26,0.82)', border: '1px solid #1f2937', borderRadius: 8, padding: 8, backdropFilter: 'blur(8px)' }}>
               <div style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Hubs</div>
-              {hubs.map(h => (
+              {visibleHubs.map(h => (
                 <div key={h.id} className="cm-hub-chip" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 4px', borderRadius: 6, background: focusedHub === h.id ? 'rgba(129,140,248,0.14)' : 'transparent' }}>
                   <button onClick={() => setFocusedHub(f => (f === h.id ? null : h.id))} title={`Focus ${h.name} · ${h.member_count} concept${h.member_count === 1 ? '' : 's'}`}
                     style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', cursor: 'pointer', color: focusedHub === h.id ? '#e2e8f0' : '#cbd5e1', fontSize: 11, padding: 0, textAlign: 'left' }}>
