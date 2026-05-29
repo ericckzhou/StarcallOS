@@ -853,6 +853,22 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
         onSave={() => saveField('what_breaks', local.what_breaks)}
         placeholder="What goes wrong when missing or misapplied."
       />
+      <Section title="Constellations">
+        <WhereItReappearsEditor
+          conceptId={concept.id}
+          value={constellations}
+          onChange={next => {
+            setConstellations(next);
+            // Keep the parent's concept reference in sync so other surfaces
+            // see the new list immediately on the next render.
+            concept.where_reappears = next as unknown as Concept['where_reappears'];
+            void window.api.concepts.updateFields({
+              conceptId: concept.id,
+              where_reappears: next,
+            });
+          }}
+        />
+      </Section>
       <Section title={`Equations (${equations.length})`}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1024,22 +1040,6 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
               )
             ))}
         </div>
-      </Section>
-      <Section title="Constellations">
-        <WhereItReappearsEditor
-          conceptId={concept.id}
-          value={constellations}
-          onChange={next => {
-            setConstellations(next);
-            // Keep the parent's concept reference in sync so other surfaces
-            // see the new list immediately on the next render.
-            concept.where_reappears = next as unknown as Concept['where_reappears'];
-            void window.api.concepts.updateFields({
-              conceptId: concept.id,
-              where_reappears: next,
-            });
-          }}
-        />
       </Section>
       {misconceptions.length > 0 && (
         <Section title={`Common Misconceptions (${misconceptions.length})`}>
