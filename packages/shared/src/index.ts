@@ -260,6 +260,8 @@ export interface CandidateLlmFilterResult {
   sent: number;
   keepTerms: string[];
   decisions: CandidateLlmFilterDecision[];
+  batches?: number;
+  providers?: string[];
 }
 
 export interface ProcessSourceResult {

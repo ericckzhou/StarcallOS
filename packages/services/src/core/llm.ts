@@ -101,13 +101,26 @@ export async function chatJSON(
     const groqMaxTokensCap = 4096;
     const cappedMaxTokens = Math.min(req.maxTokens ?? groqMaxTokensCap, groqMaxTokensCap);
     const client = new Groq({ apiKey: config.apiKey });
-    const response = await client.chat.completions.create({
+    const callGroq = () => client.chat.completions.create({
       model: config.model,
       messages: req.messages.map(m => ({ role: m.role, content: m.content })),
       response_format: req.responseFormat === 'json' ? { type: 'json_object' } : undefined,
       temperature: req.temperature ?? 0.2,
       max_tokens: cappedMaxTokens,
     });
+    // Retry on 429 (free-tier TPM/RPM) with backoff — respects Retry-After when
+    // present, else exponential. Lets paced multi-batch passes ride out limits.
+    let response: Awaited<ReturnType<typeof callGroq>>;
+    for (let attempt = 0; ; attempt++) {
+      try { response = await callGroq(); break; }
+      catch (e) {
+        const status = (e as { status?: number }).status;
+        if (status !== 429 || attempt >= 4) throw e;
+        const ra = Number((e as { headers?: Record<string, string> }).headers?.['retry-after']);
+        const waitMs = Number.isFinite(ra) && ra > 0 ? Math.min(15000, ra * 1000) : Math.min(8000, 500 * 2 ** attempt);
+        await new Promise(r => setTimeout(r, waitMs));
+      }
+    }
     const u = (response.usage ?? {}) as { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     promptTokens = u.prompt_tokens ?? 0;
     completionTokens = u.completion_tokens ?? 0;
