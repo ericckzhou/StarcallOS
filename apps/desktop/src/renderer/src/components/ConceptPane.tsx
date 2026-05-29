@@ -56,6 +56,21 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   const [hubName, setHubName] = useState('');
   const [hubColor, setHubColor] = useState(HUB_PALETTE[0]);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+
+  function startLongPress(id: number) {
+    longPressFired.current = false;
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      setSelectMode(true);
+      setSelectedIds(prev => new Set(prev).add(id));
+    }, 420);
+  }
+  function cancelLongPress() {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  }
 
   const refreshHubs = useCallback(() => {
     Promise.all([window.api.hubs.list(), window.api.hubs.memberships()]).then(([hs, ms]) => {
@@ -217,15 +232,6 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           {concepts.length > 0 && !selectMode && (
             <span style={{ fontSize: 10, color: '#22c55e' }}>{masteredCount} connected+</span>
           )}
-          {concepts.length > 0 && (
-            <button
-              onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
-              title="Select concepts to group into a Star Hub"
-              style={{ background: selectMode ? '#312e81' : 'transparent', border: `1px solid ${selectMode ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '3px 7px', color: selectMode ? '#e0e7ff' : '#9ca3af', fontSize: 10, cursor: 'pointer', fontWeight: 700 }}
-            >
-              {selectMode ? 'Done' : 'Select'}
-            </button>
-          )}
           <button
             onClick={() => setCreateOpen(true)}
             title="Add your own concept to this source"
@@ -353,6 +359,11 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
       </div>
       {selectMode && (
         <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937', background: 'rgba(30,27,75,0.45)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', position: 'relative' }}>
+          <button
+            onClick={exitSelect}
+            title="Exit selection"
+            style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '3px 7px', color: '#9ca3af', fontSize: 10, cursor: 'pointer', fontWeight: 700 }}
+          >Done</button>
           <span style={{ fontSize: 11, color: '#c7d2fe', fontWeight: 700 }}>{selectedIds.size} selected</span>
           <button
             onClick={() => { if (selectedIds.size) { setHubName(''); setHubModalOpen(true); } }}
@@ -464,7 +475,14 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           return (
             <div
               key={c.id}
-              onClick={() => (selectMode ? toggleSelected(c.id) : onSelect(c))}
+              title={selectMode ? undefined : 'Click to open · hold to select'}
+              onMouseDown={() => startLongPress(c.id)}
+              onMouseUp={cancelLongPress}
+              onMouseLeave={cancelLongPress}
+              onClick={() => {
+                if (longPressFired.current) { longPressFired.current = false; return; }
+                if (selectMode) toggleSelected(c.id); else onSelect(c);
+              }}
               style={{
                 padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #111827',
                 background: selectMode ? (checked ? '#272263' : 'transparent') : (selectedId === c.id ? '#1a1a2e' : 'transparent'),
