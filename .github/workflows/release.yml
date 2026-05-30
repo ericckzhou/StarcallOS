@@ -36,11 +36,13 @@ jobs:
       - name: Install workspace deps
         run: pnpm install --frozen-lockfile
 
-      - name: Build shared package
-        run: pnpm -C packages/shared build
-
+      # shared imports types from services (@starcall/services is a dependency
+      # of @starcall/shared), so services MUST be built first to emit its .d.ts.
       - name: Build services package
         run: pnpm -C packages/services build
+
+      - name: Build shared package
+        run: pnpm -C packages/shared build
 
       - name: Package portable .exe (electron-vite + electron-builder)
         env:
