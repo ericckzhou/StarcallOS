@@ -225,7 +225,10 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [evidenceOnly, setEvidenceOnly] = useState(true);
+  // Default OFF so the full PDF renders; toggling on scopes to evidence pages
+  // (sparse concepts like a single-heading entry would otherwise show just one
+  // page and feel like the scrollwheel is broken).
+  const [evidenceOnly, setEvidenceOnly] = useState(false);
   const [pdfDoc, setPdfDoc] = useState<pdfjs.PDFDocumentProxy | null>(null);
   const [annotations, setAnnotations] = useState<PdfAnnotation[]>([]);
   const [pendingDeletedAnnotations, setPendingDeletedAnnotations] = useState<PdfAnnotation[]>([]);
@@ -617,6 +620,23 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
       savePdfViewState(viewStateKey, { page: targetPage, scrollTop: container?.scrollTop ?? el.offsetTop });
     }
   }
+
+  // Defensive wheel handler: native overflow:auto sometimes fails to scroll
+  // when a child (text-layer, canvas, annotation overlay) eats the wheel. Use
+  // a non-passive listener so we can preventDefault and drive the scroll
+  // ourselves — guarantees the mousewheel works on the PDF area.
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    function onWheel(e: WheelEvent) {
+      if (!el) return;
+      el.scrollTop += e.deltaY;
+      el.scrollLeft += e.deltaX;
+      e.preventDefault();
+    }
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [pdfDoc]);
 
   // External jump request (e.g. clicking a note's linked highlight). Retries
   // across animation frames until the target page wrapper is mounted, then
