@@ -48,9 +48,11 @@ jobs:
         env:
           # No code signing on v0.1 — SmartScreen warning is documented in the README.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          # Helps electron-builder upload to the right release via the API.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm -C apps/desktop dist
+        # --publish never: electron-builder only BUILDS the .exe. Publishing to
+        # the GitHub Release is done by the softprops step below. Without this,
+        # a defined tag makes electron-builder try to self-publish and fail on
+        # repository detection.
+        run: pnpm -C apps/desktop exec electron-vite build && pnpm -C apps/desktop exec electron-builder --publish never
 
       - name: Upload build artifact (for manual workflow_dispatch runs)
         if: github.event_name == 'workflow_dispatch'
