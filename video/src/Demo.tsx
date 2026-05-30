@@ -55,10 +55,17 @@ export const Demo: React.FC = () => (
   </AbsoluteFill>
 );
 
-/** Short highlight cut for the README GIF: problem → challenge → constellation. */
+/**
+ * Highlight reel for the README GIF: a quick pass through all four product
+ * screenshots, then the constellation hero. Kept short per scene so the GIF
+ * stays a reasonable file size while still showing the whole loop.
+ */
 const SHORT: { node: React.ReactNode; dur: number }[] = [
-  { node: <ClipScene {...CLIPS.challenge} />, dur: 120 },
-  { node: <Payoff />, dur: 150 },
+  { node: <ClipScene {...CLIPS.import} />, dur: 70 },
+  { node: <ClipScene {...CLIPS.promote} />, dur: 70 },
+  { node: <ClipScene {...CLIPS.challenge} />, dur: 70 },
+  { node: <ClipScene {...CLIPS.annotations} />, dur: 70 },
+  { node: <Payoff />, dur: 120 },
 ];
 export const DEMO_SHORT_DURATION = SHORT.reduce((a, s) => a + s.dur, 0) - (SHORT.length - 1) * T;
 
