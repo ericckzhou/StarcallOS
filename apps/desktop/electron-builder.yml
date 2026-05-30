@@ -1,0 +1,25 @@
+appId: com.starcall.starcallos
+productName: StarcallOS
+
+# electron-vite emits the packaged main / preload / renderer here; this is what
+# electron-builder ships inside the app bundle.
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - "out/**"
+  - "package.json"
+  - "!**/*.map"
+
+# Portable target: self-extracting EXE that runs from %TEMP% with no install
+# and no registry entries. Skips the SmartScreen-prompt-heavy NSIS flow for v0.1.
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-portable-${arch}.${ext}
+
+# v0.1 ships unsigned — the SmartScreen warning is documented in the README.
+# To sign later, set CSC_LINK + CSC_KEY_PASSWORD env vars at build time.

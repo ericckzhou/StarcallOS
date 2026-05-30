@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Concept } from './ConceptPane';
 import LatexMath from './LatexMath';
 import PdfViewer from './PdfViewer';
-import UserNotesSection from './UserNotesSection';
 import WhereItReappearsEditor, { type ConstellationLink } from './WhereItReappearsEditor';
 import type { Profile } from './profile';
 
@@ -82,7 +81,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   const [misconceptions, setMisconceptions] = useState<Misconception[]>([]);
   const [equations, setEquations] = useState<Equation[]>([]);
   const [history, setHistory] = useState<HistoryRecord[]>([]);
-  const [tab, setTab] = useState<'overview' | 'paper' | 'challenge' | 'history'>('overview');
+  const [tab, setTab] = useState<'overview' | 'paper' | 'annotations' | 'challenge' | 'history'>('overview');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [response, setResponse] = useState('');
   const [grading, setGrading] = useState(false);
@@ -294,13 +293,15 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   const TAB_LABELS = {
     overview: 'Overview',
     paper: 'Paper',
+    annotations: 'Annotations',
     challenge: 'Challenges',
     history: `History${history.length ? ` (${history.length})` : ''}`,
   };
   const activeTabContent = (
     <>
-      {tab === 'overview' && <OverviewTab concept={concept} misconceptions={misconceptions} equations={equations} onEquationsChange={setEquations} onJumpToAnnotation={handleJumpToAnnotation} />}
+      {tab === 'overview' && <OverviewTab concept={concept} misconceptions={misconceptions} equations={equations} onEquationsChange={setEquations} />}
       {tab === 'paper' && <PaperTab conceptId={concept.id} />}
+      {tab === 'annotations' && concept.source_id != null && <AnnotationsTab conceptId={concept.id} sourceId={concept.source_id} onJumpToAnnotation={handleJumpToAnnotation} />}
       {tab === 'challenge' && (
         <ChallengeTab
           tasks={tasks} selectedTask={selectedTask} onSelectTask={setSelectedTask}
@@ -317,7 +318,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   );
   const tabBar = (
     <div style={{ display: 'flex', gap: 2 }}>
-      {(['overview', 'paper', 'challenge', 'history'] as const).map(t => (
+      {(['overview', 'paper', 'annotations', 'challenge', 'history'] as const).map(t => (
         <button key={t} onClick={() => setTab(t)} style={{
           background: 'none', border: 'none', padding: '6px 16px', fontSize: 12, cursor: 'pointer',
           color: tab === t ? '#818cf8' : '#4b5563',
@@ -518,12 +519,640 @@ function PaperTab({ conceptId }: { conceptId: number }) {
   );
 }
 
-function OverviewTab({ concept, misconceptions, equations, onEquationsChange, onJumpToAnnotation }: {
+// ─── Annotations tab ─────────────────────────────────────────────────────────
+// Unified surface for the source→highlight→evidence→note workflow:
+//   - Each highlight card pairs with its linked note inline (no more silo).
+//   - "+ Note" on a highlight creates one auto-linked to it.
+//   - Standalone notes (no linked highlight) live below.
+//   - "Other Evidence" (heading/chunk/equation/relation/first_page) is
+//     editable inline here — the source pane's rail is now display+delete only.
+// Refetches on `starcall:evidenceChanged` / `starcall:notesChanged`.
+
+interface HighlightLite {
+  id: number;
+  page: number;
+  color: string;
+  selected_text: string;
+  label: string;
+  note_body: string;
+}
+interface NoteLite {
+  id: number;
+  heading: string;
+  body: string;
+  linked_annotation_id: number | null;
+  position: number;
+}
+interface EvidenceLite {
+  index: number;
+  page: number;
+  kind: string;
+  label: string;
+  quote?: string;
+}
+
+const ANNOTATIONS_PAPER_HEADING = '__paper__';
+const ANNOTATIONS_EVIDENCE_KINDS = ['chunk', 'heading', 'definition', 'equation', 'relation', 'first_page', 'highlight'];
+
+function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
+  conceptId: number;
+  sourceId: number;
+  onJumpToAnnotation: (page: number) => void;
+}) {
+  const [highlights, setHighlights] = useState<HighlightLite[]>([]);
+  const [notes, setNotes] = useState<NoteLite[]>([]);
+  const [evidence, setEvidence] = useState<EvidenceLite[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
+  const [noteDraft, setNoteDraft] = useState<{ heading: string; body: string } | null>(null);
+  const [editingEvIdx, setEditingEvIdx] = useState<number | null>(null);
+  const [evDraft, setEvDraft] = useState<{ page: string; kind: string; label: string; quote: string } | null>(null);
+  // Only one ⋯ menu open at a time across the whole tab.
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  // Which standalone note is currently picking a highlight to relink to.
+  const [linkingNoteId, setLinkingNoteId] = useState<number | null>(null);
+  // Drag-to-reorder state for the standalone notes list.
+  const [dragNoteId, setDragNoteId] = useState<number | null>(null);
+  const [dragOverNoteId, setDragOverNoteId] = useState<number | null>(null);
+
+  useEffect(() => {
+    const handler = () => setRefreshTick(t => t + 1);
+    window.addEventListener('starcall:evidenceChanged', handler);
+    window.addEventListener('starcall:notesChanged', handler);
+    return () => {
+      window.removeEventListener('starcall:evidenceChanged', handler);
+      window.removeEventListener('starcall:notesChanged', handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      window.api.sources.annotations.list(sourceId),
+      window.api.concepts.notes.list(conceptId),
+      window.api.concepts.sourceEvidence(conceptId),
+    ]).then(([anns, ns, se]) => {
+      if (cancelled) return;
+      setHighlights(anns
+        .filter(a => a.type === 'highlight' && (a.concept_id === conceptId || a.scope === 'source'))
+        .map(a => ({ id: a.id, page: a.page, color: a.color, selected_text: a.selected_text, label: a.label, note_body: a.note_body }))
+        .sort((x, y) => x.page - y.page || x.id - y.id));
+      setNotes((ns as NoteLite[]).filter(n => n.heading !== ANNOTATIONS_PAPER_HEADING).sort((a, b) => a.position - b.position));
+      setEvidence(((se?.evidence ?? []) as EvidenceLite[]));
+      setLoading(false);
+    }).catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [sourceId, conceptId, refreshTick]);
+
+  function bump() { setRefreshTick(t => t + 1); }
+  function notifyEv() { window.dispatchEvent(new Event('starcall:evidenceChanged')); }
+  function notifyNotes() { window.dispatchEvent(new Event('starcall:notesChanged')); }
+
+  async function deleteHighlight(h: HighlightLite) {
+    try {
+      await window.api.sources.annotations.delete(h.id);
+      try { await window.api.concepts.deleteEvidenceSpan({ conceptId, page: h.page, kind: 'highlight', quote: h.selected_text }); } catch { /* span may not exist */ }
+      try {
+        const ns = await window.api.concepts.notes.list(conceptId);
+        await Promise.all((ns as Array<{ id: number; linked_annotation_id: number | null }>)
+          .filter(n => n.linked_annotation_id === h.id)
+          .map(n => window.api.concepts.notes.update({ id: n.id, linkedAnnotationId: null })));
+      } catch { /* best-effort */ }
+      notifyEv(); notifyNotes(); bump();
+    } catch (e) { console.error('[AnnotationsTab] deleteHighlight', e); }
+  }
+
+  async function createNoteForHighlight(h: HighlightLite) {
+    try {
+      const created = await window.api.concepts.notes.create({ conceptId, heading: `p.${h.page}`, body: '' }) as { id: number };
+      await window.api.concepts.notes.update({ id: created.id, linkedAnnotationId: h.id });
+      setEditingNoteId(created.id);
+      setNoteDraft({ heading: `p.${h.page}`, body: '' });
+      notifyNotes(); bump();
+    } catch (e) { console.error('[AnnotationsTab] createNoteForHighlight', e); }
+  }
+  async function createStandaloneNote() {
+    try {
+      const created = await window.api.concepts.notes.create({ conceptId, heading: '', body: '' }) as { id: number };
+      setEditingNoteId(created.id);
+      setNoteDraft({ heading: '', body: '' });
+      notifyNotes(); bump();
+    } catch (e) { console.error('[AnnotationsTab] createStandaloneNote', e); }
+  }
+  function startEditNote(n: NoteLite) {
+    setEditingNoteId(n.id);
+    setNoteDraft({ heading: n.heading, body: n.body });
+  }
+  async function saveNote() {
+    if (editingNoteId == null || !noteDraft) return;
+    try {
+      await window.api.concepts.notes.update({ id: editingNoteId, heading: noteDraft.heading, body: noteDraft.body });
+      notifyNotes(); bump();
+    } finally {
+      setEditingNoteId(null);
+      setNoteDraft(null);
+    }
+  }
+  function cancelEditNote() { setEditingNoteId(null); setNoteDraft(null); }
+  async function deleteNote(id: number) {
+    try { await window.api.concepts.notes.delete(id); notifyNotes(); bump(); }
+    catch (e) { console.error('[AnnotationsTab] deleteNote', e); }
+  }
+  async function unlinkNote(id: number) {
+    try { await window.api.concepts.notes.update({ id, linkedAnnotationId: null }); notifyNotes(); bump(); }
+    catch (e) { console.error('[AnnotationsTab] unlinkNote', e); }
+  }
+  async function linkNoteToHighlight(noteId: number, annotationId: number) {
+    try {
+      await window.api.concepts.notes.update({ id: noteId, linkedAnnotationId: annotationId });
+      setLinkingNoteId(null);
+      notifyNotes(); bump();
+    } catch (e) { console.error('[AnnotationsTab] linkNoteToHighlight', e); }
+  }
+
+  // Drag-reorder notes WITHIN a single group — either the standalone set
+  // (group === null) or the notes attached to one highlight (group === its
+  // annotation id). The reorder IPC takes the full ordered id list, so we
+  // permute only that group's slots within `notes` and leave every other note
+  // pinned in place. Cross-group drops are ignored.
+  async function reorderNotes(draggedId: number, targetId: number) {
+    if (draggedId === targetId) return;
+    const dragged = notes.find(n => n.id === draggedId);
+    const target = notes.find(n => n.id === targetId);
+    if (!dragged || !target) return;
+    const group = dragged.linked_annotation_id ?? null;
+    if ((target.linked_annotation_id ?? null) !== group) return; // same group only
+    const order = notes.filter(n => (n.linked_annotation_id ?? null) === group).map(n => n.id);
+    const from = order.indexOf(draggedId);
+    const to = order.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    order.splice(to, 0, order.splice(from, 1)[0]);
+    let qi = 0;
+    const fullOrder = notes.map(n => ((n.linked_annotation_id ?? null) === group ? order[qi++] : n.id));
+    const byId = new Map(notes.map(n => [n.id, n]));
+    setNotes(fullOrder.map((id, i) => ({ ...byId.get(id)!, position: i })));
+    try {
+      const out = await window.api.concepts.notes.reorder({ conceptId, orderedIds: fullOrder });
+      const fresh = (out as NoteLite[]).filter(n => n.heading !== ANNOTATIONS_PAPER_HEADING).sort((a, b) => a.position - b.position);
+      setNotes(fresh);
+      notifyNotes();
+    } catch (e) { console.error('[AnnotationsTab] reorderNotes', e); bump(); }
+  }
+
+  function startEditEvidence(ev: EvidenceLite) {
+    setEditingEvIdx(ev.index);
+    setEvDraft({ page: String(ev.page), kind: ev.kind, label: ev.label, quote: ev.quote ?? '' });
+  }
+  async function saveEvidence() {
+    if (editingEvIdx == null || !evDraft) return;
+    try {
+      await window.api.concepts.updateEvidence({
+        conceptId, index: editingEvIdx,
+        page: Number(evDraft.page) || 1,
+        kind: evDraft.kind,
+        label: evDraft.label.trim() || evDraft.kind,
+        quote: evDraft.quote.trim() || undefined,
+      });
+      notifyEv(); bump();
+    } finally {
+      setEditingEvIdx(null);
+      setEvDraft(null);
+    }
+  }
+  function cancelEditEvidence() { setEditingEvIdx(null); setEvDraft(null); }
+  async function deleteEvidenceSpan(index: number) {
+    try { await window.api.concepts.deleteEvidence({ conceptId, index }); notifyEv(); bump(); }
+    catch (e) { console.error('[AnnotationsTab] deleteEvidence', e); }
+  }
+
+  function snippet(text: string, max = 220): string {
+    const t = (text ?? '').trim().replace(/\s+/g, ' ');
+    return t.length > max ? `${t.slice(0, max)}…` : t;
+  }
+
+  // A highlight can carry more than one note, so group rather than 1:1 map.
+  const notesByHl = new Map<number, NoteLite[]>();
+  for (const n of notes) {
+    if (n.linked_annotation_id == null) continue;
+    const arr = notesByHl.get(n.linked_annotation_id);
+    if (arr) arr.push(n); else notesByHl.set(n.linked_annotation_id, [n]);
+  }
+  const standaloneNotes = notes.filter(n => n.linked_annotation_id == null);
+  const otherEvidence = evidence.filter(e => e.kind !== 'highlight' && e.index >= 0);
+
+  const card: React.CSSProperties = {
+    background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+    border: '1px solid rgba(31,41,55,0.7)', borderRadius: 6,
+    // No overflow:hidden — would clip the ⋯ menu popovers. Color bar gets its
+    // own rounded corners below so it still hugs the card edge cleanly.
+  };
+  const sectionHeading: React.CSSProperties = {
+    fontSize: 10, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em',
+  };
+  const inp: React.CSSProperties = {
+    background: 'rgba(17,24,39,0.45)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+    border: '1px solid #263244', borderRadius: 4, padding: '5px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none', boxSizing: 'border-box',
+  };
+  const ghostBtn: React.CSSProperties = {
+    background: 'transparent', border: '1px solid #1f2937', borderRadius: 4,
+    padding: '2px 8px', fontSize: 10, color: '#a5b4fc', cursor: 'pointer',
+  };
+  const primaryBtn: React.CSSProperties = {
+    background: '#312e81', border: '1px solid #6366f1', borderRadius: 4,
+    padding: '3px 10px', fontSize: 11, color: '#e0e7ff', cursor: 'pointer',
+  };
+
+  function renderNoteEditor(): React.ReactNode {
+    if (!noteDraft) return null;
+    return (
+      <>
+        <textarea
+          value={noteDraft.body}
+          onChange={e => setNoteDraft(d => d ? { ...d, body: e.target.value } : d)}
+          placeholder="Write your note here…"
+          rows={3}
+          autoFocus
+          style={{ ...inp, background: 'transparent', width: '100%', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
+        />
+        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+          <button onClick={() => void saveNote()} style={primaryBtn}>Save</button>
+          <button onClick={cancelEditNote} style={ghostBtn}>Cancel</button>
+        </div>
+      </>
+    );
+  }
+
+  // Small Lucide-style note icon (no emoji — per project rule).
+  const noteIcon = (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+      <path d="M16 13H8" />
+      <path d="M16 17H8" />
+      <path d="M10 9H8" />
+    </svg>
+  );
+
+  // Drag handle (six-dot grip) for reordering standalone notes.
+  const gripIcon = (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="9" cy="6" r="1.6" /><circle cx="15" cy="6" r="1.6" />
+      <circle cx="9" cy="12" r="1.6" /><circle cx="15" cy="12" r="1.6" />
+      <circle cx="9" cy="18" r="1.6" /><circle cx="15" cy="18" r="1.6" />
+    </svg>
+  );
+
+  // Single ⋯ overflow menu shared by every row. Items declare their label and
+  // a `danger` flag (red); the menu wrapper uses the .anno-actions class so
+  // it inherits the card's hover-reveal behavior.
+  function renderActionMenu(
+    menuId: string,
+    items: Array<{ label: string; onClick: () => void; danger?: boolean }>,
+    wrapperStyle?: React.CSSProperties,
+  ): React.ReactNode {
+    const isOpen = openMenuId === menuId;
+    return (
+      <div
+        className="anno-actions"
+        data-open={isOpen ? 'true' : 'false'}
+        style={{ position: 'relative', display: 'inline-block', ...wrapperStyle }}
+      >
+        <button
+          onClick={() => setOpenMenuId(prev => prev === menuId ? null : menuId)}
+          onBlur={() => setTimeout(() => setOpenMenuId(prev => prev === menuId ? null : prev), 130)}
+          title="More actions"
+          aria-haspopup="true"
+          aria-expanded={isOpen}
+          style={{
+            background: 'transparent', border: '1px solid #1f2937', borderRadius: 4,
+            padding: '1px 8px', color: '#94a3b8', cursor: 'pointer',
+            fontSize: 14, lineHeight: 1,
+          }}
+        >⋯</button>
+        {isOpen && (
+          <div
+            role="menu"
+            style={{
+              position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 30,
+              minWidth: 130,
+              background: 'rgba(13,13,22,0.94)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+              border: '1px solid #312e81', borderRadius: 6,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.55)', padding: 4,
+            }}
+          >
+            {items.map((it, i) => (
+              <button
+                key={i}
+                role="menuitem"
+                className="rel-opt"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => { setOpenMenuId(null); it.onClick(); }}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  background: 'transparent', border: 'none', borderRadius: 4,
+                  padding: '5px 10px', fontSize: 11,
+                  color: it.danger ? '#fca5a5' : '#cbd5e1', cursor: 'pointer',
+                }}
+              >{it.label}</button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 22 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, paddingBottom: 6, borderBottom: '1px solid rgba(31,41,55,0.7)' }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0' }}>Annotations</div>
+        <div style={{ fontSize: 11, color: '#64748b' }}>
+          {highlights.length} highlight{highlights.length === 1 ? '' : 's'} · {notes.length} note{notes.length === 1 ? '' : 's'} · {otherEvidence.length} evidence
+        </div>
+        <button onClick={() => void createStandaloneNote()} style={{ ...primaryBtn, marginLeft: 'auto' }}>+ Note</button>
+      </div>
+
+      {/* HIGHLIGHTS — each paired with its linked note inline */}
+      <section>
+        <div style={{ ...sectionHeading, marginBottom: 14 }}>Highlights</div>
+        {loading ? (
+          <div style={{ fontSize: 12, color: '#4b5563' }}>Loading…</div>
+        ) : highlights.length === 0 ? (
+          <div style={{ fontSize: 12, color: '#4b5563', padding: '14px', lineHeight: 1.6, ...card, borderStyle: 'dashed' }}>
+            No highlights yet. Open the <span style={{ color: '#a5b4fc' }}>Source</span> pane, select text, and click Highlight — it'll show up here paired with an optional note.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {highlights.map(h => {
+              const linkedNotes = notesByHl.get(h.id) ?? [];
+              return (
+                <div key={h.id} className="anno-card" style={{ ...card, display: 'flex', alignItems: 'stretch' }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 4, background: h.color, flexShrink: 0,
+                      // Match the card's border-radius so the bar hugs the edge
+                      // now that the card no longer clips with overflow: hidden.
+                      borderTopLeftRadius: 5,
+                      borderBottomLeftRadius: 5,
+                    }}
+                  />
+                  <div style={{ flex: 1, padding: '10px 12px', minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, minHeight: 22 }}>
+                      <span style={{ fontSize: 11, color: '#a5b4fc', fontWeight: 700 }}>p.{h.page}</span>
+                      {h.label && (<span style={{ fontSize: 10, color: '#94a3b8', fontStyle: 'italic' }}>{h.label}</span>)}
+                      <div className="anno-actions" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                        <button onClick={() => onJumpToAnnotation(h.page)} title="Jump to this highlight in source" style={ghostBtn}>Jump</button>
+                        <button onClick={() => void createNoteForHighlight(h)} title="Add a note linked to this highlight" style={ghostBtn}>+ Note</button>
+                      </div>
+                      {renderActionMenu(`hl-${h.id}`, [
+                        { label: 'Delete highlight', onClick: () => void deleteHighlight(h), danger: true },
+                      ])}
+                    </div>
+                    {/* Pull-quote treatment for the highlighted text */}
+                    <div style={{
+                      fontSize: 13, color: '#cbd5e1', lineHeight: 1.55, fontStyle: 'italic',
+                      borderLeft: `2px solid ${h.color}`, paddingLeft: 10,
+                      wordBreak: 'break-word',
+                    }}>
+                      {snippet(h.selected_text) || <span style={{ color: '#475569', fontStyle: 'normal' }}>(no text captured)</span>}
+                    </div>
+                    {/* Optional memo (the popover's comment field) — only renders when set */}
+                    {h.note_body && h.note_body.trim() && (
+                      <div style={{
+                        marginTop: 8, fontSize: 11, color: '#94a3b8', lineHeight: 1.5,
+                        paddingLeft: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                      }}>
+                        {snippet(h.note_body, 240)}
+                      </div>
+                    )}
+                    {linkedNotes.map(linked => {
+                      const editingThisNote = editingNoteId === linked.id;
+                      const isDragOver = dragOverNoteId === linked.id && dragNoteId !== linked.id;
+                      const canDrag = !editingThisNote && linkedNotes.length > 1;
+                      return (
+                        <div
+                          key={linked.id}
+                          draggable={canDrag}
+                          onDragStart={e => { if (!canDrag) return; setDragNoteId(linked.id); e.dataTransfer.effectAllowed = 'move'; e.stopPropagation(); }}
+                          onDragOver={e => { if (dragNoteId != null && dragNoteId !== linked.id) { e.preventDefault(); setDragOverNoteId(linked.id); } }}
+                          onDragLeave={() => setDragOverNoteId(prev => (prev === linked.id ? null : prev))}
+                          onDrop={e => { e.preventDefault(); if (dragNoteId != null) void reorderNotes(dragNoteId, linked.id); setDragNoteId(null); setDragOverNoteId(null); }}
+                          onDragEnd={() => { setDragNoteId(null); setDragOverNoteId(null); }}
+                          style={{
+                            marginTop: 10, padding: '9px 11px', borderRadius: 5,
+                            background: 'rgba(49,46,129,0.12)',
+                            border: isDragOver ? '1px solid #6366f1' : '1px solid rgba(67,56,202,0.4)',
+                            borderTop: isDragOver ? '2px solid #6366f1' : '1px solid rgba(67,56,202,0.4)',
+                            opacity: dragNoteId === linked.id ? 0.45 : 1,
+                          }}
+                        >
+                          {editingThisNote ? renderNoteEditor() : (
+                            <>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5, minHeight: 18 }}>
+                                {canDrag && (
+                                  <span title="Drag to reorder" style={{ display: 'inline-flex', alignItems: 'center', color: '#475569', cursor: 'grab' }}>
+                                    {gripIcon}
+                                  </span>
+                                )}
+                                <span style={{ display: 'inline-flex', alignItems: 'center', color: '#c7d2fe' }}>
+                                  {noteIcon}
+                                </span>
+                                {renderActionMenu(`note-${linked.id}`, [
+                                  { label: 'Edit',   onClick: () => startEditNote(linked) },
+                                  { label: 'Unlink', onClick: () => void unlinkNote(linked.id) },
+                                  { label: 'Delete', onClick: () => void deleteNote(linked.id), danger: true },
+                                ], { marginLeft: 'auto' })}
+                              </div>
+                              <div style={{ fontSize: 12, color: '#c4cfe4', whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>
+                                {linked.body || <span style={{ color: '#475569' }}>(empty — open the ⋯ menu to edit)</span>}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* STANDALONE NOTES (no linked highlight) */}
+      {(standaloneNotes.length > 0 || (editingNoteId != null && noteDraft != null && !notesByHl.has(editingNoteId))) && (
+        <section>
+          <div style={{ ...sectionHeading, marginBottom: 14 }}>Notes (no linked highlight)</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {standaloneNotes.map(n => {
+              const editing = editingNoteId === n.id;
+              const isDragOver = dragOverNoteId === n.id && dragNoteId !== n.id;
+              return (
+                <div
+                  key={n.id}
+                  className="anno-card"
+                  draggable={!editing}
+                  onDragStart={e => { setDragNoteId(n.id); e.dataTransfer.effectAllowed = 'move'; }}
+                  onDragOver={e => { if (dragNoteId != null && dragNoteId !== n.id) { e.preventDefault(); setDragOverNoteId(n.id); } }}
+                  onDragLeave={() => setDragOverNoteId(prev => (prev === n.id ? null : prev))}
+                  onDrop={e => { e.preventDefault(); if (dragNoteId != null) void reorderNotes(dragNoteId, n.id); setDragNoteId(null); setDragOverNoteId(null); }}
+                  onDragEnd={() => { setDragNoteId(null); setDragOverNoteId(null); }}
+                  style={{
+                    ...card, padding: '10px 12px',
+                    opacity: dragNoteId === n.id ? 0.45 : 1,
+                    borderTop: isDragOver ? '2px solid #6366f1' : (card.border as string),
+                  }}
+                >
+                  {editing && noteDraft ? renderNoteEditor() : (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6, minHeight: 22 }}>
+                        <span
+                          title="Drag to reorder"
+                          style={{ display: 'inline-flex', alignItems: 'center', color: '#475569', cursor: 'grab' }}
+                        >
+                          {gripIcon}
+                        </span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', color: '#a5b4fc' }}>
+                          {noteIcon}
+                        </span>
+                        {renderActionMenu(`note-s-${n.id}`, [
+                          { label: 'Edit',              onClick: () => startEditNote(n) },
+                          { label: 'Link to highlight', onClick: () => setLinkingNoteId(n.id) },
+                          { label: 'Delete',            onClick: () => void deleteNote(n.id), danger: true },
+                        ], { marginLeft: 'auto' })}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#c4cfe4', whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>
+                        {n.body || <span style={{ color: '#475569' }}>(empty)</span>}
+                      </div>
+                      {linkingNoteId === n.id && (
+                        <div style={{
+                          marginTop: 10, padding: 8, borderRadius: 5,
+                          background: 'rgba(13,13,22,0.5)', border: '1px dashed rgba(99,102,241,0.55)',
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                            <span style={{ fontSize: 10, color: '#a5b4fc', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                              Link to a highlight
+                            </span>
+                            <button onClick={() => setLinkingNoteId(null)} style={{ marginLeft: 'auto', ...ghostBtn }}>Cancel</button>
+                          </div>
+                          {highlights.length === 0 ? (
+                            <div style={{ fontSize: 11, color: '#64748b' }}>No highlights yet — add one in the Source pane first.</div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflowY: 'auto' }}>
+                              {highlights.map(h => (
+                                <button
+                                  key={h.id}
+                                  className="rel-opt"
+                                  onClick={() => void linkNoteToHighlight(n.id, h.id)}
+                                  style={{
+                                    display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                                    background: 'transparent', border: 'none', borderRadius: 4, padding: '5px 7px',
+                                    fontSize: 11, color: '#cbd5e1', cursor: 'pointer',
+                                  }}
+                                >
+                                  <span style={{ width: 4, height: 12, borderRadius: 1, background: h.color, flexShrink: 0 }} />
+                                  <span style={{ color: '#a5b4fc', fontWeight: 700 }}>p.{h.page}</span>
+                                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {snippet(h.selected_text, 90)}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* OTHER EVIDENCE — non-highlight spans, editable inline (moved from rail) */}
+      <section>
+        <div style={{ ...sectionHeading, marginBottom: 14 }}>Other Evidence</div>
+        {otherEvidence.length === 0 ? (
+          <div style={{ fontSize: 11, color: '#4b5563', padding: '12px 14px', ...card, borderStyle: 'dashed' }}>
+            No non-highlight evidence yet — auto-derived spans (heading, chunk, equation, …) appear here once the concept is enriched, and you can add or edit them via the <span style={{ color: '#a5b4fc' }}>+</span> button in the source rail.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {otherEvidence.map(ev => {
+              const editing = editingEvIdx === ev.index;
+              return (
+                <div key={`ev-${ev.index}`} className="anno-card" style={{ ...card, padding: '10px 12px' }}>
+                  {editing && evDraft ? (
+                    <>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                        <input value={evDraft.page} onChange={e => setEvDraft(d => d ? { ...d, page: e.target.value } : d)}
+                          placeholder="pg" inputMode="numeric" style={{ ...inp, width: 60 }} />
+                        <select value={evDraft.kind} onChange={e => setEvDraft(d => d ? { ...d, kind: e.target.value } : d)}
+                          style={{ ...inp, cursor: 'pointer', width: 150 }}>
+                          {ANNOTATIONS_EVIDENCE_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
+                        </select>
+                        <input value={evDraft.label} onChange={e => setEvDraft(d => d ? { ...d, label: e.target.value } : d)}
+                          placeholder="label" style={{ ...inp, flex: 1, minWidth: 120 }} />
+                      </div>
+                      <textarea value={evDraft.quote} onChange={e => setEvDraft(d => d ? { ...d, quote: e.target.value } : d)}
+                        placeholder="quote (optional)" rows={2}
+                        style={{ ...inp, width: '100%', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.45 }} />
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                        <button onClick={() => void saveEvidence()} style={primaryBtn}>Save</button>
+                        <button onClick={cancelEditEvidence} style={ghostBtn}>Cancel</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap', minHeight: 22 }}>
+                        <span style={{ fontSize: 11, color: '#a5b4fc', fontWeight: 700 }}>p.{ev.page}</span>
+                        <span style={{
+                          fontSize: 9, padding: '1px 6px', borderRadius: 3,
+                          border: `1px solid ${EVIDENCE_KIND_COLOR[ev.kind] ?? '#374151'}`,
+                          color: EVIDENCE_KIND_COLOR[ev.kind] ?? '#6b7280',
+                          textTransform: 'uppercase', letterSpacing: '0.05em',
+                        }}>{ev.kind}</span>
+                        {ev.label && (<span style={{ fontSize: 10, color: '#94a3b8' }}>{ev.label}</span>)}
+                        <div className="anno-actions" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                          <button onClick={() => onJumpToAnnotation(ev.page)} style={ghostBtn}>Jump</button>
+                        </div>
+                        {renderActionMenu(`ev-${ev.index}`, [
+                          { label: 'Edit',   onClick: () => startEditEvidence(ev) },
+                          { label: 'Delete', onClick: () => void deleteEvidenceSpan(ev.index), danger: true },
+                        ])}
+                      </div>
+                      {ev.quote && (
+                        <div style={{
+                          fontSize: 12, color: '#cbd5e1', fontStyle: 'italic', lineHeight: 1.5,
+                          borderLeft: '2px solid rgba(67,56,202,0.45)', paddingLeft: 10,
+                          wordBreak: 'break-word',
+                        }}>
+                          {snippet(ev.quote, 180)}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: {
   concept: Concept;
   misconceptions: Misconception[];
   equations: Equation[];
   onEquationsChange: (equations: Equation[]) => void;
-  onJumpToAnnotation: (page: number) => void;
 }) {
   const [local, setLocal] = useState({
     definition_text: concept.definition_text || '',
@@ -1160,7 +1789,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange, on
         </Section>
       )}
 
-      <UserNotesSection conceptId={concept.id} sourceId={concept.source_id} onJumpToAnnotation={onJumpToAnnotation} />
+      {/* Notes moved to the Annotations tab — paired with highlights. */}
 
       {/* ChatGPT prompt generator — paste to external LLM if you don't want to spend on enrich */}
       <div style={{

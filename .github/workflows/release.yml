@@ -1,0 +1,67 @@
+name: release
+
+# Build a Windows portable .exe and publish it as a GitHub Release whenever a
+# v* tag is pushed. Example: `git tag v0.1.0 && git push --tags`.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Manual trigger lets us smoke-test the workflow without cutting a real tag.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 11
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm -C packages/shared build
+
+      - name: Build services package
+        run: pnpm -C packages/services build
+
+      - name: Package portable .exe (electron-vite + electron-builder)
+        env:
+          # No code signing on v0.1 — SmartScreen warning is documented in the README.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # Helps electron-builder upload to the right release via the API.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm -C apps/desktop dist
+
+      - name: Upload build artifact (for manual workflow_dispatch runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: StarcallOS-portable-windows
+          path: apps/desktop/dist/*.exe
+          if-no-files-found: error
+
+      - name: Publish to GitHub Release (for tag pushes)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/desktop/dist/*.exe
+          generate_release_notes: true
+          draft: false
+          prerelease: false

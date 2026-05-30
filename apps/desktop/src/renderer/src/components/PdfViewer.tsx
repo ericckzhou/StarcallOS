@@ -1256,17 +1256,6 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
                     </button>
                     {editable && (
                       <button
-                        className="ev-action"
-                        onClick={() => openEvidenceEditor(e)}
-                        title="Edit evidence"
-                        aria-label="Edit evidence"
-                        style={{ flexShrink: 0, background: 'transparent', border: 'none', color: '#94a3b8', padding: '0 5px', display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                      </button>
-                    )}
-                    {editable && (
-                      <button
                         className="ev-action ev-del"
                         onClick={() => void deleteEvidence(e.index)}
                         title="Remove this evidence"

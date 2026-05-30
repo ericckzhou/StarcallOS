@@ -330,6 +330,18 @@ body::after {
 .tag-chip .tag-x { opacity: 0; transition: opacity 110ms ease; width: 0; overflow: hidden; }
 .tag-chip:hover .tag-x, .tag-chip:focus-within .tag-x { opacity: 1; width: auto; }
 
+/* Annotations tab cards: hover/focus reveals action buttons (Jump, ⋯ menu).
+   The whole card also gets a subtle border lift so it feels tactile. The card
+   is its own stacking context so menu popovers escape sibling cards (which
+   each create stacking contexts via backdrop-filter). */
+.anno-card { position: relative; transition: border-color 160ms ease, background-color 160ms ease; }
+.anno-card:hover, .anno-card:focus-within { border-color: rgba(99, 102, 241, 0.55); }
+.anno-card:has(.anno-actions[data-open="true"]) { z-index: 50; }
+.anno-actions { opacity: 0; transition: opacity 140ms ease; pointer-events: none; }
+.anno-card:hover .anno-actions,
+.anno-card:focus-within .anno-actions,
+.anno-actions[data-open="true"] { opacity: 1; pointer-events: auto; }
+
 /* Spinner for in-progress icon buttons (e.g. Regenerate). */
 .spin { transform-box: fill-box; transform-origin: center; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

@@ -12,16 +12,15 @@ clinical guidelines, language grammars, internal docs.
 
 ![demo](docs/demo.gif)
 
-```sh
-git clone https://github.com/ericckzhou/StarcallOS && cd StarcallOS
-pnpm install
-pnpm -C packages/shared build && pnpm -C packages/services build
-pnpm -C apps/desktop dev
-```
+## Download
 
-> Add an LLM key in **Settings** if you want enrichment and grading (or skip — extraction works with zero keys), drop a PDF in, promote a candidate.
+Get the latest build from the **[Releases page](https://github.com/ericckzhou/StarcallOS/releases/latest)** — a single portable `.exe` (Windows x64) that runs without installation.
 
-Jump to: [Why this, not another notes app](#why-this-not-another-notes-app) · [The loop](#the-loop) · [What's in the box](#whats-in-the-box) · [Architecture](ARCHITECTURE.md) · [Philosophy](PLAN.md)
+> Because the build is unsigned, Windows may show a *"Windows protected your PC"* SmartScreen dialog on first launch. Click **More info → Run anyway**.
+
+Add an LLM key in **Settings** if you want enrichment and grading (or skip — extraction works with zero keys), drop a PDF in, promote a candidate.
+
+Jump to: [Why this, not another notes app](#why-this-not-another-notes-app) · [The loop](#the-loop) · [What's in the box](#whats-in-the-box) · [Build from source](#build-from-source) · [Architecture](ARCHITECTURE.md) · [Philosophy](PLAN.md)
 
 ---
 
@@ -201,6 +200,24 @@ Each layer has a single responsibility and a single direction of dependency. See
 - **node:sqlite** local storage (no native deps)
 - **Groq** and **Anthropic** LLM providers (configurable per pass)
 
+
+## Build from source
+
+If you don't want to download the prebuilt `.exe`, you can run the dev shell or
+produce your own portable build:
+
+```sh
+git clone https://github.com/ericckzhou/StarcallOS && cd StarcallOS
+pnpm install
+pnpm -C packages/shared build && pnpm -C packages/services build
+pnpm -C apps/desktop dev          # hot-reload dev shell
+# or
+pnpm -C apps/desktop dist         # produces apps/desktop/dist/StarcallOS-*-portable-x64.exe
+```
+
+Requirements: Node 22+, pnpm 11+. On Windows, packaging a portable `.exe`
+locally needs either an elevated shell or Developer Mode enabled (electron-builder
+unpacks signing tooling with symlinks). Otherwise let CI build it for you on tag push.
 
 ## Contributing
 
