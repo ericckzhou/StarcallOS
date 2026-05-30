@@ -23,7 +23,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
     "electron-vite": "^5.0.0",
-    "pdfjs-dist": "^4.9.0",
+    "pdfjs-dist": "^4.10.38",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "typescript": "*",

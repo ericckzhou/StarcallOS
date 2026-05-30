@@ -1,12 +1,21 @@
 import fs from 'fs';
 import type { SectionNode } from '../core/domain/types';
 
-/* eslint-disable @typescript-eslint/no-require-imports */
-const pdfjs = require('pdfjs-dist/legacy/build/pdf.js') as {
+// pdfjs-dist 4.x+ is ESM-only and the CommonJS `pdf.js` entry was dropped, so
+// we lazy-load the legacy ESM build the first time we segment a PDF and cache
+// it for subsequent calls.
+interface PdfjsModule {
   getDocument(p: { data: Uint8Array; verbosity?: number }): { promise: Promise<PdfDoc> };
   GlobalWorkerOptions: { workerSrc: string };
-};
-pdfjs.GlobalWorkerOptions.workerSrc = '';
+}
+let _pdfjs: PdfjsModule | null = null;
+async function loadPdfjs(): Promise<PdfjsModule> {
+  if (_pdfjs) return _pdfjs;
+  const mod = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as PdfjsModule;
+  mod.GlobalWorkerOptions.workerSrc = '';
+  _pdfjs = mod;
+  return mod;
+}
 
 // ─── Pdfjs shims ──────────────────────────────────────────────────────────────
 
@@ -518,6 +527,7 @@ export async function segmentPdf(filePath: string): Promise<{
   runningHeaderSections: SectionNode[];
 }> {
   const data = fs.readFileSync(filePath);
+  const pdfjs = await loadPdfjs();
   const doc = await pdfjs.getDocument({ data: new Uint8Array(data), verbosity: 0 }).promise;
   const pageCount = doc.numPages;
   const allBlocks: SegmentedBlock[] = [];
