@@ -229,3 +229,12 @@ pnpm test
 pnpm typecheck
 pnpm build
 ```
+
+## License
+
+StarcallOS is licensed under the **GNU Affero General Public License v3.0**
+(AGPL-3.0-only) — see [LICENSE](LICENSE).
+
+In short: you are free to use, study, modify, and share it, but if you
+distribute a modified version — or run one as a network service — you must
+release your source under the same license. Copyright © 2026 Eric Zhou.
