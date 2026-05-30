@@ -2,27 +2,42 @@
 
 > **Claims of understanding need evidence.**
 
-You read a chapter, highlight a few sentences, and tell yourself you got it. A week later, you can't explain it. A month later, you can't tell which parts you remember and which you confused with something else.
+A local-first learning OS that turns any PDF or text source into evidence-backed
+mastery: it pulls candidate concepts out of your source **deterministically**
+(zero LLM by default), you promote what matters, then a grader pushes you from
+"I read it" to "I can compress it to first principles."
 
-StarcallOS closes that gap. You read your sources, but you only get to claim you understand a concept once you've **explained it in your own words and survived a grader**. Every attempt is stored, replayable, and tied back to the page that taught you — so the system can always answer *why does it think you understand this?*
-
-It works on any subject: textbooks, papers, lecture notes, legal opinions, clinical guidelines, language grammars, internal docs.
+Works on **any subject** — textbooks, papers, lecture notes, legal opinions,
+clinical guidelines, language grammars, internal docs.
 
 ![demo](docs/demo.gif)
 
+```sh
+git clone https://github.com/ericckzhou/StarcallOS && cd StarcallOS
+pnpm install
+pnpm -C packages/shared build && pnpm -C packages/services build
+pnpm -C apps/desktop dev
+```
+
+> Add an LLM key in **Settings** if you want enrichment and grading (or skip — extraction works with zero keys), drop a PDF in, promote a candidate.
+
+Jump to: [Why this, not another notes app](#why-this-not-another-notes-app) · [The loop](#the-loop) · [What's in the box](#whats-in-the-box) · [Architecture](ARCHITECTURE.md) · [Philosophy](PLAN.md)
+
 ---
 
-## Every screen answers one of three questions
+## Why this, not another notes app
 
-Borrowed verbatim from the philosophy in [plan.md](PLAN.md) — these are the only questions the app cares about, and every surface earns its space by answering at least one:
+You read a chapter, highlight a few sentences, and tell yourself you got it. A week later, you can't explain it. A month later, you can't tell which parts you remember and which you confused with something else.
+
+StarcallOS closes that gap. You only get to claim you understand a concept once you've **explained it in your own words and survived a grader**. Every attempt is stored, replayable, and tied back to the page that taught you — so the system can always answer *why does it think you understand this?*
+
+Every screen earns its space by answering one of three questions. If it doesn't, it doesn't ship. No second-brain, no infinite-graph explorer, no LLM tutor chat.
 
 | Question | Where you answer it |
 |---|---|
 | **What do I claim to understand?** | Concept list · Overview · Mastery stage badges |
 | **What evidence supports that claim?** | Challenges · Source preview · History · Your notes |
 | **What should I study or test next?** | Review queue · `never reviewed` / `recognizes` chips · stage progression |
-
-If a screen doesn't answer one of those, it doesn't ship. No second-brain, no infinite-graph explorer, no LLM tutor chat.
 
 ---
 
@@ -87,9 +102,8 @@ The grader sees the same context. No domain bias, no default associations.
 - **Manual CRUD where review needs it** — add/edit/delete promoted concepts, equations, relation candidates, misconception candidates, and equation candidates
 - **Append-only event log** — every state change is auditable
 
----
-
-## Recent additions
+<details>
+<summary>Recent additions</summary>
 
 - Deterministic PDF candidate parsing now uses typography, spacing, isolation,
   indentation, context snippets, score breakdowns, labels, and `final_score`.
@@ -131,18 +145,7 @@ The grader sees the same context. No domain bias, no default associations.
 - **Equation rendering via KaTeX**, replacing the earlier homegrown view.
 - **5-second undo** for deleting sources, concepts, and notes.
 
-## Quickstart
-
-```sh
-git clone https://github.com/ericckzhou/StarcallOS
-cd StarcallOS
-pnpm install
-pnpm -C packages/shared build
-pnpm -C packages/services build
-pnpm -C apps/desktop dev
-```
-
-Add an LLM key in **Settings** (or skip — extraction works with zero keys), drop a PDF in, promote a candidate.
+</details>
 
 ---
 
