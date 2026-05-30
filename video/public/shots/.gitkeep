@@ -1,0 +1,4 @@
+# Drop real PNG screenshots of the CURRENT app UI here:
+#   candidates.png, promote.png, challenge.png  (+ optional map.png, annotations.png)
+# Then flip `available: true` for each in ../../src/Demo.tsx.
+# See ../../CAPTURE.md.

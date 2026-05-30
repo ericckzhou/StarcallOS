@@ -1043,23 +1043,26 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                           {highlights.length === 0 ? (
                             <div style={{ fontSize: 11, color: '#64748b' }}>No highlights yet — add one in the Source pane first.</div>
                           ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflowY: 'auto' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
                               {highlights.map(h => (
                                 <button
                                   key={h.id}
                                   className="rel-opt"
                                   onClick={() => void linkNoteToHighlight(n.id, h.id)}
+                                  title={`Link this note to the p.${h.page} highlight`}
                                   style={{
                                     display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
-                                    background: 'transparent', border: 'none', borderRadius: 4, padding: '5px 7px',
+                                    background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.45)',
+                                    borderRadius: 6, padding: '8px 10px',
                                     fontSize: 11, color: '#cbd5e1', cursor: 'pointer',
                                   }}
                                 >
-                                  <span style={{ width: 4, height: 12, borderRadius: 1, background: h.color, flexShrink: 0 }} />
+                                  <span style={{ width: 4, height: 14, borderRadius: 1, background: h.color, flexShrink: 0 }} />
                                   <span style={{ color: '#a5b4fc', fontWeight: 700 }}>p.{h.page}</span>
                                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {snippet(h.selected_text, 90)}
+                                    {snippet(h.selected_text, 80)}
                                   </span>
+                                  <span style={{ flexShrink: 0, fontWeight: 700, color: '#a5b4fc', letterSpacing: '0.03em' }}>Link →</span>
                                 </button>
                               ))}
                             </div>

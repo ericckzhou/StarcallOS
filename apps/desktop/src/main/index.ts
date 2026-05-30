@@ -68,12 +68,25 @@ function toRelationKind(value: string | undefined): RelationKind {
   return RELATION_KIND_VALUES.has(value ?? '') ? (value as RelationKind) : 'requires';
 }
 
+// Window/taskbar icon. In dev __dirname is out/main, so reach the build asset;
+// in a packaged app it's shipped as an extraResource at resourcesPath/icon.png.
+function resolveAppIcon(): string | undefined {
+  const candidates = [
+    path.join(process.resourcesPath ?? '', 'icon.png'),
+    path.join(__dirname, '../../build/icon.png'),
+    path.join(__dirname, '../../../build/icon.png'),
+  ];
+  return candidates.find((p) => p && fs.existsSync(p));
+}
+
 function createWindow(): void {
+  const icon = resolveAppIcon();
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
     backgroundColor: '#0a0a0f',
     title: 'StarcallOS',
+    ...(icon ? { icon } : {}),
     autoHideMenuBar: true,           // no File/Edit/View/Window/Help strip
     show: false,                     // wait until we maximize before showing
     webPreferences: {

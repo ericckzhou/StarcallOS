@@ -12,9 +12,16 @@ files:
   - "package.json"
   - "!**/*.map"
 
+# Ship the PNG icon alongside the app so the BrowserWindow/taskbar icon resolves
+# at runtime (the .exe file icon itself comes from win.icon below).
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+
 # Portable target: self-extracting EXE that runs from %TEMP% with no install
 # and no registry entries. Skips the SmartScreen-prompt-heavy NSIS flow for v0.1.
 win:
+  icon: build/icon.ico
   target:
     - target: portable
       arch:

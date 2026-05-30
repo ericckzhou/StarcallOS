@@ -1,0 +1,4 @@
+# Drop product screen-capture clips here (import.mp4, promote.mp4, challenge.mp4).
+# See ../../CAPTURE.md for the shot list. Clips are gitignored-large; keep them
+# short. The demo renders with placeholders until each clip's flag is flipped in
+# src/Demo.tsx.

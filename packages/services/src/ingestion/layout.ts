@@ -12,7 +12,11 @@ let _pdfjs: PdfjsModule | null = null;
 async function loadPdfjs(): Promise<PdfjsModule> {
   if (_pdfjs) return _pdfjs;
   const mod = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as PdfjsModule;
-  mod.GlobalWorkerOptions.workerSrc = '';
+  // pdfjs requires a worker even in Node — an empty workerSrc throws
+  // "No GlobalWorkerOptions.workerSrc specified" during getDocument(). Point it
+  // at the legacy worker ESM entry (same bare specifier resolution that loaded
+  // pdf.mjs above); pdfjs runs it on the main thread via dynamic import.
+  mod.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/legacy/build/pdf.worker.mjs';
   _pdfjs = mod;
   return mod;
 }
