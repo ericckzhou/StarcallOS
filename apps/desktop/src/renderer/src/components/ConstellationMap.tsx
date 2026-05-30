@@ -557,20 +557,63 @@ function MapLegend() {
 function SourceSelect({ sources, selectedSource, color, onChange }: {
   sources: SourceMeta[]; selectedSource: number | null; color: string; onChange: (id: number) => void;
 }) {
+  const [open, setOpen] = useState(false);
   if (sources.length === 0) return null;
+  const current = sources.find(s => s.id === selectedSource);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-        <span style={{ position: 'absolute', left: 8, width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0, pointerEvents: 'none' }} aria-hidden="true" />
-        <select
-          value={selectedSource ?? ''}
-          onChange={e => onChange(Number(e.target.value))}
+      <div style={{ position: 'relative' }}>
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          onBlur={() => setTimeout(() => setOpen(false), 120)}
           aria-label="Source to view on the constellation map"
           title="Choose which source's constellation to view (linked concepts from other sources are shown automatically)"
-          style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid #263244', borderRadius: 4, padding: '6px 8px 6px 22px', color: '#e2e8f0', fontSize: 11, outline: 'none', cursor: 'pointer', textOverflow: 'ellipsis' }}
+          style={{
+            width: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 6,
+            background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+            border: '1px solid #263244', borderRadius: 4, padding: '6px 8px',
+            color: '#e2e8f0', fontSize: 11, outline: 'none', cursor: 'pointer', textAlign: 'left',
+          }}
         >
-          {sources.map(s => <option key={s.id} value={s.id}>{s.filename}</option>)}
-        </select>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} aria-hidden="true" />
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {current?.filename ?? '(no source)'}
+          </span>
+          <span style={{ color: '#6b7280' }}>▾</span>
+        </button>
+        {open && (
+          <div
+            role="listbox"
+            style={{
+              position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 2, zIndex: 30,
+              background: 'rgba(13,13,22,0.92)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+              border: '1px solid #312e81', borderRadius: 6, maxHeight: 240, overflowY: 'auto',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.5)', padding: 4,
+            }}
+          >
+            {sources.map(s => {
+              const isSel = s.id === selectedSource;
+              return (
+                <button
+                  key={s.id}
+                  className="rel-opt"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => { onChange(s.id); setOpen(false); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left',
+                    background: isSel ? 'rgba(129,140,248,0.22)' : 'transparent',
+                    border: 'none', borderRadius: 4, padding: '6px 8px',
+                    color: isSel ? '#e0e7ff' : '#cbd5e1', fontSize: 11, cursor: 'pointer',
+                  }}
+                >
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.filename}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
       <span style={{ fontSize: 9, color: '#475569' }}>+ linked sources shown automatically</span>
     </div>

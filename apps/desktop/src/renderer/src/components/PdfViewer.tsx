@@ -1190,12 +1190,20 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
                   </button>
                 </div>
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#9ca3af', cursor: 'pointer' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: evidenceOnly ? '#c7d2fe' : '#9ca3af', cursor: 'pointer', userSelect: 'none' }}>
                 <input
                   type="checkbox" checked={evidenceOnly}
                   onChange={e => setEvidenceOnly(e.target.checked)}
-                  style={{ accentColor: '#818cf8' }}
+                  style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }}
                 />
+                <span aria-hidden="true" style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: 13, height: 13, borderRadius: 3,
+                  background: evidenceOnly ? 'rgba(129,140,248,0.28)' : 'transparent',
+                  border: `1px solid ${evidenceOnly ? '#6366f1' : '#374151'}`,
+                  color: '#c7d2fe', fontSize: 10, lineHeight: 1, flexShrink: 0,
+                  transition: 'background-color 110ms ease, border-color 110ms ease',
+                }}>{evidenceOnly ? '✓' : ''}</span>
                 ({evidencePages.length}) related pages only
               </label>
             </div>
