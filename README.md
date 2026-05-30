@@ -20,7 +20,7 @@ Get the latest build from the **[Releases page](https://github.com/ericckzhou/St
 
 Add an LLM key in **Settings** if you want enrichment and grading (or skip — extraction works with zero keys), drop a PDF in, promote a candidate.
 
-Jump to: [Why this, not another notes app](#why-this-not-another-notes-app) · [The loop](#the-loop) · [What's in the box](#whats-in-the-box) · [Build from source](#build-from-source) · [Architecture](ARCHITECTURE.md) · [Philosophy](PLAN.md)
+Jump to: [Why this, not another notes app](#why-this-not-another-notes-app) · [The loop](#the-loop) · [What's in the box](#whats-in-the-box) · [Build from source](#build-from-source) · [Architecture](ARCHITECTURE.md) · [Philosophy](PHILOSOPHY.md)
 
 ---
 
@@ -164,7 +164,7 @@ The constellation metaphor is locked, not decorative: the Concept Map renders co
 - **Misconceptions are first-class data.** What you almost-believed is more valuable than what you correctly recalled.
 - **The grader is the resolver.** It must stay predictable. If you can't anticipate the score your own answer deserves, the grader has become a black box.
 
-Longer version in [PLAN.md](PLAN.md) under *Philosophical lens*.
+Longer version in [PHILOSOPHY.md](PHILOSOPHY.md).
 
 ---
 
@@ -238,3 +238,7 @@ StarcallOS is licensed under the **GNU Affero General Public License v3.0**
 In short: you are free to use, study, modify, and share it, but if you
 distribute a modified version — or run one as a network service — you must
 release your source under the same license. Copyright © 2026 Eric Zhou.
+
+---
+
+<sub>*"For the wisdom of this world is foolishness with God."* — 1 Corinthians 3:19 · See [PHILOSOPHY.md](PHILOSOPHY.md).</sub>
