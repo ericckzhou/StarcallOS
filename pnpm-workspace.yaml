@@ -2,13 +2,10 @@ packages:
   - 'packages/*'
   - 'apps/*'
 
-onlyBuiltDependencies:
-  - better-sqlite3
-  - esbuild
-  - electron
-
-ignoredBuiltDependencies:
-  - canvas
-
+# pnpm 11 gates native postinstall build scripts behind this explicit allow
+# map. electron (downloads its binary) and esbuild (installs its binary) MUST
+# be allowed or `pnpm install` fails with ERR_PNPM_IGNORED_BUILDS in CI.
 allowBuilds:
+  electron: true
+  esbuild: true
   canvas: false
