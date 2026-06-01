@@ -56,21 +56,113 @@ function settingsPath(userDataDir: string): string {
   return path.join(userDataDir, 'settings.json');
 }
 
-export function loadSettings(userDataDir: string): LLMSettings {
+// API keys are never written to disk in plaintext when a codec is available.
+// `packages/services` is Electron-free, so the desktop main process injects a
+// codec backed by Electron `safeStorage` (OS-level: DPAPI / Keychain / libsecret).
+// The in-memory `LLMSettings` shape stays plaintext strings; encryption happens
+// only at the disk boundary.
+export interface SecretCodec {
+  available: boolean;
+  encrypt(plain: string): string;  // returns base64 ciphertext
+  decrypt(cipher: string): string; // takes base64 ciphertext
+}
+
+// On-disk a secret is either a legacy plaintext string or an encrypted envelope.
+interface EncEnvelope { enc: string }
+function isEnvelope(v: unknown): v is EncEnvelope {
+  return typeof v === 'object' && v != null && typeof (v as EncEnvelope).enc === 'string';
+}
+
+function decodeKey(stored: unknown, codec?: SecretCodec): string {
+  if (typeof stored === 'string') return stored;          // legacy plaintext (migrated on next save)
+  if (isEnvelope(stored)) {
+    if (!codec) return '';                                 // can't decrypt without the OS codec
+    try { return codec.decrypt(stored.enc); } catch { return ''; }
+  }
+  return '';
+}
+
+function encodeKey(plain: string, codec?: SecretCodec): string | EncEnvelope {
+  if (!plain) return '';                                   // don't encrypt an empty key
+  if (codec?.available) {
+    try { return { enc: codec.encrypt(plain) }; } catch { /* fall through to plaintext */ }
+  }
+  return plain;                                            // codec unavailable (e.g. no keyring)
+}
+
+export function loadSettings(userDataDir: string, codec?: SecretCodec): LLMSettings {
   const p = settingsPath(userDataDir);
   if (!fs.existsSync(p)) return defaults();
   try {
-    const raw = JSON.parse(fs.readFileSync(p, 'utf-8')) as Partial<LLMSettings>;
-    return { ...defaults(), ...raw };
+    const raw = JSON.parse(fs.readFileSync(p, 'utf-8')) as Record<string, unknown>;
+    return {
+      ...defaults(),
+      ...(raw as Partial<LLMSettings>),
+      // Decrypt key fields last so they win over the raw envelope objects.
+      groqApiKey:      decodeKey(raw.groqApiKey, codec),
+      anthropicApiKey: decodeKey(raw.anthropicApiKey, codec),
+    };
   } catch {
     return defaults();
   }
 }
 
-export function saveSettings(userDataDir: string, s: LLMSettings): void {
+export function saveSettings(userDataDir: string, s: LLMSettings, codec?: SecretCodec): void {
   const p = settingsPath(userDataDir);
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify(s, null, 2), 'utf-8');
+  const onDisk = {
+    ...s,
+    groqApiKey:      encodeKey(s.groqApiKey, codec),
+    anthropicApiKey: encodeKey(s.anthropicApiKey, codec),
+  };
+  fs.writeFileSync(p, JSON.stringify(onDisk, null, 2), 'utf-8');
+}
+
+// One-time at-rest migration: if any key is still stored as legacy plaintext,
+// re-save it encrypted. Idempotent — a no-op once keys are enveloped or the
+// codec is unavailable. Call once at startup so an upgraded install doesn't
+// leave a plaintext key on disk until the user next opens Settings. Returns
+// true if it rewrote the file.
+export function migrateSecretsAtRest(userDataDir: string, codec: SecretCodec): boolean {
+  if (!codec.available) return false;
+  const p = settingsPath(userDataDir);
+  if (!fs.existsSync(p)) return false;
+  let raw: Record<string, unknown>;
+  try { raw = JSON.parse(fs.readFileSync(p, 'utf-8')) as Record<string, unknown>; } catch { return false; }
+  const isPlaintextKey = (v: unknown): boolean => typeof v === 'string' && v.length > 0;
+  if (!isPlaintextKey(raw.groqApiKey) && !isPlaintextKey(raw.anthropicApiKey)) return false;
+  saveSettings(userDataDir, loadSettings(userDataDir, codec), codec);
+  return true;
+}
+
+const EXTRACTION_MODES: ExtractionMode[] = ['deterministic', 'candidate_gated', 'full'];
+
+function isProviderId(v: unknown): v is ProviderId {
+  return v === 'groq' || v === 'anthropic';
+}
+
+// Defensive clamp for renderer-supplied settings before they are persisted.
+// The renderer is bundled trusted code, but a UI bug — or a stale value already
+// on disk — writing an unknown `provider` would corrupt settings.json and then
+// crash EVERY later LLM call at `MODEL_CHOICES[provider]` (undefined.heavy).
+// Unknown enum values fall back to the current saved value. Models are left
+// alone on purpose: `resolveProviderConfig` already ignores out-of-roster models
+// at read time, so they cannot crash anything. Returns a corrected copy of the
+// input partial; absent fields stay absent so the caller's merge is unchanged.
+export function sanitizeSettingsInput(
+  input: Partial<LLMSettings>,
+  current: LLMSettings,
+): Partial<LLMSettings> {
+  const out: Partial<LLMSettings> = { ...input };
+  if (input.provider !== undefined) {
+    out.provider = isProviderId(input.provider) ? input.provider : current.provider;
+  }
+  if (input.extractionMode !== undefined) {
+    out.extractionMode = EXTRACTION_MODES.includes(input.extractionMode)
+      ? input.extractionMode
+      : (current.extractionMode ?? 'deterministic');
+  }
+  return out;
 }
 
 export function applyEnvFallbacks(s: LLMSettings, env: { groq?: string; anthropic?: string }): LLMSettings {

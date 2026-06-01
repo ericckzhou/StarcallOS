@@ -489,31 +489,42 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
   const captureCurrentAnchor = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    const containerTop = container.scrollTop;
+    // Work in viewport space: `offsetTop` is relative to the nearest positioned
+    // ancestor (NOT the scroll container), so comparing it against scrollTop
+    // mixes coordinate systems and reports the wrong page (off by one). Use
+    // getBoundingClientRect deltas instead — the same basis as scrollToPage and
+    // the selection-geometry that stamps highlight pages, so the header label
+    // and stored annotation pages agree.
+    const containerTop = container.getBoundingClientRect().top;
     let bestPage = 1;
-    let bestOffsetTop = 0;
+    let bestTop = -Infinity; // page top relative to container top; topmost started page
     let bestHeight = 1;
+    let bestFound = false;
     let fallbackPage = 1;
     let fallbackDelta = Infinity;
     for (const [pageNum, el] of pageRefs.current.entries()) {
-      if (el.offsetTop <= containerTop + 4 && el.offsetTop >= bestOffsetTop) {
+      const rect = el.getBoundingClientRect();
+      const top = rect.top - containerTop; // 0 = page top aligned to container top
+      if (top <= 4 && top >= bestTop) {
         bestPage = pageNum;
-        bestOffsetTop = el.offsetTop;
-        bestHeight = Math.max(1, el.offsetHeight);
+        bestTop = top;
+        bestHeight = Math.max(1, rect.height);
+        bestFound = true;
       }
-      const delta = Math.abs(el.offsetTop - containerTop);
+      const delta = Math.abs(top);
       if (delta < fallbackDelta) {
         fallbackDelta = delta;
         fallbackPage = pageNum;
       }
     }
-    if (bestOffsetTop === 0 && containerTop > 4) {
+    if (!bestFound) {
       const fallbackEl = pageRefs.current.get(fallbackPage);
+      const rect = fallbackEl?.getBoundingClientRect();
       bestPage = fallbackPage;
-      bestOffsetTop = fallbackEl?.offsetTop ?? 0;
-      bestHeight = Math.max(1, fallbackEl?.offsetHeight ?? 1);
+      bestTop = rect ? rect.top - containerTop : 0;
+      bestHeight = Math.max(1, rect?.height ?? 1);
     }
-    const offset = Math.max(0, containerTop - bestOffsetTop);
+    const offset = Math.max(0, -bestTop); // how far the current page is scrolled past the top
     currentPageRef.current = bestPage;
     currentPageOffsetRef.current = offset;
     currentPageOffsetRatioRef.current = Math.max(0, Math.min(1, offset / bestHeight));
@@ -558,7 +569,11 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
         currentPageOffsetRatioRef.current * Math.max(1, el.offsetHeight),
       );
       currentPageOffsetRef.current = offset;
-      container.scrollTop = el.offsetTop + offset;
+      // Align by rect delta (same as scrollToPage). `offsetTop` is relative to
+      // the nearest positioned ancestor, which is NOT the scroll container, so
+      // using it here re-scrolls a full page early and undoes a correct jump.
+      const delta = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
+      container.scrollTop += delta + offset;
       setPage(target);
       if (container) savePdfViewState(viewStateKey, { page: target, scrollTop: container.scrollTop });
     });

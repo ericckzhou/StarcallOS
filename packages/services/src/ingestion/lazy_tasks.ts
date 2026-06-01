@@ -9,6 +9,9 @@ import { getSourceById } from '../knowledge/repos/sources';
 import { listTasksByConcept, createTask, deleteTasksForConcept, listRecordsByConcept } from '../knowledge/repos/evidence';
 import type { EvidenceTask, EvidenceKind } from '../core/domain/types';
 
+// Contract: ../../../../contracts/lazy_tasks.md (CONTRACT_VERSION). Key invariants:
+// 5 tasks, one per kind in fixed order; grounded in THIS concept's source domain;
+// difficulty importance-aware; avoid repeating answered shapes. Bump CONTRACT_VERSION if these change.
 const TASK_SYSTEM = `You are an expert tutor in evidence-based learning across all
 academic and professional domains (STEM, humanities, social sciences, law,
 medicine, business, trades, etc.). The learner is studying THIS specific source,

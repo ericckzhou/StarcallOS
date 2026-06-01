@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { RichTextArea } from './RichText';
 
 // Notes record reserved for the DetailPane "Paper" tab; hidden from this list
 // so the scratchpad and structured notes don't visually collide.
@@ -284,13 +285,13 @@ function NoteRow({
           }}
         >×</button>
       </div>
-      <textarea
+      <RichTextArea
         value={body}
-        onChange={e => setBody(e.target.value)}
+        onChange={setBody}
         onBlur={() => { if (bodyDirty) onSave({ body }); }}
         placeholder="Write your note here…"
         rows={Math.max(2, Math.min(8, Math.ceil((body.length || 70) / 70)))}
-        style={{
+        textStyle={{
           width: '100%',
           background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
           border: `1px solid ${bodyDirty ? '#818cf8' : '#1f2937'}`,

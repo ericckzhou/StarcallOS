@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import {
@@ -36,9 +36,9 @@ import {
   segmentTextWithDiagnostics,
   clearDerivedDataForSource, recoverInterruptedSources,
   createParseRun, listParseRunsBySource,
-  loadSettings, saveSettings, applyEnvFallbacks, resolveProviderConfig, MODEL_CHOICES,
+  loadSettings, saveSettings, migrateSecretsAtRest, sanitizeSettingsInput, applyEnvFallbacks, resolveProviderConfig, MODEL_CHOICES,
   chatJSON,
-  type ConceptImportance, type LLMSettings, type PassName, type RelationKind,
+  type ConceptImportance, type LLMSettings, type PassName, type RelationKind, type SecretCodec,
   runEnricher,
   runConceptExtractor, runGraphBuilder,
   runMisconceptionExtractor, runTaskGenerator, computeCentrality,
@@ -117,9 +117,21 @@ function envFallbacks(): { groq?: string; anthropic?: string } {
   };
 }
 
+// OS-backed secret codec for API keys (DPAPI on Windows, Keychain on macOS,
+// libsecret on Linux). Available only after the app is ready, which every
+// settings read/write here is. If the OS has no keyring, `available` is false
+// and settings.ts falls back to plaintext rather than losing the key.
+function secretCodec(): SecretCodec {
+  return {
+    available: safeStorage.isEncryptionAvailable(),
+    encrypt: (plain) => safeStorage.encryptString(plain).toString('base64'),
+    decrypt: (b64) => safeStorage.decryptString(Buffer.from(b64, 'base64')),
+  };
+}
+
 function cfgFor(pass: PassName): ReturnType<typeof resolveProviderConfig> {
   const dir = app.getPath('userData');
-  const s = applyEnvFallbacks(loadSettings(dir), envFallbacks());
+  const s = applyEnvFallbacks(loadSettings(dir, secretCodec()), envFallbacks());
   return resolveProviderConfig(s, pass);
 }
 
@@ -349,7 +361,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       // deterministic = no LLM. Candidates are the product.
       // candidate_gated = LLM enriches only blocks near top-N candidate pages.
       // full = legacy / benchmark.
-      const settingsForBudget = applyEnvFallbacks(loadSettings(app.getPath('userData')), envFallbacks());
+      const settingsForBudget = applyEnvFallbacks(loadSettings(app.getPath('userData'), secretCodec()), envFallbacks());
       mode = settingsForBudget.extractionMode ?? 'deterministic';
 
       if (mode === 'deterministic') {
@@ -677,7 +689,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.SETTINGS_GET, () => {
     const dir = app.getPath('userData');
     const fb  = envFallbacks();
-    const s   = applyEnvFallbacks(loadSettings(dir), fb);
+    const s   = applyEnvFallbacks(loadSettings(dir, secretCodec()), fb);
     return {
       provider: s.provider,
       groqApiKeyConfigured:      !!s.groqApiKey,
@@ -689,9 +701,13 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       modelChoices: MODEL_CHOICES,
     };
   });
-  ipcMain.handle(IPC.SETTINGS_SET, (_e, input: Partial<LLMSettings>) => {
+  ipcMain.handle(IPC.SETTINGS_SET, (_e, rawInput: Partial<LLMSettings>) => {
     const dir = app.getPath('userData');
-    const current = loadSettings(dir);
+    const codec = secretCodec();
+    const current = loadSettings(dir, codec);
+    // Clamp unknown enum values (provider/extractionMode) before merging so a
+    // renderer bug can't persist a value that crashes later LLM calls.
+    const input = sanitizeSettingsInput(rawInput, current);
     const next: LLMSettings = {
       ...current,
       provider:        input.provider        ?? current.provider,
@@ -703,7 +719,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       heavyModel:      input.heavyModel      !== undefined ? input.heavyModel      : current.heavyModel,
       lightModel:      input.lightModel      !== undefined ? input.lightModel      : current.lightModel,
     };
-    saveSettings(dir, next);
+    saveSettings(dir, next, codec);
     return { ok: true as const };
   });
   ipcMain.handle(IPC.EVIDENCE_HISTORY, (_e, conceptId: number) => listRecordsByConcept(db, conceptId));
@@ -931,6 +947,13 @@ app.whenReady().then(() => {
   // Disable the app-level menu entirely (kills the File/Edit/View/Window/Help bar).
   // Per-window calls (`removeMenu`, `setMenuBarVisibility(false)`) belt-and-suspender it.
   Menu.setApplicationMenu(null);
+
+  // One-time at-rest migration: encrypt any API key left as plaintext by a
+  // pre-encryption install, so an upgrade doesn't leave a secret on disk until
+  // the user next opens Settings. No-op once keys are enveloped.
+  if (migrateSecretsAtRest(app.getPath('userData'), secretCodec())) {
+    console.log('[SECRETS] migrated plaintext API key(s) to OS-encrypted storage');
+  }
 
   const DB_PATH = path.join(app.getPath('userData'), 'stellaria.db');
   const db = openDb(DB_PATH);

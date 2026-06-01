@@ -31,6 +31,7 @@ export interface ParseRun extends Omit<ParseRunInput, 'diagnostics'> {
   parser_version: string;
   grammar_version: string;
   layout_version: string;
+  contract_version: string;
   started_at: string;
   completed_at: string | null;
   diagnostics: Record<string, unknown>;
@@ -47,6 +48,7 @@ interface ParseRunRow {
   parser_version: string;
   grammar_version: string;
   layout_version: string;
+  contract_version: string;
   page_count: number;
   block_count: number;
   candidate_count: number;
@@ -72,6 +74,7 @@ function rowToParseRun(row: ParseRunRow): ParseRun {
     parser_version: row.parser_version,
     grammar_version: row.grammar_version,
     layout_version: row.layout_version,
+    contract_version: row.contract_version,
     page_count: row.page_count,
     block_count: row.block_count,
     candidate_count: row.candidate_count,
@@ -92,12 +95,12 @@ export function createParseRun(db: DatabaseSync, input: ParseRunInput): ParseRun
     .prepare(
       `INSERT INTO parse_runs (
         source_id, completed_at, status, error_msg, mode,
-        parser_version, grammar_version, layout_version,
+        parser_version, grammar_version, layout_version, contract_version,
         page_count, block_count, candidate_count, relation_count,
         equation_count, misconception_count, duration_ms,
         llm_call_count, llm_input_tokens, llm_output_tokens,
         diagnostics_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.source_id,
@@ -108,6 +111,7 @@ export function createParseRun(db: DatabaseSync, input: ParseRunInput): ParseRun
       v.parser_version,
       v.grammar_version,
       v.layout_version,
+      v.contract_version,
       input.page_count,
       input.block_count,
       input.candidate_count,

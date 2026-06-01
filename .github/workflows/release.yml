@@ -44,6 +44,15 @@ jobs:
       - name: Build shared package
         run: pnpm -C packages/shared build
 
+      # Gate the release on a green build: never publish a .exe that fails
+      # typecheck or tests. Runs after services/shared are built so the desktop
+      # typecheck can resolve their emitted .d.ts.
+      - name: Typecheck (all packages)
+        run: pnpm -r typecheck
+
+      - name: Test (all packages)
+        run: pnpm -r test
+
       - name: Package portable .exe (electron-vite + electron-builder)
         env:
           # No code signing on v0.1 — SmartScreen warning is documented in the README.

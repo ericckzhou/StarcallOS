@@ -178,6 +178,9 @@ export function parseTopicFitJson(raw: string): TopicFitResponse | null {
   }
 }
 
+// Contract: contracts/topic_filter.md (CONTRACT_VERSION). Keep/reject by source
+// domain (not generic world knowledge); decisions are term-keyed, not row-id
+// keyed; judge only the supplied visible terms.
 export function buildTopicFitPrompt(
   sourceTitle: string | undefined,
   candidates: Array<Pick<ConceptCandidate, 'normalized' | 'term' | 'mention_count' | 'first_page'>>,

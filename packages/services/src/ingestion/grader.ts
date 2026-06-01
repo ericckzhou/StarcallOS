@@ -17,6 +17,9 @@ export interface GradeResult {
   reasoning: string;
 }
 
+// Contract: ../../../../contracts/grader.md (CONTRACT_VERSION). Key invariants:
+// grade only the submitted answer; gaps_detected is NEVER empty; never award
+// mastery for vague recognition. Bump CONTRACT_VERSION if these change.
 const GRADER_SYSTEM = `You are an expert learning assessor. Evaluate a learner's response to an evidence task.
 
 Compression stages:

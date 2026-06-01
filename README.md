@@ -215,7 +215,9 @@ pnpm -C apps/desktop dev          # hot-reload dev shell
 pnpm -C apps/desktop dist         # produces apps/desktop/dist/StarcallOS-*-portable-x64.exe
 ```
 
-Requirements: Node 22+, pnpm 11+. On Windows, packaging a portable `.exe`
+Requirements: Node **22.5+**, pnpm 11+. The app uses the built-in `node:sqlite`
+module (no native bindings), which is experimental and only available on Node
+22.5 or newer — older Node versions cannot run it. On Windows, packaging a portable `.exe`
 locally needs either an elevated shell or Developer Mode enabled (electron-builder
 unpacks signing tooling with symlinks). Otherwise let CI build it for you on tag push.
 

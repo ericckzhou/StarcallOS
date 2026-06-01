@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Concept } from './ConceptPane';
 import LatexMath from './LatexMath';
+import { RichTextArea, renderMarkdown, applyMarkdownShortcut } from './RichText';
 import PdfViewer from './PdfViewer';
 import WhereItReappearsEditor, { type ConstellationLink } from './WhereItReappearsEditor';
 import type { Profile } from './profile';
@@ -497,14 +498,15 @@ function PaperTab({ conceptId }: { conceptId: number }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '60vh' }}>
-      <textarea
+      <RichTextArea
         value={loaded ? text : ''}
-        onChange={e => onChange(e.target.value)}
+        onChange={onChange}
         onBlur={() => { void flush(); }}
         readOnly={!loaded}
         placeholder={loaded ? 'Think on paper. Synthesize, connect, draft — autosaves.' : 'Loading…'}
         spellCheck
-        style={{
+        placeholderColor="#4b5563"
+        textStyle={{
           flex: 1, width: '100%', boxSizing: 'border-box',
           background: 'transparent', border: 'none', outline: 'none', resize: 'none',
           color: '#d8dee9', fontSize: 15, lineHeight: 1.8,
@@ -772,7 +774,8 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
         <textarea
           value={noteDraft.body}
           onChange={e => setNoteDraft(d => d ? { ...d, body: e.target.value } : d)}
-          placeholder="Write your note here…"
+          onKeyDown={e => applyMarkdownShortcut(e, noteDraft.body, body => setNoteDraft(d => d ? { ...d, body } : d))}
+          placeholder="Write your note here…  (**bold**, *italic*)"
           rows={3}
           autoFocus
           style={{ ...inp, background: 'transparent', width: '100%', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
@@ -784,18 +787,6 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
       </>
     );
   }
-
-  // Small Lucide-style note icon (no emoji — per project rule).
-  const noteIcon = (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" />
-      <path d="M16 13H8" />
-      <path d="M16 17H8" />
-      <path d="M10 9H8" />
-    </svg>
-  );
 
   // Drag handle (six-dot grip) for reordering standalone notes.
   const gripIcon = (
@@ -813,6 +804,7 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
     menuId: string,
     items: Array<{ label: string; onClick: () => void; danger?: boolean }>,
     wrapperStyle?: React.CSSProperties,
+    accent?: string,
   ): React.ReactNode {
     const isOpen = openMenuId === menuId;
     return (
@@ -837,11 +829,10 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
           <div
             role="menu"
             style={{
-              position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 30,
-              minWidth: 130,
+              position: 'absolute', top: '100%', right: 0, marginTop: 3, zIndex: 30,
               background: 'rgba(13,13,22,0.94)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-              border: '1px solid #312e81', borderRadius: 6,
-              boxShadow: '0 8px 24px rgba(0,0,0,0.55)', padding: 4,
+              border: `1px solid ${accent ? 'transparent' : '#312e81'}`, borderRadius: 6,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.55)', padding: 3,
             }}
           >
             {items.map((it, i) => (
@@ -852,9 +843,9 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => { setOpenMenuId(null); it.onClick(); }}
                 style={{
-                  display: 'block', width: '100%', textAlign: 'left',
+                  display: 'block', width: '100%', textAlign: 'left', whiteSpace: 'nowrap',
                   background: 'transparent', border: 'none', borderRadius: 4,
-                  padding: '5px 10px', fontSize: 11,
+                  padding: '4px 9px', fontSize: 11,
                   color: it.danger ? '#fca5a5' : '#cbd5e1', cursor: 'pointer',
                 }}
               >{it.label}</button>
@@ -906,12 +897,12 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                       <span style={{ fontSize: 11, color: '#a5b4fc', fontWeight: 700 }}>p.{h.page}</span>
                       {h.label && (<span style={{ fontSize: 10, color: '#94a3b8', fontStyle: 'italic' }}>{h.label}</span>)}
                       <div className="anno-actions" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
-                        <button onClick={() => onJumpToAnnotation(h.page)} title="Jump to this highlight in source" style={ghostBtn}>Jump</button>
-                        <button onClick={() => void createNoteForHighlight(h)} title="Add a note linked to this highlight" style={ghostBtn}>+ Note</button>
+                        <button onClick={() => onJumpToAnnotation(h.page)} title="Jump to this highlight in source" style={{ ...ghostBtn, borderColor: `color-mix(in srgb, ${h.color} 55%, transparent)` }}>Jump</button>
+                        <button onClick={() => void createNoteForHighlight(h)} title="Add a note linked to this highlight" style={{ ...ghostBtn, borderColor: `color-mix(in srgb, ${h.color} 55%, transparent)` }}>+ Note</button>
                       </div>
                       {renderActionMenu(`hl-${h.id}`, [
-                        { label: 'Delete highlight', onClick: () => void deleteHighlight(h), danger: true },
-                      ])}
+                        { label: 'Delete', onClick: () => void deleteHighlight(h), danger: true },
+                      ], undefined, h.color)}
                     </div>
                     {/* Pull-quote treatment for the highlighted text */}
                     <div style={{
@@ -944,32 +935,32 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                           onDrop={e => { e.preventDefault(); if (dragNoteId != null) void reorderNotes(dragNoteId, linked.id); setDragNoteId(null); setDragOverNoteId(null); }}
                           onDragEnd={() => { setDragNoteId(null); setDragOverNoteId(null); }}
                           style={{
+                            position: 'relative',
                             marginTop: 10, padding: '9px 11px', borderRadius: 5,
-                            background: 'rgba(49,46,129,0.12)',
-                            border: isDragOver ? '1px solid #6366f1' : '1px solid rgba(67,56,202,0.4)',
-                            borderTop: isDragOver ? '2px solid #6366f1' : '1px solid rgba(67,56,202,0.4)',
+                            background: 'transparent',
+                            border: isDragOver ? '1px solid #6366f1' : `1px solid color-mix(in srgb, ${h.color} 35%, transparent)`,
+                            borderTop: isDragOver ? '2px solid #6366f1' : `1px solid color-mix(in srgb, ${h.color} 35%, transparent)`,
                             opacity: dragNoteId === linked.id ? 0.45 : 1,
                           }}
                         >
                           {editingThisNote ? renderNoteEditor() : (
                             <>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5, minHeight: 18 }}>
-                                {canDrag && (
-                                  <span title="Drag to reorder" style={{ display: 'inline-flex', alignItems: 'center', color: '#475569', cursor: 'grab' }}>
-                                    {gripIcon}
-                                  </span>
-                                )}
-                                <span style={{ display: 'inline-flex', alignItems: 'center', color: '#c7d2fe' }}>
-                                  {noteIcon}
-                                </span>
+                              <div style={{ position: 'absolute', top: 6, right: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                                 {renderActionMenu(`note-${linked.id}`, [
                                   { label: 'Edit',   onClick: () => startEditNote(linked) },
                                   { label: 'Unlink', onClick: () => void unlinkNote(linked.id) },
                                   { label: 'Delete', onClick: () => void deleteNote(linked.id), danger: true },
-                                ], { marginLeft: 'auto' })}
+                                ], undefined, h.color)}
                               </div>
-                              <div style={{ fontSize: 12, color: '#c4cfe4', whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>
-                                {linked.body || <span style={{ color: '#475569' }}>(empty — open the ⋯ menu to edit)</span>}
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
+                                {canDrag && (
+                                  <span title="Drag to reorder" style={{ display: 'inline-flex', alignItems: 'center', height: '1.55em', fontSize: 12, color: '#475569', cursor: 'grab', flexShrink: 0 }}>
+                                    {gripIcon}
+                                  </span>
+                                )}
+                                <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#c4cfe4', whiteSpace: 'pre-wrap', lineHeight: 1.55, paddingRight: 22 }}>
+                                  {linked.body ? renderMarkdown(linked.body, `lnote-${linked.id}`) : <span style={{ color: '#475569' }}>(empty — open the ⋯ menu to edit)</span>}
+                                </div>
                               </div>
                             </>
                           )}
@@ -1003,31 +994,30 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                   onDrop={e => { e.preventDefault(); if (dragNoteId != null) void reorderNotes(dragNoteId, n.id); setDragNoteId(null); setDragOverNoteId(null); }}
                   onDragEnd={() => { setDragNoteId(null); setDragOverNoteId(null); }}
                   style={{
-                    ...card, padding: '10px 12px',
+                    ...card, padding: '10px 12px', position: 'relative', background: 'transparent',
                     opacity: dragNoteId === n.id ? 0.45 : 1,
                     borderTop: isDragOver ? '2px solid #6366f1' : (card.border as string),
                   }}
                 >
                   {editing && noteDraft ? renderNoteEditor() : (
                     <>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6, minHeight: 22 }}>
-                        <span
-                          title="Drag to reorder"
-                          style={{ display: 'inline-flex', alignItems: 'center', color: '#475569', cursor: 'grab' }}
-                        >
-                          {gripIcon}
-                        </span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', color: '#a5b4fc' }}>
-                          {noteIcon}
-                        </span>
+                      <div style={{ position: 'absolute', top: 7, right: 9, display: 'flex', alignItems: 'center', gap: 6 }}>
                         {renderActionMenu(`note-s-${n.id}`, [
                           { label: 'Edit',              onClick: () => startEditNote(n) },
                           { label: 'Link to highlight', onClick: () => setLinkingNoteId(n.id) },
                           { label: 'Delete',            onClick: () => void deleteNote(n.id), danger: true },
-                        ], { marginLeft: 'auto' })}
+                        ])}
                       </div>
-                      <div style={{ fontSize: 12, color: '#c4cfe4', whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>
-                        {n.body || <span style={{ color: '#475569' }}>(empty)</span>}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
+                        <span
+                          title="Drag to reorder"
+                          style={{ display: 'inline-flex', alignItems: 'center', height: '1.55em', fontSize: 12, color: '#475569', cursor: 'grab', flexShrink: 0 }}
+                        >
+                          {gripIcon}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#c4cfe4', whiteSpace: 'pre-wrap', lineHeight: 1.55, paddingRight: 22 }}>
+                          {n.body ? renderMarkdown(n.body, `snote-${n.id}`) : <span style={{ color: '#475569' }}>(empty)</span>}
+                        </div>
                       </div>
                       {linkingNoteId === n.id && (
                         <div style={{
@@ -1391,6 +1381,9 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
     }
   }
 
+  // Contract: contracts/concept_enrichment.md (CONTRACT_VERSION). Fills
+  // definition_text/why_exists/what_breaks from source evidence; never writes
+  // constellations; never overwrites user-authored content.
   function chatGptPrompt(): string {
     const lines: string[] = [];
     lines.push(`Explain the concept "${concept.name}" for someone studying it from the source below.`);
@@ -1898,12 +1891,12 @@ function EditableSection({ title, value, saving, onChange, onSave, placeholder }
           </button>
         )}
       </div>
-      <textarea
+      <RichTextArea
         value={value}
         placeholder={placeholder}
-        onChange={e => handleChange(e.target.value)}
+        onChange={handleChange}
         rows={Math.max(2, Math.min(8, Math.ceil((value.length || placeholder.length) / 70)))}
-        style={{
+        textStyle={{
           width: '100%', boxSizing: 'border-box', resize: 'vertical',
           background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
           border: `1px solid ${dirty ? '#818cf8' : '#1f2937'}`,

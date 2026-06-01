@@ -77,6 +77,10 @@ function serialiseBlock(b: SegmentedBlock, idx: number): string {
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
+// Contract: ../../../../contracts/enrich.md (CONTRACT_VERSION). Key invariants:
+// never change block boundaries or reading order (one entry per input idx);
+// ground claim/quote in that block (example_quote must be verbatim). Bump
+// CONTRACT_VERSION if these change.
 export async function runEnricher(
   config: ProviderConfig,
   blocks: SegmentedBlock[],
