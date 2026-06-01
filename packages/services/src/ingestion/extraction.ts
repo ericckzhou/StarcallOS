@@ -109,8 +109,9 @@ export async function runStructureExtractor(
     'structure',
   );
 
-  const parsed = JSON.parse(content || '{"sections":[]}') as { sections?: SectionNode[] };
-  return parsed.sections ?? [];
+  let parsed: { sections?: SectionNode[] };
+  try { parsed = JSON.parse(content || '{}'); } catch { parsed = {}; }
+  return Array.isArray(parsed.sections) ? parsed.sections : [];
 }
 
 // ─── Pass 1: Block detection ──────────────────────────────────────────────────
@@ -189,19 +190,10 @@ export async function runChunker(
       'chunker',
     );
 
-    const parsed = JSON.parse(content || '{"blocks":[]}') as {
-      blocks?: Array<{
-        content: string;
-        page_start: number;
-        page_end: number;
-        block_type: string;
-        claim: string | null;
-        assumptions: string[];
-        example_quote: string | null;
-      }>;
-    };
+    let parsed: { blocks?: Array<{ content: string; page_start: number; page_end: number; block_type: string; claim: string | null; assumptions: string[]; example_quote: string | null }> };
+    try { parsed = JSON.parse(content || '{}'); } catch { parsed = {}; }
 
-    const batchChunks = (parsed.blocks ?? []).map(b => ({
+    const batchChunks = (Array.isArray(parsed.blocks) ? parsed.blocks : []).map(b => ({
       content: b.content,
       page_start: b.page_start,
       page_end: b.page_end,
@@ -267,8 +259,9 @@ export async function runConceptExtractor(
     'concepts',
   );
 
-  const parsed = JSON.parse(content || '{"concepts":[]}') as { concepts?: ExtractedConcept[] };
-  return (parsed.concepts ?? []).map(c => ({
+  let parsed: { concepts?: ExtractedConcept[] };
+  try { parsed = JSON.parse(content || '{}'); } catch { parsed = {}; }
+  return (Array.isArray(parsed.concepts) ? parsed.concepts : []).map(c => ({
     ...c,
     section_path: c.section_path ?? [],
     exam_value: Math.min(1, Math.max(0, c.exam_value ?? 0)),
@@ -316,8 +309,9 @@ export async function runGraphBuilder(
     'graph',
   );
 
-  const parsed = JSON.parse(content || '{"edges":[]}') as { edges?: ExtractedEdge[] };
-  return parsed.edges ?? [];
+  let parsed: { edges?: ExtractedEdge[] };
+  try { parsed = JSON.parse(content || '{}'); } catch { parsed = {}; }
+  return Array.isArray(parsed.edges) ? parsed.edges : [];
 }
 
 // ─── Pass 4: Misconception extraction ────────────────────────────────────────
@@ -364,8 +358,9 @@ export async function runMisconceptionExtractor(
     'misconceptions',
   );
 
-  const parsed = JSON.parse(content || '{"misconceptions":[]}') as { misconceptions?: ExtractedMisconception[] };
-  return parsed.misconceptions ?? [];
+  let parsed: { misconceptions?: ExtractedMisconception[] };
+  try { parsed = JSON.parse(content || '{}'); } catch { parsed = {}; }
+  return Array.isArray(parsed.misconceptions) ? parsed.misconceptions : [];
 }
 
 // ─── Pass 5: Evidence task generation ────────────────────────────────────────
@@ -412,8 +407,9 @@ export async function runTaskGenerator(
       'tasks',
     );
 
-    const parsed = JSON.parse(content || '{"tasks":[]}') as { tasks?: ExtractedTask[] };
-    tasks.push(...(parsed.tasks ?? []));
+    let parsed: { tasks?: ExtractedTask[] };
+    try { parsed = JSON.parse(content || '{}'); } catch { parsed = {}; }
+    tasks.push(...(Array.isArray(parsed.tasks) ? parsed.tasks : []));
   }
 
   return tasks;
