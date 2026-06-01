@@ -25,7 +25,22 @@ test.beforeAll(async () => {
     cwd: appRoot,
     env,
   });
-  page = await app.firstWindow();
+
+  // If the main process exits during startup, firstWindow() yields an
+  // already-closing page and the test later fails with a cryptic
+  // "Target page has been closed". The usual cause is a stale electron.exe
+  // holding the per-user SQLite WAL lock (%APPDATA%/StarcallOS). Race the
+  // window against an early exit so that failure is explicit and actionable.
+  page = await Promise.race([
+    app.firstWindow(),
+    app.waitForEvent('close').then((): never => {
+      throw new Error(
+        'Electron exited during startup before opening a window. ' +
+          'A stale instance is likely holding the per-user DB lock — ' +
+          'kill leftover electron.exe processes and retry.',
+      );
+    }),
+  ]);
 });
 
 test.afterAll(async () => {
