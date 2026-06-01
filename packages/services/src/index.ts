@@ -1,4 +1,5 @@
 // Infrastructure
+export * from './core/ipc-schemas';
 export * from './core/infra/db';
 export * from './core/events';
 export * from './core/llm';
