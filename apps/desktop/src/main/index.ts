@@ -38,6 +38,11 @@ import {
   createParseRun, listParseRunsBySource,
   loadSettings, saveSettings, migrateSecretsAtRest, sanitizeSettingsInput, applyEnvFallbacks, resolveProviderConfig, MODEL_CHOICES,
   chatJSON,
+  validateIpc,
+  CreateSourceArgsSchema, ProcessSourceArgsSchema, CreateTextSourceArgsSchema,
+  SettingsPatchSchema, SubmitEvidenceArgsSchema, CandidateLlmFilterArgsSchema,
+  UpdateConceptFieldsArgsSchema, CreatePdfAnnotationArgsSchema, UpdatePdfAnnotationArgsSchema,
+  PositiveIntSchema,
   type ConceptImportance, type LLMSettings, type PassName, type RelationKind, type SecretCodec,
   runEnricher,
   runConceptExtractor, runGraphBuilder,
@@ -217,8 +222,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.SOURCES_LIST, () => listSources(db));
 
   ipcMain.handle(IPC.SOURCES_CREATE, async (_e, args: CreateSourceArgs) => {
-    let filePaths = args.filePaths?.filter(Boolean) ?? (args.filePath ? [args.filePath] : []);
-    const explicitSingle = !!args.filePath && !args.filePaths;
+    const { filePath: singlePath, filePaths: rawFilePaths, title, author } = validateIpc(CreateSourceArgsSchema, args, IPC.SOURCES_CREATE);
+    let filePaths = rawFilePaths?.filter(Boolean) ?? (singlePath ? [singlePath] : []);
+    const explicitSingle = !!singlePath && !rawFilePaths;
     if (filePaths.length === 0) {
       const result = await dialog.showOpenDialog({
         filters: [{ name: 'PDF', extensions: ['pdf'] }],
@@ -227,11 +233,11 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       if (result.canceled || !result.filePaths[0]) return null;
       filePaths = result.filePaths;
     }
-    const sources = filePaths.map((filePath, index) => {
-      const filename = path.basename(filePath);
-      const title = filePaths.length === 1 ? args.title : undefined;
-      const author = filePaths.length === 1 ? args.author : undefined;
-      const source = createSource(db, { filename, file_path: filePath, title, author });
+    const sources = filePaths.map((fp, index) => {
+      const filename = path.basename(fp);
+      const sourceTitle = filePaths.length === 1 ? title : undefined;
+      const sourceAuthor = filePaths.length === 1 ? author : undefined;
+      const source = createSource(db, { filename, file_path: fp, title: sourceTitle, author: sourceAuthor });
       emitEvent(db, 'source.created', { sourceId: source.id }, { entityType: 'source', entityId: source.id });
       console.log(`[SOURCE] imported ${index + 1}/${filePaths.length}: ${filename}`);
       return source;
@@ -240,7 +246,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   });
 
   ipcMain.handle(IPC.SOURCES_PROCESS, async (_e, args: ProcessSourceArgs) => {
-    const { sourceId } = args;
+    const { sourceId } = validateIpc(ProcessSourceArgsSchema, args, IPC.SOURCES_PROCESS);
     resetUsageStats();
     const startedAt = Date.now();
 
@@ -502,15 +508,19 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     }
   });
 
-  ipcMain.handle(IPC.SOURCES_DELETE, (_e, sourceId: number) => deleteSource(db, sourceId));
+  ipcMain.handle(IPC.SOURCES_DELETE, (_e, sourceId: number) => {
+    const id = validateIpc(PositiveIntSchema, sourceId, IPC.SOURCES_DELETE);
+    return deleteSource(db, id);
+  });
 
   ipcMain.handle(IPC.SOURCES_CREATE_TEXT, (_e, args: CreateTextSourceArgs) => {
+    const { text, title: rawTitle } = validateIpc(CreateTextSourceArgsSchema, args, IPC.SOURCES_CREATE_TEXT);
     const textDir = path.join(app.getPath('userData'), 'texts');
     fs.mkdirSync(textDir, { recursive: true });
     const filename = `text-${Date.now()}.txt`;
     const filePath = path.join(textDir, filename);
-    fs.writeFileSync(filePath, args.text, 'utf-8');
-    const title = args.title?.trim() || `Pasted text (${new Date().toLocaleDateString()})`;
+    fs.writeFileSync(filePath, text, 'utf-8');
+    const title = rawTitle?.trim() || `Pasted text (${new Date().toLocaleDateString()})`;
     const source = createSource(db, { filename, file_path: filePath, title });
     emitEvent(db, 'source.created', { sourceId: source.id }, { entityType: 'source', entityId: source.id });
     return source;
@@ -569,7 +579,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CONCEPTS_ENRICH, async (_e, conceptId: number) => {
     return enrichConceptDefinition(cfgFor('lazy_tasks'), db, conceptId);
   });
-  ipcMain.handle(IPC.CONCEPTS_UPDATE_FIELDS, (_e, args: {
+  ipcMain.handle(IPC.CONCEPTS_UPDATE_FIELDS, (_e, rawArgs: {
     conceptId: number;
     definition_text?: string;
     why_exists?: string;
@@ -577,10 +587,12 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     where_reappears?: string[];
     importance?: string;
   }) => {
+    const args = validateIpc(UpdateConceptFieldsArgsSchema, rawArgs, IPC.CONCEPTS_UPDATE_FIELDS);
     return updateConceptFields(db, args.conceptId, args);
   });
   ipcMain.handle(IPC.CONCEPTS_DELETE, (_e, conceptId: number) => {
-    deleteConcept(db, conceptId);
+    const id = validateIpc(PositiveIntSchema, conceptId, IPC.CONCEPTS_DELETE);
+    deleteConcept(db, id);
     return { ok: true as const };
   });
   ipcMain.handle(IPC.CONCEPTS_SET_REVIEWED, (_e, args: { conceptId: number; reviewed: boolean }) => {
@@ -630,7 +642,8 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
 
   ipcMain.handle(IPC.PDF_ANNOTATIONS_LIST, (_e, sourceId: number) =>
     listPdfAnnotationsBySource(db, sourceId));
-  ipcMain.handle(IPC.PDF_ANNOTATIONS_CREATE, (_e, args: CreatePdfAnnotationArgs) => {
+  ipcMain.handle(IPC.PDF_ANNOTATIONS_CREATE, (_e, rawArgs: CreatePdfAnnotationArgs) => {
+    const args = validateIpc(CreatePdfAnnotationArgsSchema, rawArgs, IPC.PDF_ANNOTATIONS_CREATE);
     const created = createPdfAnnotation(db, args);
     emitEvent(db, 'pdf_annotation.created', {
       sourceId: created.source_id,
@@ -640,7 +653,8 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     }, { entityType: 'pdf_annotation', entityId: created.id });
     return created;
   });
-  ipcMain.handle(IPC.PDF_ANNOTATIONS_UPDATE, (_e, args: UpdatePdfAnnotationArgs) => {
+  ipcMain.handle(IPC.PDF_ANNOTATIONS_UPDATE, (_e, rawArgs: UpdatePdfAnnotationArgs) => {
+    const args = validateIpc(UpdatePdfAnnotationArgsSchema, rawArgs, IPC.PDF_ANNOTATIONS_UPDATE);
     const updated = updatePdfAnnotation(db, args.id, args);
     if (updated) {
       emitEvent(db, 'pdf_annotation.updated', {
@@ -705,9 +719,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const dir = app.getPath('userData');
     const codec = secretCodec();
     const current = loadSettings(dir, codec);
-    // Clamp unknown enum values (provider/extractionMode) before merging so a
-    // renderer bug can't persist a value that crashes later LLM calls.
-    const input = sanitizeSettingsInput(rawInput, current);
+    // Validate structure first, then clamp enum values via sanitizeSettingsInput.
+    const validated = validateIpc(SettingsPatchSchema, rawInput, IPC.SETTINGS_SET);
+    const input = sanitizeSettingsInput(validated, current);
     const next: LLMSettings = {
       ...current,
       provider:        input.provider        ?? current.provider,
@@ -819,7 +833,8 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     deleteEquationCandidate(db, id);
     return { ok: true as const };
   });
-  ipcMain.handle(IPC.CANDIDATES_LLM_FILTER, async (_e, args: CandidateLlmFilterArgs) => {
+  ipcMain.handle(IPC.CANDIDATES_LLM_FILTER, async (_e, rawArgs: CandidateLlmFilterArgs) => {
+    const args = validateIpc(CandidateLlmFilterArgsSchema, rawArgs, IPC.CANDIDATES_LLM_FILTER);
     const source = getSourceById(db, args.sourceId);
     if (!source) throw new Error(`source ${args.sourceId} not found`);
 
@@ -901,7 +916,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   });
 
   ipcMain.handle(IPC.EVIDENCE_SUBMIT, async (_e, args: SubmitEvidenceArgs) => {
-    const { taskId, conceptId, userResponse } = args;
+    const { taskId, conceptId, userResponse } = validateIpc(SubmitEvidenceArgsSchema, args, IPC.EVIDENCE_SUBMIT);
     const concept = getConceptById(db, conceptId);
     const task = listTasksByConcept(db, conceptId).find(t => t.id === taskId);
     if (!task || !concept) throw new Error('Task or concept not found');
