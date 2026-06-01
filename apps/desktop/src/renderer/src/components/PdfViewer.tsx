@@ -1101,20 +1101,19 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
     setAnnotations(prev => prev.filter(a => a.id !== annotation.id));
     setPendingDeletedAnnotations(prev => [...prev.filter(a => a.id !== annotation.id), deleted]);
     setAnnotationEditor(null);
-    // A highlight created a matching evidence span — remove it too so the
-    // Evidence rail doesn't keep showing a deleted highlight. Restored on undo.
-    if (annotation.type === 'highlight') {
-      try {
-        const updated = await window.api.concepts.deleteEvidenceSpan({
-          conceptId, page: annotation.page, kind: 'highlight', quote: annotation.selected_text,
-        });
-        if (updated) setData(updated as SourceEvidence);
-        window.dispatchEvent(new Event('starcall:evidenceChanged'));
-      } catch (e) { console.error('[PdfViewer] highlight evidence cleanup failed', e); }
-    }
     const timerId = window.setTimeout(() => {
       pendingDeleteTimersRef.current.delete(annotation.id);
       setPendingDeletedAnnotations(prev => prev.filter(a => a.id !== annotation.id));
+      // Evidence span deletion deferred until undo window expires — restoreAnnotation
+      // re-creates it on undo, so we must not remove it before the window closes.
+      if (annotation.type === 'highlight') {
+        void window.api.concepts.deleteEvidenceSpan({
+          conceptId, page: annotation.page, kind: 'highlight', quote: annotation.selected_text,
+        }).then(updated => {
+          if (updated) setData(updated as SourceEvidence);
+          window.dispatchEvent(new Event('starcall:evidenceChanged'));
+        }).catch(e => console.error('[PdfViewer] highlight evidence cleanup failed', e));
+      }
     }, 5_000);
     pendingDeleteTimersRef.current.set(annotation.id, timerId);
   }
