@@ -31,10 +31,26 @@ export function runMigrations(
     (db.prepare('SELECT name FROM _migrations').all() as { name: string }[]).map(r => r.name)
   );
 
-  const pending = fs.readdirSync(migrationsDir)
+  const allFiles = fs.readdirSync(migrationsDir)
     .filter((f: string) => f.endsWith('.sql'))
-    .sort()
-    .filter((f: string) => !applied.has(f));
+    .sort();
+
+  // Warn on duplicate numeric prefixes so contributors catch collisions early.
+  // The known duplicate (two 0011_ files on independent tables) is intentional
+  // and already applied on all existing installs — do not rename those files.
+  // Next migration should use 0025_.
+  const prefixCount = new Map<string, number>();
+  for (const f of allFiles) {
+    const prefix = f.match(/^(\d+)_/)?.[1] ?? f;
+    prefixCount.set(prefix, (prefixCount.get(prefix) ?? 0) + 1);
+  }
+  for (const [prefix, count] of prefixCount) {
+    if (count > 1) {
+      console.warn(`[migrate] duplicate migration prefix "${prefix}" (${count} files) — verify execution order is safe`);
+    }
+  }
+
+  const pending = allFiles.filter((f: string) => !applied.has(f));
 
   if (pending.length === 0) return [];
 

@@ -85,13 +85,22 @@ export async function gradeResponse(
     'grader',
   );
 
-  const parsed = JSON.parse(content || '{}') as Partial<GradeResult>;
+  let raw: unknown;
+  try { raw = JSON.parse(content || '{}'); } catch { raw = {}; }
+  return parseGradeResult(raw);
+}
 
+// Exported for unit testing — parse and enforce invariants on a raw LLM payload.
+export function parseGradeResult(raw: unknown): GradeResult {
+  const p = (raw && typeof raw === 'object' ? raw : {}) as Partial<GradeResult>;
+  const gaps = Array.isArray(p.gaps_detected) && p.gaps_detected.length > 0
+    ? p.gaps_detected
+    : ['Continue to the next concept or attempt a harder task variant.'];
   return {
-    score: (parsed.score ?? 'gap') as EvidenceScore,
-    compression_stage: (parsed.compression_stage ?? 0) as CompressionStage,
-    gaps_detected: parsed.gaps_detected ?? [],
-    misconceptions_detected: parsed.misconceptions_detected ?? [],
-    reasoning: parsed.reasoning ?? '',
+    score: (p.score ?? 'gap') as EvidenceScore,
+    compression_stage: (p.compression_stage ?? 0) as CompressionStage,
+    gaps_detected: gaps,
+    misconceptions_detected: Array.isArray(p.misconceptions_detected) ? p.misconceptions_detected : [],
+    reasoning: p.reasoning ?? '',
   };
 }
