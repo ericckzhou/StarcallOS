@@ -49,7 +49,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
     for (const t of deleteTimers.current.values()) clearTimeout(t);
     if (pendingDeletesRef.current.length > 0) {
       for (const { source } of pendingDeletesRef.current) {
-        void window.api.sources.delete(source.id);
+        void window.api.sources.delete(source.id).catch(e => console.error('[starcall:ipc] sources.delete flush', e));
       }
       window.dispatchEvent(new Event('starcall:progressChanged'));
       window.dispatchEvent(new Event('starcall:review-queue-stale'));
@@ -131,12 +131,12 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
     const timer = setTimeout(() => {
       deleteTimers.current.delete(sourceId);
       setPendingDeletes(prev => prev.filter(p => p.source.id !== sourceId));
-      void window.api.sources.delete(sourceId).then(() => {
-        // The cascade changes XP, challenge counts, and the review queue —
-        // tell the rest of the app to refetch.
-        window.dispatchEvent(new Event('starcall:progressChanged'));
-        window.dispatchEvent(new Event('starcall:review-queue-stale'));
-      });
+      void window.api.sources.delete(sourceId)
+        .then(() => {
+          window.dispatchEvent(new Event('starcall:progressChanged'));
+          window.dispatchEvent(new Event('starcall:review-queue-stale'));
+        })
+        .catch(e => console.error('[starcall:ipc] sources.delete', e));
     }, 5000);
     deleteTimers.current.set(sourceId, timer);
   }

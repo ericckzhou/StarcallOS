@@ -108,15 +108,20 @@ export async function chatJSON(
       temperature: req.temperature ?? 0.2,
       max_tokens: cappedMaxTokens,
     });
-    // Retry on 429 (free-tier TPM/RPM) with backoff — respects Retry-After when
-    // present, else exponential. Lets paced multi-batch passes ride out limits.
+    // Retry on 429 (TPM/RPM), 502/503/504 (transient server errors).
+    // 429 respects Retry-After; others use exponential backoff.
+    const GROQ_RETRYABLE = new Set([429, 502, 503, 504]);
     let response: Awaited<ReturnType<typeof callGroq>>;
     for (let attempt = 0; ; attempt++) {
       try { response = await callGroq(); break; }
       catch (e) {
         const status = (e as { status?: number }).status;
-        if (status !== 429 || attempt >= 4) throw e;
-        const ra = Number((e as { headers?: Record<string, string> }).headers?.['retry-after']);
+        if (!status || !GROQ_RETRYABLE.has(status) || attempt >= 4) {
+          throw Object.assign(e as Error, { passName, provider: 'groq', llmModel: config.model });
+        }
+        const ra = status === 429
+          ? Number((e as { headers?: Record<string, string> }).headers?.['retry-after'])
+          : NaN;
         const waitMs = Number.isFinite(ra) && ra > 0 ? Math.min(15000, ra * 1000) : Math.min(8000, 500 * 2 ** attempt);
         await new Promise(r => setTimeout(r, waitMs));
       }
@@ -136,16 +141,22 @@ export async function chatJSON(
       ? `${sys}\n\nIMPORTANT: Respond with valid JSON only. No prose, no markdown fences, no preamble.`
       : sys;
 
-    const response = await client.messages.create({
-      model: config.model,
-      system: sysWithJson || undefined,
-      messages: userMsgs.map(m => ({
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: m.content,
-      })),
-      temperature: req.temperature ?? 0.2,
-      max_tokens: req.maxTokens ?? 8192,
-    });
+    // Anthropic SDK retries 429/500/502/503/529 automatically (2 attempts).
+    let response: Awaited<ReturnType<typeof client.messages.create>>;
+    try {
+      response = await client.messages.create({
+        model: config.model,
+        system: sysWithJson || undefined,
+        messages: userMsgs.map(m => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: m.content,
+        })),
+        temperature: req.temperature ?? 0.2,
+        max_tokens: req.maxTokens ?? 8192,
+      });
+    } catch (e) {
+      throw Object.assign(e as Error, { passName, provider: 'anthropic', llmModel: config.model });
+    }
     promptTokens = response.usage.input_tokens;
     completionTokens = response.usage.output_tokens;
     totalTokens = promptTokens + completionTokens;

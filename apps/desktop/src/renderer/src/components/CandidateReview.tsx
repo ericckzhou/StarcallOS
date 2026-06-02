@@ -80,6 +80,9 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
         setLlmFilterEnabled(true);
       }
       setLoading(false);
+    }).catch(e => {
+      console.error('[starcall:ipc] candidates.refresh', e);
+      setLoading(false);
     });
   }, [sourceId]);
 

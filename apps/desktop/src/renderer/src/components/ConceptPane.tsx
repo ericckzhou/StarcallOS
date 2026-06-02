@@ -93,7 +93,9 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
     setSearch('');
     setSelectMode(false);
     setSelectedIds(new Set());
-    window.api.concepts.bySource(sourceId).then(r => setConcepts(r as Concept[]));
+    window.api.concepts.bySource(sourceId)
+      .then(r => setConcepts(r as Concept[]))
+      .catch(e => console.error('[starcall:ipc] concepts.bySource', e));
   }, [sourceId]);
 
   // "/" focuses the concept search from anywhere in the pane (unless already

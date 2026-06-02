@@ -1,0 +1,173 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { openDb } from '../../core/infra/db';
+import { createSource } from './sources';
+import { createConcept } from './concepts';
+import {
+  calculateXpAward,
+  progressFromXp,
+  createTask,
+  createEvidenceRecord,
+  deleteEvidenceRecord,
+  getMastery,
+  recomputeMasteryForConcept,
+  recomputeXpForConceptKind,
+  listRecordsByConcept,
+} from './evidence';
+
+function setup() {
+  const db = openDb(':memory:');
+  const src = createSource(db, { filename: 'test.pdf', file_path: '/tmp/test.pdf' });
+  createConcept(db, {
+    source_id: src.id,
+    name: 'Test Concept',
+    slug: 'test-concept',
+    importance: 'core',
+    definition_text: 'A test concept.',
+    why_exists: 'Testing.',
+    what_breaks: 'Nothing.',
+    where_reappears: [],
+    chunk_ids: [],
+    section_path: [],
+    exam_value: 0.5,
+    misconception_risk: 0.2,
+    centrality_score: 0,
+  });
+  const concept = db.prepare('SELECT id FROM concepts LIMIT 1').get() as { id: number };
+  return { db, conceptId: concept.id };
+}
+
+type DB = ReturnType<typeof openDb>;
+
+function makeTask(db: DB, conceptId: number, kind = 'definition', difficulty = 3) {
+  return createTask(db, { concept_id: conceptId, kind: kind as never, prompt: `Test ${kind} ${Date.now()}`, difficulty: difficulty as never });
+}
+
+function makeRecord(db: DB, conceptId: number, taskId: number, stage: number, score: 'understood' | 'recognizes' | 'gap' = 'gap', difficulty = 3) {
+  return createEvidenceRecord(db, {
+    task_id: taskId,
+    concept_id: conceptId,
+    user_response: 'response',
+    score,
+    compression_stage: stage as never,
+    gaps_detected: ['gap 1'],
+    misconceptions_detected: [],
+    grader_reasoning: null,
+    task_prompt_snapshot: `prompt-${taskId}`,
+    task_kind_snapshot: 'definition' as never,
+    task_difficulty_snapshot: difficulty as never,
+  });
+}
+
+// ─── calculateXpAward (pure) ──────────────────────────────────────────────────
+
+describe('calculateXpAward', () => {
+  it('awards full XP for understood', () => {
+    expect(calculateXpAward(5, 'understood')).toBe(100);
+    expect(calculateXpAward(3, 'understood')).toBe(60);
+  });
+
+  it('scales by score multiplier', () => {
+    expect(calculateXpAward(5, 'recognizes')).toBe(60);   // 0.6×
+    expect(calculateXpAward(4, 'gap')).toBe(20);           // 0.25×
+    expect(calculateXpAward(5, 'misconception')).toBe(10); // 0.1×
+  });
+
+  it('returns at least 5 XP for any attempt', () => {
+    expect(calculateXpAward(1, 'misconception')).toBeGreaterThanOrEqual(5);
+  });
+});
+
+// ─── progressFromXp (pure) ────────────────────────────────────────────────────
+
+describe('progressFromXp', () => {
+  it('starts at level 1 with 0 XP', () => {
+    const p = progressFromXp(0);
+    expect(p.level).toBe(1);
+    expect(p.progress_ratio).toBe(0);
+  });
+
+  it('level increases as XP grows', () => {
+    expect(progressFromXp(100).level).toBe(2);
+    expect(progressFromXp(400).level).toBe(3);
+  });
+
+  it('progress_ratio is between 0 and 1 within a level', () => {
+    const p = progressFromXp(150);
+    expect(p.progress_ratio).toBeGreaterThan(0);
+    expect(p.progress_ratio).toBeLessThan(1);
+  });
+});
+
+// ─── deleteEvidenceRecord — XP re-award + mastery recompute ───────────────────
+
+describe('deleteEvidenceRecord', () => {
+  let db: DB; let conceptId: number;
+  beforeEach(() => { ({ db, conceptId } = setup()); });
+
+  it('removes the mastery row when the last record is deleted', () => {
+    const task = makeTask(db, conceptId);
+    const rec = makeRecord(db, conceptId, task.id, 3);
+    recomputeMasteryForConcept(db, conceptId);
+    expect(getMastery(db, conceptId)).not.toBeNull();
+    deleteEvidenceRecord(db, rec.id);
+    expect(getMastery(db, conceptId)).toBeNull();
+  });
+
+  it('recomputes mastery to MAX of remaining stages after delete', () => {
+    const task = makeTask(db, conceptId);
+    const low  = makeRecord(db, conceptId, task.id, 2);
+    const high = makeRecord(db, conceptId, task.id, 4);
+    recomputeMasteryForConcept(db, conceptId);
+    expect(getMastery(db, conceptId)!.compression_stage).toBe(4);
+    deleteEvidenceRecord(db, high.id);
+    expect(getMastery(db, conceptId)!.compression_stage).toBe(2);
+    deleteEvidenceRecord(db, low.id);
+    expect(getMastery(db, conceptId)).toBeNull();
+  });
+
+  it('re-awards XP to the next-highest-difficulty record in the bucket', () => {
+    const task = makeTask(db, conceptId, 'definition', 3);
+    const harder = makeRecord(db, conceptId, task.id, 3, 'understood', 5);
+    const softer = makeRecord(db, conceptId, task.id, 2, 'recognizes', 2);
+    recomputeXpForConceptKind(db, conceptId, 'definition');
+    const before = listRecordsByConcept(db, conceptId);
+    expect(before.find(r => r.id === harder.id)!.xp_awarded).toBeGreaterThan(0);
+    expect(before.find(r => r.id === softer.id)!.xp_awarded).toBe(0);
+    deleteEvidenceRecord(db, harder.id);
+    const after = listRecordsByConcept(db, conceptId);
+    expect(after.find(r => r.id === softer.id)!.xp_awarded).toBeGreaterThan(0);
+  });
+
+  it('does not leave any XP stranded after full bucket deletion', () => {
+    const task = makeTask(db, conceptId, 'connection', 4);
+    const rec = makeRecord(db, conceptId, task.id, 3, 'understood', 4);
+    deleteEvidenceRecord(db, rec.id);
+    expect(listRecordsByConcept(db, conceptId)).toHaveLength(0);
+    expect(getMastery(db, conceptId)).toBeNull();
+  });
+});
+
+describe('recomputeXpForConceptKind', () => {
+  let db: DB; let conceptId: number;
+  beforeEach(() => { ({ db, conceptId } = setup()); });
+
+  it('gives all XP to the highest-difficulty record', () => {
+    const task = makeTask(db, conceptId, 'definition', 3);
+    const r1 = makeRecord(db, conceptId, task.id, 2, 'gap', 2);
+    const r2 = makeRecord(db, conceptId, task.id, 3, 'understood', 5);
+    recomputeXpForConceptKind(db, conceptId, 'definition');
+    const records = listRecordsByConcept(db, conceptId);
+    expect(records.find(r => r.id === r2.id)!.xp_awarded).toBe(calculateXpAward(5, 'understood'));
+    expect(records.find(r => r.id === r1.id)!.xp_awarded).toBe(0);
+  });
+
+  it('is idempotent — running twice gives the same result', () => {
+    const task = makeTask(db, conceptId, 'compression', 3);
+    makeRecord(db, conceptId, task.id, 2, 'recognizes', 3);
+    recomputeXpForConceptKind(db, conceptId, 'compression');
+    const first = listRecordsByConcept(db, conceptId).map(r => r.xp_awarded);
+    recomputeXpForConceptKind(db, conceptId, 'compression');
+    const second = listRecordsByConcept(db, conceptId).map(r => r.xp_awarded);
+    expect(first).toEqual(second);
+  });
+});

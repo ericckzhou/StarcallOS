@@ -8,5 +8,10 @@ dist/
 out/
 .DS_Store
 
+# Playwright E2E artifacts
+test-results/
+playwright-report/
+playwright/.cache/
+
 # Local Claude Code skill/config (not project code)
 .claude/
