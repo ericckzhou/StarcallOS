@@ -35,3 +35,6 @@ export * from './ingestion/enrich_concept';
 export * from './ingestion/enrichment';
 export * from './ingestion/extraction';
 export * from './ingestion/grader';
+
+// Export formatters (Markdown / Anki)
+export * from './export';

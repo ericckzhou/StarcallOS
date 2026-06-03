@@ -102,6 +102,10 @@ contextBridge.exposeInMainWorld('api', {
     setDue: (args: { conceptId: number; dueAt: string | null }) => ipcRenderer.invoke('review:setDue', args),
     getSrs: (conceptId: number) => ipcRenderer.invoke('review:getSrs', conceptId),
   },
+  export: {
+    concept: (args: { conceptId: number; format: 'markdown' | 'anki' }) =>
+      ipcRenderer.invoke('export:concept', args),
+  },
   parseRuns: {
     bySource: (sourceId: number, limit?: number) => ipcRenderer.invoke('parseRuns:bySource', sourceId, limit),
   },

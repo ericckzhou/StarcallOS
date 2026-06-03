@@ -104,7 +104,24 @@ export const IPC = {
   CANDIDATES_EQUATION_UPDATE: 'candidates:equationUpdate',
   CANDIDATES_EQUATION_DELETE: 'candidates:equationDelete',
   PARSE_RUNS_BY_SOURCE:    'parseRuns:bySource',
+  EXPORT_CONCEPT:          'export:concept',
 } as const;
+
+export type ExportFormat = 'markdown' | 'anki';
+
+export interface ExportConceptArgs {
+  conceptId: number;
+  format: ExportFormat;
+}
+
+// Result of a concept export. `canceled` is true when the user dismissed the
+// Save dialog (no error, no write); `path` is set on a successful write.
+export interface ExportConceptResult {
+  ok: boolean;
+  path?: string;
+  canceled?: boolean;
+  error?: string;
+}
 
 export interface CandidatesBundle {
   concepts: StoredConceptCandidate[];
@@ -527,10 +544,15 @@ export interface IpcApi {
   };
   review: {
     queue: (limit?: number) => Promise<ReviewQueueItemPayload[]>;
-    dueCount: () => Promise<number>;
+    // Review-queue tallies: brand-new (never scheduled) vs due-now (scheduled
+    // and reached). Kept separate so the nav badge labels each honestly.
+    dueCount: () => Promise<{ newCount: number; dueCount: number }>;
     // Manual reschedule/snooze. dueAt = ISO timestamp, or null to clear (due now).
     setDue: (args: { conceptId: number; dueAt: string | null }) => Promise<{ ok: true }>;
     getSrs: (conceptId: number) => Promise<ConceptSrsPayload | null>;
+  };
+  export: {
+    concept: (args: ExportConceptArgs) => Promise<ExportConceptResult>;
   };
   parseRuns: {
     bySource: (sourceId: number, limit?: number) => Promise<ParseRunRecord[]>;

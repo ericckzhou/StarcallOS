@@ -79,55 +79,82 @@ const RESCHEDULE_PRESETS_DP: { label: string; days: number }[] = [
   { label: '2w', days: 14 }, { label: '1mo', days: 30 },
 ];
 
-// Self-contained reschedule/snooze control for the DetailPane header. Fetches
-// the concept's current SRS due on open (review:getSrs), writes via
-// review:setDue, and signals the queue/header to refresh. A pure date override
-// — SM-2 ease/reps untouched; "Reset" clears to due-now.
+// Mirrors ReviewQueue's dueLabel so the header chip reads identically. undefined
+// = still loading; null = new (never scheduled / reset to due-now).
+function headerDueLabel(dueAt: string | null | undefined): { text: string; color: string; scheduled: boolean } {
+  if (dueAt === undefined) return { text: '…', color: '#64748b', scheduled: false };
+  if (dueAt == null) return { text: 'new', color: '#f59e0b', scheduled: false };
+  const diffMs = new Date(dueAt).getTime() - Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const days = Math.round(diffMs / dayMs);
+  if (diffMs <= 0) {
+    const overdue = Math.abs(days);
+    return { text: overdue <= 0 ? 'due now' : `overdue ${overdue}d`, color: '#f87171', scheduled: true };
+  }
+  if (days <= 0) return { text: 'due now', color: '#f59e0b', scheduled: true };
+  return { text: `due ${days}d`, color: '#64748b', scheduled: true };
+}
+
+// Self-contained reschedule/snooze control for the DetailPane header. The chip
+// shows the live due state (fetched on mount + on review changes) and is itself
+// the snooze trigger; review:setDue writes a pure date override (SM-2 ease/reps
+// untouched; "Reset" clears to due-now).
 function RescheduleButton({ conceptId }: { conceptId: number }) {
   const [open, setOpen] = useState(false);
   const [dueAt, setDueAt] = useState<string | null | undefined>(undefined); // undefined = loading
 
+  // Fetch the due state on mount and on any review/SRS change so the header chip
+  // always reflects the schedule, not just while the popover is open.
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => { void window.api.review.getSrs(conceptId).then(s => { if (alive) setDueAt(s ? s.due_at : null); }); };
+    refresh();
+    window.addEventListener('starcall:review-queue-stale', refresh);
+    return () => { alive = false; window.removeEventListener('starcall:review-queue-stale', refresh); };
+  }, [conceptId]);
+
   useEffect(() => {
     if (!open) return;
-    let alive = true;
-    void window.api.review.getSrs(conceptId).then(s => { if (alive) setDueAt(s ? s.due_at : null); });
     const close = () => setOpen(false);
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('click', close);
     document.addEventListener('keydown', onKey);
-    return () => { alive = false; document.removeEventListener('click', close); document.removeEventListener('keydown', onKey); };
-  }, [open, conceptId]);
+    return () => { document.removeEventListener('click', close); document.removeEventListener('keydown', onKey); };
+  }, [open]);
 
   function apply(due: string | null) {
     setOpen(false);
+    setDueAt(due); // optimistic — chip updates immediately
     void window.api.review.setDue({ conceptId, dueAt: due })
       .then(() => window.dispatchEvent(new Event('starcall:review-queue-stale')));
   }
 
-  const dueText = dueAt === undefined
-    ? '…'
-    : dueAt == null
-      ? 'due now'
-      : (() => { const d = Math.round((new Date(dueAt).getTime() - Date.now()) / 86_400_000); return d <= 0 ? 'due now' : `due in ${d}d`; })();
+  const dueState = headerDueLabel(dueAt);
 
   return (
     <div style={{ position: 'relative', flexShrink: 0 }}>
       <button
         onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
         title="Reschedule review"
-        aria-label="Reschedule review"
+        aria-label={`Reschedule review — ${dueState.text}`}
         aria-haspopup="menu"
         aria-expanded={open}
         style={{
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          width: 26, height: 24, background: open ? 'rgba(129,140,248,0.12)' : 'transparent',
-          border: `1px solid ${open ? 'rgba(129,140,248,0.5)' : '#1f2937'}`, borderRadius: 4,
-          color: open ? '#a5b4fc' : '#6b7280', cursor: 'pointer',
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          height: 24, padding: '0 9px',
+          background: `${dueState.color}${open ? '2e' : '14'}`,
+          border: `1px solid ${dueState.color}${open ? 'aa' : '55'}`,
+          borderRadius: 999,
+          color: dueState.color, fontSize: 11, fontWeight: 600, lineHeight: 1,
+          whiteSpace: 'nowrap', cursor: 'pointer',
         }}
       >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
-        </svg>
+        {dueState.scheduled && (
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
+          </svg>
+        )}
+        {dueState.text}
       </button>
       {open && (
         <div role="menu" onClick={e => e.stopPropagation()} style={{
@@ -137,7 +164,7 @@ function RescheduleButton({ conceptId }: { conceptId: number }) {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '0 2px 7px' }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Reschedule</span>
-            <span style={{ fontSize: 10, color: '#94a3b8' }}>{dueText}</span>
+            <span style={{ fontSize: 10, color: '#94a3b8' }}>{dueState.text}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
             {RESCHEDULE_PRESETS_DP.map(p => (
@@ -166,6 +193,84 @@ function RescheduleButton({ conceptId }: { conceptId: number }) {
             style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 6, padding: '5px 8px', fontSize: 11, color: '#f59e0b', cursor: 'pointer' }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
             Reset (due now)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Self-contained export control for the DetailPane header. Opens a small menu
+// to export the concept as Markdown (.md) or an Anki import file (.txt,
+// tab-separated) via export:concept; the main process owns the Save dialog and
+// file write. Briefly flips to a check on success.
+function ExportButton({ conceptId }: { conceptId: number }) {
+  const [open, setOpen] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('click', close); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  function doExport(format: 'markdown' | 'anki') {
+    setOpen(false);
+    setStatus('saving');
+    void window.api.export.concept({ conceptId, format })
+      .then(res => {
+        if (res.ok) { setStatus('saved'); setTimeout(() => setStatus('idle'), 1600); }
+        else if (res.canceled) { setStatus('idle'); }
+        else { setStatus('error'); setTimeout(() => setStatus('idle'), 2400); }
+      })
+      .catch(() => { setStatus('error'); setTimeout(() => setStatus('idle'), 2400); });
+  }
+
+  const tint = status === 'saved' ? '#34d399' : status === 'error' ? '#f87171' : (open ? '#a5b4fc' : '#6b7280');
+  const optStyle: React.CSSProperties = {
+    width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    background: 'transparent', border: '1px solid rgba(129,140,248,0.28)', borderRadius: 6,
+    padding: '6px 9px', marginTop: 6, fontSize: 11, color: '#c7d2fe', cursor: 'pointer',
+  };
+  const extStyle: React.CSSProperties = { fontSize: 9, color: '#64748b', fontVariantNumeric: 'tabular-nums' };
+
+  return (
+    <div style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
+        title="Export concept (Markdown / Anki)"
+        aria-label="Export concept"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={status === 'saving'}
+        style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 26, height: 24, background: open ? 'rgba(129,140,248,0.12)' : 'transparent',
+          border: `1px solid ${open ? 'rgba(129,140,248,0.5)' : '#1f2937'}`, borderRadius: 4,
+          color: tint, cursor: status === 'saving' ? 'default' : 'pointer',
+        }}
+      >
+        {status === 'saved' ? (
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+        ) : (
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
+        )}
+      </button>
+      {open && (
+        <div role="menu" onClick={e => e.stopPropagation()} style={{
+          position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 30, minWidth: 158,
+          background: 'rgba(4,6,26,0.34)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+          border: '1px solid #263244', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 9,
+        }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0 2px' }}>Export as</div>
+          <button className="rel-opt" role="menuitem" onClick={e => { e.stopPropagation(); doExport('markdown'); }} title="Export as Markdown (.md)" style={optStyle}>
+            <span>Markdown</span><span style={extStyle}>.md</span>
+          </button>
+          <button className="rel-opt" role="menuitem" onClick={e => { e.stopPropagation(); doExport('anki'); }} title="Export as an Anki import file (.txt, tab-separated)" style={optStyle}>
+            <span>Anki</span><span style={extStyle}>.txt</span>
           </button>
         </div>
       )}
@@ -457,6 +562,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
                 {STAGES[stage]}
               </span>
               <RescheduleButton conceptId={concept.id} />
+              <ExportButton conceptId={concept.id} />
               <button
                 onClick={() => setSourcePreviewOpen(false)}
                 title="Hide source"
@@ -505,6 +611,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
             {STAGES[stage]}
           </span>
           <RescheduleButton conceptId={concept.id} />
+          <ExportButton conceptId={concept.id} />
           <button
             onClick={() => setSourcePreviewOpen(v => !v)}
             title="Show source on the right"

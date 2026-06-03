@@ -121,6 +121,11 @@ export const UpdatePdfAnnotationArgsSchema = z.object({
   rotation:   z.number().nullable().optional(),
 });
 
+export const ExportConceptArgsSchema = z.object({
+  conceptId: positiveInt,
+  format:    z.enum(['markdown', 'anki']),
+});
+
 // ─── Validation helper ────────────────────────────────────────────────────────
 
 export function validateIpc<T>(schema: z.ZodType<T>, value: unknown, channel: string): T {

@@ -18,7 +18,7 @@ import {
   createChunk, createConcept, updateCentralityScore, createEdge, createMisconception, createTask,
   upsertMastery, createEvidenceRecord, listRecordsByConcept, deleteEvidenceRecord,
   calculateEligibleXpAward, getStudyProgress,
-  recordSrsReview, countDueConcepts, setConceptSrsDue, getConceptSrs,
+  recordSrsReview, countDueConcepts, countNewConcepts, setConceptSrsDue, getConceptSrs,
   emitEvent,
   segmentPdf, segmentText,
   extractCandidates, buildSectionPath, persistCandidateExtraction,
@@ -43,7 +43,8 @@ import {
   CreateSourceArgsSchema, ProcessSourceArgsSchema, CreateTextSourceArgsSchema,
   SettingsPatchSchema, SubmitEvidenceArgsSchema, CandidateLlmFilterArgsSchema,
   UpdateConceptFieldsArgsSchema, CreatePdfAnnotationArgsSchema, UpdatePdfAnnotationArgsSchema,
-  PositiveIntSchema,
+  PositiveIntSchema, ExportConceptArgsSchema,
+  renderConceptExport,
   type ConceptImportance, type LLMSettings, type PassName, type RelationKind, type SecretCodec,
   runEnricher,
   runConceptExtractor, runGraphBuilder,
@@ -58,6 +59,7 @@ import type {
   CreatePdfAnnotationArgs,
   CreateSourceArgs,
   CreateTextSourceArgs,
+  ExportConceptArgs,
   ProcessSourceArgs,
   SubmitEvidenceArgs,
   UpdatePdfAnnotationArgs,
@@ -633,12 +635,50 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CONCEPTS_DELETE_EVIDENCE, (_e, args: { conceptId: number; index: number }) =>
     deleteConceptEvidenceByIndex(db, args.conceptId, args.index));
   ipcMain.handle(IPC.REVIEW_QUEUE_LIST, (_e, limit?: number) => listReviewQueue(db, limit ?? 50));
-  ipcMain.handle(IPC.REVIEW_DUE_COUNT, () => countDueConcepts(db));
+  ipcMain.handle(IPC.REVIEW_DUE_COUNT, () => ({
+    newCount: countNewConcepts(db),
+    dueCount: countDueConcepts(db),
+  }));
   ipcMain.handle(IPC.REVIEW_SET_DUE, (_e, args: { conceptId: number; dueAt: string | null }) => {
     setConceptSrsDue(db, args.conceptId, args.dueAt);
     return { ok: true as const };
   });
   ipcMain.handle(IPC.REVIEW_GET_SRS, (_e, conceptId: number) => getConceptSrs(db, conceptId));
+
+  ipcMain.handle(IPC.EXPORT_CONCEPT, async (_e, rawArgs: ExportConceptArgs) => {
+    const args = validateIpc(ExportConceptArgsSchema, rawArgs, IPC.EXPORT_CONCEPT);
+    const concept = getConceptById(db, args.conceptId);
+    if (!concept) return { ok: false, error: 'Concept not found' };
+
+    const source = getSourceById(db, concept.source_id);
+    const sourceTitle = source ? (source.title || source.filename) : 'Unknown source';
+    const { content, extension } = renderConceptExport(
+      {
+        concept,
+        sourceTitle,
+        notes: listNotesByConcept(db, args.conceptId),
+        equations: listEquationCandidatesForConcept(db, args.conceptId),
+        srs: getConceptSrs(db, args.conceptId),
+      },
+      args.format,
+    );
+
+    const safeName = (concept.slug || `concept-${concept.id}`).replace(/[^\w.-]+/g, '-');
+    const result = await dialog.showSaveDialog({
+      defaultPath: `${safeName}.${extension}`,
+      filters: args.format === 'anki'
+        ? [{ name: 'Anki import (tab-separated)', extensions: ['txt'] }]
+        : [{ name: 'Markdown', extensions: ['md'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+
+    try {
+      fs.writeFileSync(result.filePath, content, 'utf-8');
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    return { ok: true, path: result.filePath };
+  });
 
   ipcMain.handle(IPC.CONCEPTS_SOURCE_EVIDENCE, (_e, conceptId: number) => listConceptSourceEvidence(db, conceptId));
   ipcMain.handle(IPC.PARSE_RUNS_BY_SOURCE, (_e, sourceId: number, limit?: number) =>
