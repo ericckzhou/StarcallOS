@@ -52,7 +52,7 @@ apps/desktop/        Electron: main process + preload + renderer (React)
 **Process boundary rule:** Renderer never touches SQLite or API keys.
 All data flows: renderer → contextBridge → IPC → main → services → DB.
 
-## Data Model (migrations 0001 → 0023)
+## Data Model (migrations 0001 → 0025)
 
 ```
 sources                    PDF/text inputs + topic_anchors_json + llm_filter_keep_terms_json
@@ -63,6 +63,7 @@ concept_edges              requires | enables | related | causes | contrasts_wit
 misconceptions             attached to concepts: description, why_think_it, why_wrong
 evidence_tasks             5 kinds: definition | connection | application | misconception_resistance | compression
 mastery                    compression_stage 0–5 per concept
+concept_srs                SM-2 spaced-repetition card per concept; drives the review queue (0025)
 evidence_records           graded attempts (append-only-ish)
 pdf_annotations            source/concept-scoped highlights and sticky notes
 star_hubs / star_hub_members  named/color cross-source concept groups (0019)
@@ -289,9 +290,14 @@ importance tag.
   other concept's source filename). Entries are user-curated only — enrich,
   the ChatGPT paste flow, and the generated prompt never write the
   constellations list.
-- The Review Queue header has a sort-cycle button (default → importance →
-  stage) whose selection persists in localStorage; the old Refresh button was
-  dropped in favor of event-driven refetch.
+- The Review Queue is **SRS-driven** (SM-2, `concept_srs` migration 0025):
+  membership is "due now" (no card or null/elapsed `due_at`), default order is
+  due-first, and each row shows a due badge. Grading a challenge and the `✓ Done`
+  action both advance the card's `due_at`; deleting an evidence record replays
+  the survivors. The pure scheduler is `src/knowledge/srs.ts`. The header has a
+  sort-cycle button (default → importance → stage) whose selection persists in
+  localStorage; the old Refresh button was dropped in favor of event-driven
+  refetch.
 - The top-level source tab defaults to **Candidates** on first launch and
   remembers the last-selected tab thereafter.
 - Equation LaTeX renders via **KaTeX** (`LatexMath.tsx`,

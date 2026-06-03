@@ -47,10 +47,20 @@ Remember these as the active state of the repo:
   extraction never write them (the full-extraction persist forces `[]`);
   migration 0020 cleared legacy LLM-generated links. Links store `{ name, reason }`
   (legacy bare strings still load); the reason is required on add.
-- The review queue is driven by `concepts.reviewed_at` (migration 0021), NOT by
-  `compression_stage` — gaining mastery no longer removes a concept. A per-row
-  `✓ Done` marks reviewed (`concepts.setReviewed` IPC) and removes it; the queue
-  defaults to expanding only the most recently previewed source's group.
+- The review queue is SRS-driven (`concept_srs`, migration 0025): membership is
+  "due now" — a concept with no `concept_srs` row or a null/elapsed `due_at`.
+  This supersedes the old `reviewed_at IS NULL` gate (0021); `reviewed_at` is
+  kept on the row for history but no longer decides membership. Grading a
+  challenge advances the SM-2 card (`recordSrsReview`, called beside
+  `upsertMastery` in `EVIDENCE_SUBMIT`) so the concept's `due_at` moves forward
+  and it leaves the queue until due; the per-row `✓ Done` is an honest neutral
+  review (treated as `recognizes`) that reschedules rather than permanently
+  muting. Deleting an evidence record replays the survivors
+  (`recomputeSrsForConcept`, beside `recomputeMasteryForConcept` in
+  `deleteEvidenceRecord`). The pure SM-2 scheduler lives in
+  `packages/services/src/knowledge/srs.ts`; `review:dueCount` exposes the due
+  total. The queue defaults to expanding only the most recently previewed
+  source's group.
 - Star Hubs are shipped: named/color-coded cross-source concept groups
   (`star_hubs` + `star_hub_members`, migration 0019). Members are added via
   Select-mode multi-select in `ConceptPane` ("Add to ▾"; the old in-pane "+ Hub"
@@ -281,9 +291,11 @@ Candidate rows and parse runs stamp these versions for auditability.
 - The Review Queue header has a sort-cycle button (default → importance →
   stage, persisted in localStorage); there is no Refresh button (refetch is
   event-driven via the `starcall:review-queue-stale` window event). Membership
-  is `reviewed_at IS NULL` (not mastery stage); each row has a `✓ Done`
-  (mark-reviewed, optimistic remove) plus the `×` delete. On open, only the
-  most recently previewed source's group is expanded.
+  is SRS "due now" (no `concept_srs` row or null/elapsed `due_at`); default sort
+  is due-order (brand-new → most-overdue → centrality → importance → recency).
+  Each row shows a due badge (`new` / `due now` / `overdue Nd` / `next in Nd`)
+  and has a `✓ Done` (reschedules + optimistic remove) plus the `×` delete. On
+  open, only the most recently previewed source's group is expanded.
 - The top-level source tab defaults to Candidates on first launch and
   remembers the last pick.
 - Review queue rows are grouped by source/book with collapsible headers and

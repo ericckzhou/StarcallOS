@@ -596,6 +596,10 @@ export interface ReviewQueueItem {
   compression_stage: number;
   last_reviewed_at: string | null;
   attempts: number;
+  // SRS (migration 0025). due_at null = never scheduled (brand new, due now);
+  // interval_days is the current spacing, 0 for a fresh card.
+  due_at: string | null;
+  interval_days: number;
 }
 
 interface ReviewQueueRow {
@@ -619,9 +623,20 @@ interface ReviewQueueRow {
   compression_stage: number | null;
   last_reviewed_at: string | null;
   attempts: number | null;
+  due_at: string | null;
+  interval_days: number | null;
 }
 
+// The review queue is SRS-driven (migration 0025): a concept is due when it has
+// never been scheduled (no concept_srs row or null due_at — brand new) or its
+// due date has passed. This replaces the old `reviewed_at IS NULL` gate;
+// `reviewed_at` is retained on the row for history but no longer decides
+// membership. Ordering: brand-new first, then most-overdue, then the prior
+// centrality/importance/recency tiebreakers. datetime() normalizes both the
+// ISO-UTC timestamps written at grade time and the migration's
+// 'YYYY-MM-DD HH:MM:SS' backfill values.
 export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[] {
+  const nowIso = new Date().toISOString();
   const rows = db
     .prepare(
       `SELECT c.*,
@@ -629,10 +644,13 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
               s.filename AS source_filename,
               COALESCE(m.compression_stage, 0) AS compression_stage,
               r.last_reviewed_at,
-              COALESCE(r.attempts, 0) AS attempts
+              COALESCE(r.attempts, 0) AS attempts,
+              srs.due_at AS due_at,
+              srs.interval_days AS interval_days
        FROM concepts c
        JOIN sources s ON s.id = c.source_id
        LEFT JOIN mastery m ON m.concept_id = c.id
+       LEFT JOIN concept_srs srs ON srs.concept_id = c.id
        LEFT JOIN (
          SELECT concept_id,
                 MAX(created_at) AS last_reviewed_at,
@@ -640,9 +658,10 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
          FROM evidence_records
          GROUP BY concept_id
        ) r ON r.concept_id = c.id
-       WHERE c.reviewed_at IS NULL
+       WHERE srs.due_at IS NULL OR datetime(srs.due_at) <= datetime(?)
        ORDER BY
-         CASE WHEN r.last_reviewed_at IS NULL THEN 0 ELSE 1 END,
+         CASE WHEN srs.due_at IS NULL THEN 0 ELSE 1 END,
+         datetime(srs.due_at) ASC,
          c.centrality_score DESC,
          CASE c.importance
            WHEN 'foundational' THEN 0
@@ -653,7 +672,7 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
          c.created_at DESC
        LIMIT ?`,
     )
-    .all(limit) as unknown as ReviewQueueRow[];
+    .all(nowIso, limit) as unknown as ReviewQueueRow[];
 
   return rows.map(row => ({
     concept: rowToConcept(row),
@@ -663,6 +682,8 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
     compression_stage: row.compression_stage ?? 0,
     last_reviewed_at: row.last_reviewed_at,
     attempts: row.attempts ?? 0,
+    due_at: row.due_at,
+    interval_days: row.interval_days ?? 0,
   }));
 }
 

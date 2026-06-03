@@ -67,6 +67,7 @@ export const IPC = {
   HUBS_REMOVE_MEMBER:      'hubs:removeMember',
   HUBS_MEMBERSHIPS:        'hubs:memberships',
   REVIEW_QUEUE_LIST:       'review:queueList',
+  REVIEW_DUE_COUNT:        'review:dueCount',
   SETTINGS_GET:            'settings:get',
   SETTINGS_SET:            'settings:set',
   SOURCES_BYTES:           'sources:bytes',
@@ -323,6 +324,10 @@ export interface ReviewQueueItemPayload {
   compression_stage: number;
   last_reviewed_at: string | null;
   attempts: number;
+  // SRS scheduling (migration 0025). due_at null = never scheduled (brand new,
+  // due now); interval_days is the current spacing in days (0 for a fresh card).
+  due_at: string | null;
+  interval_days: number;
 }
 
 export interface LlmFilterSetArgs {
@@ -509,6 +514,7 @@ export interface IpcApi {
   };
   review: {
     queue: (limit?: number) => Promise<ReviewQueueItemPayload[]>;
+    dueCount: () => Promise<number>;
   };
   parseRuns: {
     bySource: (sourceId: number, limit?: number) => Promise<ParseRunRecord[]>;
