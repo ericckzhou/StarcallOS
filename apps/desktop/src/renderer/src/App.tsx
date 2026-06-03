@@ -36,6 +36,7 @@ export default function App() {
   const [xpPulse, setXpPulse] = useState(false);
   const prevLevel = useRef<number | null>(null);
   const prevXp = useRef<number | null>(null);
+  const [dueCount, setDueCount] = useState(0);
 
   // Celebrate level-ups and pulse the XP chip on XP gains. Guards the initial
   // load (prev refs start null) so we never fire on first render.
@@ -66,6 +67,15 @@ export default function App() {
     refreshProgress();
     window.addEventListener('starcall:progressChanged', refreshProgress);
     return () => window.removeEventListener('starcall:progressChanged', refreshProgress);
+  }, []);
+
+  // Count of concepts due for review now, shown as a header badge. Refetches
+  // when review/SRS state changes (grade, reschedule, delete).
+  useEffect(() => {
+    const refreshDue = () => { window.api.review.dueCount().then(n => setDueCount(n as number)); };
+    refreshDue();
+    window.addEventListener('starcall:review-queue-stale', refreshDue);
+    return () => window.removeEventListener('starcall:review-queue-stale', refreshDue);
   }, []);
 
   // If the selected source disappears from the list (e.g. user deleted it),
@@ -171,6 +181,23 @@ export default function App() {
           {topBtn('map',      'Map')}
           {topBtn('hubs',     'Hubs')}
         </div>
+        {dueCount > 0 && (
+          <button
+            onClick={() => { setTopLevel('review'); setSelectedConcept(null); }}
+            title={`${dueCount} concept${dueCount === 1 ? '' : 's'} due for review`}
+            aria-label={`${dueCount} due for review`}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: topLevel === 'review' ? 'rgba(245, 158, 11, 0.18)' : 'rgba(245, 158, 11, 0.12)',
+              border: '1px solid rgba(245, 158, 11, 0.45)', borderRadius: 999,
+              padding: '3px 11px', fontSize: 11, fontWeight: 700, color: '#f59e0b',
+              cursor: 'pointer', whiteSpace: 'nowrap',
+            }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: 999, background: '#f59e0b', display: 'inline-block' }} />
+            {dueCount} due
+          </button>
+        )}
         <button
           onClick={() => { setTopLevel('profile'); setSelectedConcept(null); }}
           title="Open profile"
