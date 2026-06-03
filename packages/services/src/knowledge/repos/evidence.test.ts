@@ -16,6 +16,7 @@ import {
   recordSrsReview,
   recomputeSrsForConcept,
   countDueConcepts,
+  setConceptSrsDue,
 } from './evidence';
 import { listReviewQueue } from './concepts';
 
@@ -194,14 +195,18 @@ describe('concept_srs scheduling', () => {
     expect(countDueConcepts(db)).toBe(1);
   });
 
-  it('recordSrsReview schedules a passing review into the future and drops it from the queue', () => {
+  it('recordSrsReview schedules a passing review into the future; card stays listed but not due', () => {
     const card = recordSrsReview(db, conceptId, 'understood');
     expect(card.repetitions).toBe(1);
     expect(card.interval_days).toBe(1);
     expect(card.last_grade).toBe('understood');
     expect(new Date(card.due_at!).getTime()).toBeGreaterThan(Date.now());
 
-    expect(listReviewQueue(db).find(i => i.concept.id === conceptId)).toBeUndefined();
+    // The queue lists ALL concepts with their due state; a scheduled card stays
+    // visible (with a future due_at) rather than disappearing, but is not "due".
+    const listed = listReviewQueue(db).find(i => i.concept.id === conceptId);
+    expect(listed).toBeTruthy();
+    expect(new Date(listed!.due_at!).getTime()).toBeGreaterThan(Date.now());
     expect(countDueConcepts(db)).toBe(0);
   });
 
@@ -236,6 +241,35 @@ describe('concept_srs scheduling', () => {
     // Delete every record → card is removed → concept reads as fresh/due again.
     for (const rec of listRecordsByConcept(db, conceptId)) deleteEvidenceRecord(db, rec.id);
     expect(getConceptSrs(db, conceptId)).toBeNull();
+    expect(countDueConcepts(db)).toBe(1);
+  });
+
+  it('setConceptSrsDue overrides only the due date, preserving SM-2 state', () => {
+    const advanced = recordSrsReview(db, conceptId, 'understood');
+    recordSrsReview(db, conceptId, 'understood'); // rep 2, ease bumped
+    const before = getConceptSrs(db, conceptId)!;
+    expect(before.repetitions).toBe(2);
+
+    const future = new Date(Date.now() + 7 * 86_400_000).toISOString();
+    const after = setConceptSrsDue(db, conceptId, future);
+    expect(after.due_at).toBe(future);
+    expect(after.repetitions).toBe(before.repetitions); // ease/reps untouched
+    expect(after.ease).toBe(before.ease);
+    expect(countDueConcepts(db)).toBe(0);
+    void advanced;
+  });
+
+  it('setConceptSrsDue with null clears the schedule (due now) and seeds a card when absent', () => {
+    // No card yet → seeds a default-state card with null due_at.
+    const seeded = setConceptSrsDue(db, conceptId, null);
+    expect(seeded.due_at).toBeNull();
+    expect(seeded.repetitions).toBe(0);
+    expect(countDueConcepts(db)).toBe(1);
+
+    // After scheduling out, clearing brings it back to due now.
+    recordSrsReview(db, conceptId, 'understood');
+    expect(countDueConcepts(db)).toBe(0);
+    setConceptSrsDue(db, conceptId, null);
     expect(countDueConcepts(db)).toBe(1);
   });
 });

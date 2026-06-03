@@ -557,6 +557,24 @@ export function recordSrsReview(
   return upsertConceptSrs(db, conceptId, next, dueAt, now.toISOString(), score);
 }
 
+// Manual due-date override (user "Reschedule" / snooze action). Sets only the
+// due date, leaving the SM-2 ease/reps/lapses untouched — so a snooze doesn't
+// distort the learned interval. `dueAt = null` clears the schedule (due now).
+// When no card exists yet, a default-state card is seeded with the chosen date;
+// last_reviewed_at/last_grade stay null because this is not a graded review.
+export function setConceptSrsDue(
+  db: DatabaseSync,
+  conceptId: number,
+  dueAt: string | null,
+): ConceptSrs {
+  const current = getConceptSrs(db, conceptId);
+  if (current) {
+    db.prepare('UPDATE concept_srs SET due_at = ? WHERE concept_id = ?').run(dueAt, conceptId);
+    return getConceptSrs(db, conceptId)!;
+  }
+  return upsertConceptSrs(db, conceptId, { ...DEFAULT_SRS_STATE }, dueAt, null, null);
+}
+
 // Re-derive SRS state by replaying a concept's surviving evidence_records in
 // chronological order. Called after a record is deleted so deletion stays a
 // clean replay (mirrors recomputeMasteryForConcept). If no records remain the

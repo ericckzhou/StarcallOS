@@ -18,7 +18,7 @@ import {
   createChunk, createConcept, updateCentralityScore, createEdge, createMisconception, createTask,
   upsertMastery, createEvidenceRecord, listRecordsByConcept, deleteEvidenceRecord,
   calculateEligibleXpAward, getStudyProgress,
-  recordSrsReview, countDueConcepts,
+  recordSrsReview, countDueConcepts, setConceptSrsDue,
   emitEvent,
   segmentPdf, segmentText,
   extractCandidates, buildSectionPath, persistCandidateExtraction,
@@ -634,6 +634,10 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     deleteConceptEvidenceByIndex(db, args.conceptId, args.index));
   ipcMain.handle(IPC.REVIEW_QUEUE_LIST, (_e, limit?: number) => listReviewQueue(db, limit ?? 50));
   ipcMain.handle(IPC.REVIEW_DUE_COUNT, () => countDueConcepts(db));
+  ipcMain.handle(IPC.REVIEW_SET_DUE, (_e, args: { conceptId: number; dueAt: string | null }) => {
+    setConceptSrsDue(db, args.conceptId, args.dueAt);
+    return { ok: true as const };
+  });
 
   ipcMain.handle(IPC.CONCEPTS_SOURCE_EVIDENCE, (_e, conceptId: number) => listConceptSourceEvidence(db, conceptId));
   ipcMain.handle(IPC.PARSE_RUNS_BY_SOURCE, (_e, sourceId: number, limit?: number) =>

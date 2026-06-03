@@ -31,7 +31,7 @@ function dueLabel(dueAt: string | null): { text: string; color: string } {
     return { text: overdue <= 0 ? 'due now' : `overdue ${overdue}d`, color: '#f87171' };
   }
   if (days <= 0) return { text: 'due now', color: '#f59e0b' };
-  return { text: `next in ${days}d`, color: '#64748b' };
+  return { text: `due in ${days}d`, color: '#64748b' };
 }
 
 const STAGE_COLORS = ['#374151', '#6b7280', '#3b82f6', '#8b5cf6', '#f59e0b', '#22c55e'];
@@ -47,6 +47,15 @@ const COLLAPSED_KEY = 'starcall.layout.reviewQueueCollapsed';
 const GROUP_COLLAPSED_KEY = 'starcall.layout.reviewQueueCollapsedGroups';
 const WIDTH_KEY = 'starcall.layout.reviewQueueWidth';
 const SORT_KEY = 'starcall.layout.reviewQueueSort';
+
+// Reschedule/snooze presets: label → day offset from now.
+const RESCHEDULE_PRESETS: { label: string; days: number }[] = [
+  { label: '1d', days: 1 },
+  { label: '3d', days: 3 },
+  { label: '1w', days: 7 },
+  { label: '2w', days: 14 },
+  { label: '1mo', days: 30 },
+];
 
 type SortMode = 'default' | 'importance' | 'stage';
 const SORT_CYCLE: SortMode[] = ['default', 'importance', 'stage'];
@@ -77,6 +86,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => readCollapsedGroups());
   const [width, setWidth] = useState(() => Number(localStorage.getItem(WIDTH_KEY)) || 420);
   const [activeActionConceptId, setActiveActionConceptId] = useState<number | null>(null);
+  const [reschedulePopoverId, setReschedulePopoverId] = useState<number | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>(() => {
     const stored = localStorage.getItem(SORT_KEY);
     return SORT_CYCLE.includes(stored as SortMode) ? (stored as SortMode) : 'default';
@@ -144,6 +154,22 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
     localStorage.setItem(SORT_KEY, sortMode);
   }, [sortMode]);
 
+  // Dismiss the reschedule popover on outside click or Escape. The popover, its
+  // chips, and the trigger all stopPropagation on click, so any document click
+  // that reaches here originated outside the popover. (Using 'click' not
+  // 'mousedown' so a chip's own click isn't swallowed by an early unmount.)
+  useEffect(() => {
+    if (reschedulePopoverId == null) return;
+    const close = () => setReschedulePopoverId(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('click', close);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [reschedulePopoverId]);
+
   function cycleSort() {
     const idx = SORT_CYCLE.indexOf(sortMode);
     setSortMode(SORT_CYCLE[(idx + 1) % SORT_CYCLE.length]);
@@ -184,6 +210,32 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
     void window.api.concepts.setReviewed({ conceptId: item.concept.id, reviewed: true })
       .then(() => window.dispatchEvent(new Event('starcall:review-queue-stale')))
       .catch(() => setItems(prev => prev.some(e => e.concept.id === item.concept.id) ? prev : [item, ...prev]));
+  }
+
+  // Manual reschedule/snooze: a pure due-date override (SM-2 ease/reps untouched
+  // on the backend). offsetDays === null clears the schedule (due now). The row
+  // stays visible with its due badge updated in place (e.g. "next in 1w") so the
+  // new schedule is shown as confirmation. We intentionally do NOT dispatch
+  // review-queue-stale: a refetch would drop the row, since the queue query only
+  // returns due-now cards — hiding the schedule the user just set. The card
+  // leaves the queue on the next natural refresh and returns when due. Reverts
+  // the badge on persistence failure.
+  function rescheduleFromQueue(item: QueueItem, offsetDays: number | null): void {
+    setReschedulePopoverId(null);
+    const dueAt = offsetDays == null
+      ? null
+      : new Date(Date.now() + offsetDays * 86_400_000).toISOString();
+    setItems(prev => prev.map(entry =>
+      entry.concept.id === item.concept.id
+        ? { ...entry, due_at: dueAt, interval_days: offsetDays ?? 0 }
+        : entry,
+    ));
+    void window.api.review.setDue({ conceptId: item.concept.id, dueAt })
+      .catch(() => setItems(prev => prev.map(entry =>
+        entry.concept.id === item.concept.id
+          ? { ...entry, due_at: item.due_at, interval_days: item.interval_days }
+          : entry,
+      )));
   }
 
   function undoDeleteConcept(item: QueueItem): void {
@@ -435,7 +487,90 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {c.name}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, position: 'relative' }}>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          setReschedulePopoverId(prev => prev === c.id ? null : c.id);
+                        }}
+                        title="Reschedule (snooze)"
+                        aria-label={`Reschedule ${c.name}`}
+                        aria-haspopup="menu"
+                        aria-expanded={reschedulePopoverId === c.id}
+                        style={{
+                          width: 20, height: 20,
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          background: (reschedulePopoverId === c.id || actionsVisible) ? 'rgba(129, 140, 248, 0.12)' : 'transparent',
+                          border: `1px solid ${(reschedulePopoverId === c.id || actionsVisible) ? 'rgba(129, 140, 248, 0.5)' : 'transparent'}`,
+                          borderRadius: 4,
+                          color: reschedulePopoverId === c.id ? '#a5b4fc' : '#94a3b8',
+                          padding: 0, cursor: 'pointer', flexShrink: 0,
+                          opacity: (reschedulePopoverId === c.id || actionsVisible) ? 1 : 0.25,
+                          transition: 'opacity 120ms ease, background 120ms ease, border-color 120ms ease',
+                        }}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <circle cx="12" cy="12" r="9" />
+                          <path d="M12 7v5l3 2" />
+                        </svg>
+                      </button>
+                      {reschedulePopoverId === c.id && (
+                        <div
+                          role="menu"
+                          aria-label="Reschedule options"
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 30,
+                            minWidth: 216,
+                            background: 'rgba(4, 6, 26, 0.34)',
+                            backdropFilter: 'blur(14px)',
+                            WebkitBackdropFilter: 'blur(14px)',
+                            border: '1px solid #263244', borderRadius: 8,
+                            boxShadow: '0 14px 34px rgba(0, 0, 0, 0.6)',
+                            padding: 10,
+                          }}
+                        >
+                          <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0 2px 7px' }}>
+                            Reschedule
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+                            {RESCHEDULE_PRESETS.map(p => (
+                              <button
+                                key={p.label}
+                                className="rel-opt"
+                                role="menuitem"
+                                onClick={e => { e.stopPropagation(); rescheduleFromQueue(it, p.days); }}
+                                title={`Due again in ${p.label}`}
+                                style={{
+                                  background: 'transparent', border: '1px solid rgba(129, 140, 248, 0.28)', borderRadius: 6,
+                                  padding: '6px 0', fontSize: 11, color: '#c7d2fe', cursor: 'pointer', textAlign: 'center',
+                                  transition: 'background 120ms ease, border-color 120ms ease, color 120ms ease',
+                                }}
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
+                          <div style={{ height: 1, background: 'rgba(129, 140, 248, 0.16)', margin: '9px 0' }} />
+                          <button
+                            role="menuitem"
+                            onClick={e => { e.stopPropagation(); rescheduleFromQueue(it, null); }}
+                            title="Clear schedule — make this due now"
+                            style={{
+                              width: '100%', display: 'flex', alignItems: 'center', gap: 6,
+                              background: 'transparent', border: '1px solid rgba(245, 158, 11, 0.4)', borderRadius: 6,
+                              padding: '5px 8px', fontSize: 11, color: '#f59e0b', cursor: 'pointer',
+                              transition: 'background 120ms ease, border-color 120ms ease',
+                            }}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                              <path d="M3 3v5h5" />
+                            </svg>
+                            Reset (due now)
+                          </button>
+                        </div>
+                      )}
                       {(() => {
                         const reviewable = it.attempts > 0;
                         return (

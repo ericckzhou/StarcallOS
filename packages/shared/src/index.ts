@@ -68,6 +68,7 @@ export const IPC = {
   HUBS_MEMBERSHIPS:        'hubs:memberships',
   REVIEW_QUEUE_LIST:       'review:queueList',
   REVIEW_DUE_COUNT:        'review:dueCount',
+  REVIEW_SET_DUE:          'review:setDue',
   SETTINGS_GET:            'settings:get',
   SETTINGS_SET:            'settings:set',
   SOURCES_BYTES:           'sources:bytes',
@@ -515,6 +516,8 @@ export interface IpcApi {
   review: {
     queue: (limit?: number) => Promise<ReviewQueueItemPayload[]>;
     dueCount: () => Promise<number>;
+    // Manual reschedule/snooze. dueAt = ISO timestamp, or null to clear (due now).
+    setDue: (args: { conceptId: number; dueAt: string | null }) => Promise<{ ok: true }>;
   };
   parseRuns: {
     bySource: (sourceId: number, limit?: number) => Promise<ParseRunRecord[]>;
