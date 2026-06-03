@@ -609,15 +609,37 @@ export function recomputeSrsForConcept(db: DatabaseSync, conceptId: number): voi
 // a concept is due when it has never been scheduled (no row or null due_at) or
 // its due date has passed. datetime() normalizes both the ISO-UTC timestamps we
 // write and the migration's 'YYYY-MM-DD HH:MM:SS' backfill values.
+// "Due now" is strictly a scheduled card whose due_at has arrived. A concept
+// with no SRS row (due_at IS NULL) is "new", not due — counted separately by
+// countNewConcepts so the nav badge never mislabels a brand-new card as due
+// (matching the review queue's `new · due · scheduled` tally). Both join
+// sources so an orphaned concept (deleted source) can't inflate the count past
+// what listReviewQueue actually shows.
 export function countDueConcepts(db: DatabaseSync, now: Date = new Date()): number {
   const row = db
     .prepare(
       `SELECT COUNT(*) AS n
          FROM concepts c
+         JOIN sources sr ON sr.id = c.source_id
          LEFT JOIN concept_srs s ON s.concept_id = c.id
-        WHERE s.due_at IS NULL OR datetime(s.due_at) <= datetime(?)`,
+        WHERE s.due_at IS NOT NULL AND datetime(s.due_at) <= datetime(?)`,
     )
     .get(now.toISOString()) as { n: number | bigint };
+  return Number(row.n);
+}
+
+// Brand-new, never-scheduled concepts (no SRS row yet) — the "new" subset of
+// the review queue, counted separately from countDueConcepts.
+export function countNewConcepts(db: DatabaseSync): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n
+         FROM concepts c
+         JOIN sources sr ON sr.id = c.source_id
+         LEFT JOIN concept_srs s ON s.concept_id = c.id
+        WHERE s.due_at IS NULL`,
+    )
+    .get() as { n: number | bigint };
   return Number(row.n);
 }
 

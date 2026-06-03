@@ -297,12 +297,21 @@ importance tag.
   `overdue Nd` / `due in Nd`). Grading a challenge, the `✓ Done` action, and a
   manual **reschedule** (clock ⏰ → preset popover, `review:setDue` →
   `setConceptSrsDue`) all just advance the card's `due_at`, so the row stays
-  visible with an updated badge rather than disappearing; the due-now subset is
-  exposed separately via `countDueConcepts`/`review:dueCount`. Deleting an
+  visible with an updated badge rather than disappearing. A `due_at IS NULL`
+  card is **new** (never scheduled), not due: `countDueConcepts` counts only the
+  due-now subset and `countNewConcepts` the new subset, so `review:dueCount`
+  returns `{ newCount, dueCount }` and the nav badge reads `N new · M due`
+  instead of mislabeling new cards as due. Deleting an
   evidence record replays the survivors. The pure scheduler is
   `src/knowledge/srs.ts`. The header has a sort-cycle button (default →
   importance → stage), persisted in localStorage; refetch is event-driven (no
   Refresh button).
+- A concept exports to **Markdown** (`.md`) or an **Anki** import file (`.txt`,
+  tab-separated; not `.apkg`) from the DetailPane header (`ExportButton`). Pure
+  formatters live in `services/src/export.ts`; the `export:concept` IPC handler
+  gathers the concept, source title, notes, equations, and SRS state, then owns
+  the Save dialog and file write. Anki emits one Front/Back card per concept
+  (LaTeX in MathJax `\[ \]`).
 - The top-level source tab defaults to **Candidates** on first launch and
   remembers the last-selected tab thereafter.
 - Equation LaTeX renders via **KaTeX** (`LatexMath.tsx`,

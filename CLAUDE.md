@@ -53,8 +53,13 @@ Remember these as the active state of the repo:
   due → soonest-future), then centrality/importance/recency. It does NOT hide
   scheduled cards — grading, the `✓ Done` action, and manual reschedule all just
   update the card's `due_at` so the row stays visible with an updated badge
-  (`new` / `due now` / `overdue Nd` / `due in Nd`). The due-now subset is exposed
-  separately via `countDueConcepts` / `review:dueCount`. This supersedes both the
+  (`new` / `due now` / `overdue Nd` / `due in Nd`). A card with `due_at IS NULL`
+  is **new** (never scheduled), NOT due — `countDueConcepts` counts only the
+  due-now subset (`due_at` not null and reached) while `countNewConcepts` counts
+  the new subset; both join `sources` so orphaned concepts can't inflate them.
+  `review:dueCount` returns `{ newCount, dueCount }` and the nav header badge
+  renders them as an honest `N new · M due` (never labeling a new card "due").
+  This supersedes both the
   old `reviewed_at IS NULL` gate (0021) and the interim "membership = due now"
   filter; `reviewed_at` is kept on the row for history only. Grading advances the
   SM-2 card (`recordSrsReview`, beside `upsertMastery` in `EVIDENCE_SUBMIT`); `✓
@@ -65,6 +70,17 @@ Remember these as the active state of the repo:
   `deleteEvidenceRecord`). The pure SM-2 scheduler lives in
   `packages/services/src/knowledge/srs.ts`. The queue defaults to expanding only
   the most recently previewed source's group.
+- Concepts export to **Markdown** (`.md`) or **Anki** (`.txt`, tab-separated
+  import — NOT `.apkg`) via the DetailPane header `ExportButton` (beside
+  `RescheduleButton`, in BOTH header variants). Formatters are pure TS in
+  `packages/services/src/export.ts` (`toMarkdown` / `toAnki` /
+  `renderConceptExport`); the main `export:concept` handler assembles
+  `ConceptExportData` (concept + source title + notes + equations + SRS) and
+  owns the `dialog.showSaveDialog` + `fs.writeFileSync`. Anki is one Front/Back
+  card per concept (definition/why/what/constellations/equations; LaTeX in
+  MathJax `\[ \]`); notes are Markdown-only. Args validated by
+  `ExportConceptArgsSchema`. Single-concept only for now (source/library export
+  is a planned extension).
 - Star Hubs are shipped: named/color-coded cross-source concept groups
   (`star_hubs` + `star_hub_members`, migration 0019). Members are added via
   Select-mode multi-select in `ConceptPane` ("Add to ▾"; the old in-pane "+ Hub"

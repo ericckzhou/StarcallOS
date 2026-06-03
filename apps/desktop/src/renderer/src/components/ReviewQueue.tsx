@@ -31,7 +31,7 @@ function dueLabel(dueAt: string | null): { text: string; color: string } {
     return { text: overdue <= 0 ? 'due now' : `overdue ${overdue}d`, color: '#f87171' };
   }
   if (days <= 0) return { text: 'due now', color: '#f59e0b' };
-  return { text: `due in ${days}d`, color: '#64748b' };
+  return { text: `due ${days}d`, color: '#64748b' };
 }
 
 const STAGE_COLORS = ['#374151', '#6b7280', '#3b82f6', '#8b5cf6', '#f59e0b', '#22c55e'];
@@ -498,32 +498,44 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                       {c.name}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, position: 'relative' }}>
-                      <button
-                        onClick={e => {
-                          e.stopPropagation();
-                          setReschedulePopoverId(prev => prev === c.id ? null : c.id);
-                        }}
-                        title="Reschedule (snooze)"
-                        aria-label={`Reschedule ${c.name}`}
-                        aria-haspopup="menu"
-                        aria-expanded={reschedulePopoverId === c.id}
-                        style={{
-                          width: 20, height: 20,
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          background: (reschedulePopoverId === c.id || actionsVisible) ? 'rgba(129, 140, 248, 0.12)' : 'transparent',
-                          border: `1px solid ${(reschedulePopoverId === c.id || actionsVisible) ? 'rgba(129, 140, 248, 0.5)' : 'transparent'}`,
-                          borderRadius: 4,
-                          color: reschedulePopoverId === c.id ? '#a5b4fc' : '#94a3b8',
-                          padding: 0, cursor: 'pointer', flexShrink: 0,
-                          opacity: (reschedulePopoverId === c.id || actionsVisible) ? 1 : 0.25,
-                          transition: 'opacity 120ms ease, background 120ms ease, border-color 120ms ease',
-                        }}
-                      >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <circle cx="12" cy="12" r="9" />
-                          <path d="M12 7v5l3 2" />
-                        </svg>
-                      </button>
+                      {(() => {
+                        // Merged due-state + reschedule control: the badge IS the
+                        // snooze trigger. Clock glyph only on scheduled cards;
+                        // a brand-new (never-scheduled) card stays clock-less.
+                        const due = dueLabel(it.due_at);
+                        const scheduled = it.due_at != null;
+                        const isOpen = reschedulePopoverId === c.id;
+                        return (
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              setReschedulePopoverId(prev => prev === c.id ? null : c.id);
+                            }}
+                            title="Reschedule (snooze)"
+                            aria-label={`Reschedule ${c.name} — ${due.text}`}
+                            aria-haspopup="menu"
+                            aria-expanded={isOpen}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                              height: 20, padding: '0 8px',
+                              background: `${due.color}${isOpen ? '2e' : '14'}`,
+                              border: `1px solid ${due.color}${isOpen ? 'aa' : '55'}`,
+                              borderRadius: 999,
+                              color: due.color, fontSize: 10, fontWeight: 600, lineHeight: 1,
+                              whiteSpace: 'nowrap', cursor: 'pointer', flexShrink: 0,
+                              transition: 'background 120ms ease, border-color 120ms ease',
+                            }}
+                          >
+                            {scheduled && (
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <circle cx="12" cy="12" r="9" />
+                                <path d="M12 7v5l3 2" />
+                              </svg>
+                            )}
+                            {due.text}
+                          </button>
+                        );
+                      })()}
                       {reschedulePopoverId === c.id && (
                         <div
                           role="menu"
@@ -672,22 +684,6 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                     }}>
                       {STAGES[stage]}
                     </span>
-                    {(() => {
-                      const due = dueLabel(it.due_at);
-                      return (
-                        <span style={{
-                          color: due.color,
-                          border: `1px solid ${due.color}55`,
-                          background: `${due.color}14`,
-                          borderRadius: 999,
-                          padding: '1px 6px',
-                          lineHeight: 1.5,
-                          whiteSpace: 'nowrap',
-                        }}>
-                          {due.text}
-                        </span>
-                      );
-                    })()}
                     {it.attempts > 0 && (
                       <span style={{ marginLeft: 'auto', whiteSpace: 'nowrap' }}>{it.attempts} {it.attempts === 1 ? 'try' : 'tries'}</span>
                     )}

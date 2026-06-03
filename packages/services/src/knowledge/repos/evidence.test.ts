@@ -16,6 +16,7 @@ import {
   recordSrsReview,
   recomputeSrsForConcept,
   countDueConcepts,
+  countNewConcepts,
   setConceptSrsDue,
 } from './evidence';
 import { listReviewQueue } from './concepts';
@@ -187,12 +188,13 @@ describe('concept_srs scheduling', () => {
     ({ db, conceptId } = setup());
   });
 
-  it('treats a freshly promoted concept (no SRS row) as due', () => {
+  it('treats a freshly promoted concept (no SRS row) as new, not due', () => {
     expect(getConceptSrs(db, conceptId)).toBeNull();
     const queue = listReviewQueue(db);
     expect(queue.find(i => i.concept.id === conceptId)).toBeTruthy();
     expect(queue.find(i => i.concept.id === conceptId)!.due_at).toBeNull();
-    expect(countDueConcepts(db)).toBe(1);
+    expect(countNewConcepts(db)).toBe(1);
+    expect(countDueConcepts(db)).toBe(0);
   });
 
   it('recordSrsReview schedules a passing review into the future; card stays listed but not due', () => {
@@ -238,10 +240,11 @@ describe('concept_srs scheduling', () => {
     recomputeSrsForConcept(db, conceptId);
     expect(getConceptSrs(db, conceptId)!.repetitions).toBe(2);
 
-    // Delete every record → card is removed → concept reads as fresh/due again.
+    // Delete every record → card is removed → concept reads as fresh/new again.
     for (const rec of listRecordsByConcept(db, conceptId)) deleteEvidenceRecord(db, rec.id);
     expect(getConceptSrs(db, conceptId)).toBeNull();
-    expect(countDueConcepts(db)).toBe(1);
+    expect(countNewConcepts(db)).toBe(1);
+    expect(countDueConcepts(db)).toBe(0);
   });
 
   it('setConceptSrsDue overrides only the due date, preserving SM-2 state', () => {
@@ -259,17 +262,22 @@ describe('concept_srs scheduling', () => {
     void advanced;
   });
 
-  it('setConceptSrsDue with null clears the schedule (due now) and seeds a card when absent', () => {
-    // No card yet → seeds a default-state card with null due_at.
+  it('setConceptSrsDue with null clears the schedule and seeds a card when absent', () => {
+    // No card yet → seeds a default-state card with null due_at. A null due_at
+    // is the "new" (unscheduled) state, not a future-dated due card.
     const seeded = setConceptSrsDue(db, conceptId, null);
     expect(seeded.due_at).toBeNull();
     expect(seeded.repetitions).toBe(0);
-    expect(countDueConcepts(db)).toBe(1);
-
-    // After scheduling out, clearing brings it back to due now.
-    recordSrsReview(db, conceptId, 'understood');
+    expect(countNewConcepts(db)).toBe(1);
     expect(countDueConcepts(db)).toBe(0);
+
+    // After scheduling out, the card is neither new nor due (future-dated).
+    recordSrsReview(db, conceptId, 'understood');
+    expect(countNewConcepts(db)).toBe(0);
+    expect(countDueConcepts(db)).toBe(0);
+    // Clearing the schedule returns it to the unscheduled "new" state.
     setConceptSrsDue(db, conceptId, null);
-    expect(countDueConcepts(db)).toBe(1);
+    expect(countNewConcepts(db)).toBe(1);
+    expect(countDueConcepts(db)).toBe(0);
   });
 });
