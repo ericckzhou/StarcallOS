@@ -627,16 +627,17 @@ interface ReviewQueueRow {
   interval_days: number | null;
 }
 
-// The review queue is SRS-driven (migration 0025): a concept is due when it has
-// never been scheduled (no concept_srs row or null due_at — brand new) or its
-// due date has passed. This replaces the old `reviewed_at IS NULL` gate;
-// `reviewed_at` is retained on the row for history but no longer decides
-// membership. Ordering: brand-new first, then most-overdue, then the prior
-// centrality/importance/recency tiebreakers. datetime() normalizes both the
-// ISO-UTC timestamps written at grade time and the migration's
-// 'YYYY-MM-DD HH:MM:SS' backfill values.
+// The review queue is SRS-driven (migration 0025) and shows ALL promoted
+// concepts with their due state, rather than hiding scheduled ones: each row
+// carries `due_at` so the UI renders a due badge (new / due now / overdue Nd /
+// due in Nd). Snoozing or grading a concept therefore keeps it visible with an
+// updated badge instead of removing it. Ordering surfaces what needs attention:
+// brand-new first, then by due date ascending (most-overdue → due → soonest
+// future), then the prior centrality/importance/recency tiebreakers. The
+// due-now subset is exposed separately via countDueConcepts. datetime()
+// normalizes both the ISO-UTC timestamps written at grade time and the
+// migration's 'YYYY-MM-DD HH:MM:SS' backfill values.
 export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[] {
-  const nowIso = new Date().toISOString();
   const rows = db
     .prepare(
       `SELECT c.*,
@@ -658,7 +659,6 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
          FROM evidence_records
          GROUP BY concept_id
        ) r ON r.concept_id = c.id
-       WHERE srs.due_at IS NULL OR datetime(srs.due_at) <= datetime(?)
        ORDER BY
          CASE WHEN srs.due_at IS NULL THEN 0 ELSE 1 END,
          datetime(srs.due_at) ASC,
@@ -672,7 +672,7 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
          c.created_at DESC
        LIMIT ?`,
     )
-    .all(nowIso, limit) as unknown as ReviewQueueRow[];
+    .all(limit) as unknown as ReviewQueueRow[];
 
   return rows.map(row => ({
     concept: rowToConcept(row),

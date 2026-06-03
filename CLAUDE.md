@@ -47,20 +47,24 @@ Remember these as the active state of the repo:
   extraction never write them (the full-extraction persist forces `[]`);
   migration 0020 cleared legacy LLM-generated links. Links store `{ name, reason }`
   (legacy bare strings still load); the reason is required on add.
-- The review queue is SRS-driven (`concept_srs`, migration 0025): membership is
-  "due now" — a concept with no `concept_srs` row or a null/elapsed `due_at`.
-  This supersedes the old `reviewed_at IS NULL` gate (0021); `reviewed_at` is
-  kept on the row for history but no longer decides membership. Grading a
-  challenge advances the SM-2 card (`recordSrsReview`, called beside
-  `upsertMastery` in `EVIDENCE_SUBMIT`) so the concept's `due_at` moves forward
-  and it leaves the queue until due; the per-row `✓ Done` is an honest neutral
-  review (treated as `recognizes`) that reschedules rather than permanently
-  muting. Deleting an evidence record replays the survivors
-  (`recomputeSrsForConcept`, beside `recomputeMasteryForConcept` in
+- The review queue is SRS-driven (`concept_srs`, migration 0025). `listReviewQueue`
+  lists ALL promoted concepts with their due state (each row carries `due_at`),
+  ordered by urgency: brand-new first, then by `due_at` ascending (most-overdue →
+  due → soonest-future), then centrality/importance/recency. It does NOT hide
+  scheduled cards — grading, the `✓ Done` action, and manual reschedule all just
+  update the card's `due_at` so the row stays visible with an updated badge
+  (`new` / `due now` / `overdue Nd` / `due in Nd`). The due-now subset is exposed
+  separately via `countDueConcepts` / `review:dueCount`. This supersedes both the
+  old `reviewed_at IS NULL` gate (0021) and the interim "membership = due now"
+  filter; `reviewed_at` is kept on the row for history only. Grading advances the
+  SM-2 card (`recordSrsReview`, beside `upsertMastery` in `EVIDENCE_SUBMIT`); `✓
+  Done` is an honest neutral review (treated as `recognizes`); manual reschedule
+  is a pure date override (`setConceptSrsDue` via `review:setDue`, SM-2
+  ease/reps untouched, `null` = due now). Deleting an evidence record replays the
+  survivors (`recomputeSrsForConcept`, beside `recomputeMasteryForConcept` in
   `deleteEvidenceRecord`). The pure SM-2 scheduler lives in
-  `packages/services/src/knowledge/srs.ts`; `review:dueCount` exposes the due
-  total. The queue defaults to expanding only the most recently previewed
-  source's group.
+  `packages/services/src/knowledge/srs.ts`. The queue defaults to expanding only
+  the most recently previewed source's group.
 - Star Hubs are shipped: named/color-coded cross-source concept groups
   (`star_hubs` + `star_hub_members`, migration 0019). Members are added via
   Select-mode multi-select in `ConceptPane` ("Add to ▾"; the old in-pane "+ Hub"
@@ -290,12 +294,14 @@ Candidate rows and parse runs stamp these versions for auditability.
   — framed as the next-stage step.
 - The Review Queue header has a sort-cycle button (default → importance →
   stage, persisted in localStorage); there is no Refresh button (refetch is
-  event-driven via the `starcall:review-queue-stale` window event). Membership
-  is SRS "due now" (no `concept_srs` row or null/elapsed `due_at`); default sort
-  is due-order (brand-new → most-overdue → centrality → importance → recency).
-  Each row shows a due badge (`new` / `due now` / `overdue Nd` / `next in Nd`)
-  and has a `✓ Done` (reschedules + optimistic remove) plus the `×` delete. On
-  open, only the most recently previewed source's group is expanded.
+  event-driven via the `starcall:review-queue-stale` window event). It lists
+  ALL concepts with their due state; default sort is due-order (brand-new →
+  most-overdue → soonest-future → centrality → importance → recency). Each row
+  shows a due badge (`new` / `due now` / `overdue Nd` / `due in Nd`) and a clock
+  ⏰ button opening a glass reschedule popover (preset chips 1d/3d/1w/2w/1mo +
+  amber "Reset (due now)"; persists via `review:setDue`, updates the badge in
+  place without hiding the row), plus `✓ Done` and the `×` delete. On open, only
+  the most recently previewed source's group is expanded.
 - The top-level source tab defaults to Candidates on first launch and
   remembers the last pick.
 - Review queue rows are grouped by source/book with collapsible headers and

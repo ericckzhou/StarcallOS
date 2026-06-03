@@ -290,14 +290,19 @@ importance tag.
   other concept's source filename). Entries are user-curated only — enrich,
   the ChatGPT paste flow, and the generated prompt never write the
   constellations list.
-- The Review Queue is **SRS-driven** (SM-2, `concept_srs` migration 0025):
-  membership is "due now" (no card or null/elapsed `due_at`), default order is
-  due-first, and each row shows a due badge. Grading a challenge and the `✓ Done`
-  action both advance the card's `due_at`; deleting an evidence record replays
-  the survivors. The pure scheduler is `src/knowledge/srs.ts`. The header has a
-  sort-cycle button (default → importance → stage) whose selection persists in
-  localStorage; the old Refresh button was dropped in favor of event-driven
-  refetch.
+- The Review Queue is **SRS-driven** (SM-2, `concept_srs` migration 0025). It
+  lists **all** promoted concepts with their due state — it does not hide
+  scheduled cards — ordered by urgency (brand-new → most-overdue → due →
+  soonest-future), each row showing a due badge (`new` / `due now` /
+  `overdue Nd` / `due in Nd`). Grading a challenge, the `✓ Done` action, and a
+  manual **reschedule** (clock ⏰ → preset popover, `review:setDue` →
+  `setConceptSrsDue`) all just advance the card's `due_at`, so the row stays
+  visible with an updated badge rather than disappearing; the due-now subset is
+  exposed separately via `countDueConcepts`/`review:dueCount`. Deleting an
+  evidence record replays the survivors. The pure scheduler is
+  `src/knowledge/srs.ts`. The header has a sort-cycle button (default →
+  importance → stage), persisted in localStorage; refetch is event-driven (no
+  Refresh button).
 - The top-level source tab defaults to **Candidates** on first launch and
   remembers the last-selected tab thereafter.
 - Equation LaTeX renders via **KaTeX** (`LatexMath.tsx`,
