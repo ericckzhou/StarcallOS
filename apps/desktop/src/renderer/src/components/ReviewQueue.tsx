@@ -16,6 +16,22 @@ interface QueueItem {
   compression_stage: number;
   last_reviewed_at: string | null;
   attempts: number;
+  due_at: string | null;
+  interval_days: number;
+}
+
+// Human-readable due state for an SRS card. due_at null = never scheduled.
+function dueLabel(dueAt: string | null): { text: string; color: string } {
+  if (dueAt == null) return { text: 'new', color: '#f59e0b' };
+  const diffMs = new Date(dueAt).getTime() - Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const days = Math.round(diffMs / dayMs);
+  if (diffMs <= 0) {
+    const overdue = Math.abs(days);
+    return { text: overdue <= 0 ? 'due now' : `overdue ${overdue}d`, color: '#f87171' };
+  }
+  if (days <= 0) return { text: 'due now', color: '#f59e0b' };
+  return { text: `next in ${days}d`, color: '#64748b' };
 }
 
 const STAGE_COLORS = ['#374151', '#6b7280', '#3b82f6', '#8b5cf6', '#f59e0b', '#22c55e'];
@@ -181,8 +197,8 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
   }
 
   // Apply sort over the already-fetched list. Default keeps the backend
-  // ordering (never-reviewed → centrality → importance → recency). Tiebreaker
-  // for the explicit sorts is concept name A→Z.
+  // ordering (SRS due-order: brand-new → most-overdue → centrality → importance
+  // → recency). Tiebreaker for the explicit sorts is concept name A→Z.
   const displayedItems = useMemo(() => {
     if (sortMode === 'default') return items;
     const cmpName = (a: QueueItem, b: QueueItem) => a.concept.name.localeCompare(b.concept.name);
@@ -287,7 +303,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
             Review Queue <span style={{ color: '#94a3b8' }}>{items.length}</span>
           </div>
           <div style={{ marginTop: 2, fontSize: 10, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {items.filter(i => i.last_reviewed_at == null).length} never reviewed · {items.filter(i => i.compression_stage >= 1 && i.compression_stage < 3).length} mid-stage
+            {items.filter(i => i.due_at == null).length} new · {items.filter(i => i.due_at != null && new Date(i.due_at).getTime() <= Date.now()).length} due
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -494,10 +510,24 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                     }}>
                       {STAGES[stage]}
                     </span>
-                    {it.attempts > 0 ? (
+                    {(() => {
+                      const due = dueLabel(it.due_at);
+                      return (
+                        <span style={{
+                          color: due.color,
+                          border: `1px solid ${due.color}55`,
+                          background: `${due.color}14`,
+                          borderRadius: 999,
+                          padding: '1px 6px',
+                          lineHeight: 1.5,
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {due.text}
+                        </span>
+                      );
+                    })()}
+                    {it.attempts > 0 && (
                       <span style={{ marginLeft: 'auto', whiteSpace: 'nowrap' }}>{it.attempts} {it.attempts === 1 ? 'try' : 'tries'}</span>
-                    ) : (
-                      <span style={{ color: '#f59e0b', marginLeft: 'auto', whiteSpace: 'nowrap' }}>never reviewed</span>
                     )}
                   </div>
                 </div>

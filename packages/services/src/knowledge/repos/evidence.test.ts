@@ -12,7 +12,12 @@ import {
   recomputeMasteryForConcept,
   recomputeXpForConceptKind,
   listRecordsByConcept,
+  getConceptSrs,
+  recordSrsReview,
+  recomputeSrsForConcept,
+  countDueConcepts,
 } from './evidence';
+import { listReviewQueue } from './concepts';
 
 function setup() {
   const db = openDb(':memory:');
@@ -169,5 +174,68 @@ describe('recomputeXpForConceptKind', () => {
     recomputeXpForConceptKind(db, conceptId, 'compression');
     const second = listRecordsByConcept(db, conceptId).map(r => r.xp_awarded);
     expect(first).toEqual(second);
+  });
+});
+
+// ─── Spaced repetition (concept_srs) ──────────────────────────────────────────
+
+describe('concept_srs scheduling', () => {
+  let db: DB;
+  let conceptId: number;
+  beforeEach(() => {
+    ({ db, conceptId } = setup());
+  });
+
+  it('treats a freshly promoted concept (no SRS row) as due', () => {
+    expect(getConceptSrs(db, conceptId)).toBeNull();
+    const queue = listReviewQueue(db);
+    expect(queue.find(i => i.concept.id === conceptId)).toBeTruthy();
+    expect(queue.find(i => i.concept.id === conceptId)!.due_at).toBeNull();
+    expect(countDueConcepts(db)).toBe(1);
+  });
+
+  it('recordSrsReview schedules a passing review into the future and drops it from the queue', () => {
+    const card = recordSrsReview(db, conceptId, 'understood');
+    expect(card.repetitions).toBe(1);
+    expect(card.interval_days).toBe(1);
+    expect(card.last_grade).toBe('understood');
+    expect(new Date(card.due_at!).getTime()).toBeGreaterThan(Date.now());
+
+    expect(listReviewQueue(db).find(i => i.concept.id === conceptId)).toBeUndefined();
+    expect(countDueConcepts(db)).toBe(0);
+  });
+
+  it('a lapse keeps the card due soon and visible', () => {
+    recordSrsReview(db, conceptId, 'understood');
+    const lapsed = recordSrsReview(db, conceptId, 'misconception');
+    expect(lapsed.repetitions).toBe(0);
+    expect(lapsed.lapses).toBe(1);
+    expect(lapsed.interval_days).toBe(1);
+  });
+
+  it('resurfaces an overdue card', () => {
+    recordSrsReview(db, conceptId, 'understood');
+    expect(countDueConcepts(db)).toBe(0);
+    // Force the due date into the past, as if the interval elapsed.
+    db.prepare("UPDATE concept_srs SET due_at = '2000-01-01T00:00:00.000Z' WHERE concept_id = ?").run(conceptId);
+    expect(countDueConcepts(db)).toBe(1);
+    expect(listReviewQueue(db).find(i => i.concept.id === conceptId)).toBeTruthy();
+  });
+
+  it('recomputeSrsForConcept replays surviving records and removes the card when none remain', () => {
+    const task = makeTask(db, conceptId, 'definition', 3);
+    makeRecord(db, conceptId, task.id, 2, 'understood', 3);
+    recordSrsReview(db, conceptId, 'understood');
+    makeRecord(db, conceptId, task.id, 3, 'understood', 3);
+    recordSrsReview(db, conceptId, 'understood');
+
+    // Replay over the two surviving records reproduces a 2-rep card.
+    recomputeSrsForConcept(db, conceptId);
+    expect(getConceptSrs(db, conceptId)!.repetitions).toBe(2);
+
+    // Delete every record → card is removed → concept reads as fresh/due again.
+    for (const rec of listRecordsByConcept(db, conceptId)) deleteEvidenceRecord(db, rec.id);
+    expect(getConceptSrs(db, conceptId)).toBeNull();
+    expect(countDueConcepts(db)).toBe(1);
   });
 });

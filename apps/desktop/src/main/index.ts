@@ -18,6 +18,7 @@ import {
   createChunk, createConcept, updateCentralityScore, createEdge, createMisconception, createTask,
   upsertMastery, createEvidenceRecord, listRecordsByConcept, deleteEvidenceRecord,
   calculateEligibleXpAward, getStudyProgress,
+  recordSrsReview, countDueConcepts,
   emitEvent,
   segmentPdf, segmentText,
   extractCandidates, buildSectionPath, persistCandidateExtraction,
@@ -597,6 +598,10 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   });
   ipcMain.handle(IPC.CONCEPTS_SET_REVIEWED, (_e, args: { conceptId: number; reviewed: boolean }) => {
     setConceptReviewed(db, args.conceptId, args.reviewed);
+    // "Done" without a graded challenge is an honest neutral review: advance the
+    // SRS card with a passing-but-effortful grade so the concept leaves the
+    // queue and comes back on schedule rather than being permanently muted.
+    if (args.reviewed) recordSrsReview(db, args.conceptId, 'recognizes');
     return { ok: true as const };
   });
   ipcMain.handle(IPC.CONCEPTS_SEARCH_BY_PREFIX, (_e, args: { conceptId: number; prefix: string; limit?: number }) => {
@@ -628,6 +633,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CONCEPTS_DELETE_EVIDENCE, (_e, args: { conceptId: number; index: number }) =>
     deleteConceptEvidenceByIndex(db, args.conceptId, args.index));
   ipcMain.handle(IPC.REVIEW_QUEUE_LIST, (_e, limit?: number) => listReviewQueue(db, limit ?? 50));
+  ipcMain.handle(IPC.REVIEW_DUE_COUNT, () => countDueConcepts(db));
 
   ipcMain.handle(IPC.CONCEPTS_SOURCE_EVIDENCE, (_e, conceptId: number) => listConceptSourceEvidence(db, conceptId));
   ipcMain.handle(IPC.PARSE_RUNS_BY_SOURCE, (_e, sourceId: number, limit?: number) =>
@@ -946,6 +952,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     });
 
     upsertMastery(db, conceptId, grade.compression_stage);
+    // Advance the spaced-repetition card from the graded score so the concept's
+    // next due date reflects this attempt (mirrors the mastery upsert).
+    recordSrsReview(db, conceptId, grade.score);
     emitEvent(db, 'evidence_record.graded', { recordId: record.id, score: grade.score }, { entityType: 'concept', entityId: conceptId });
     return record;
   });

@@ -11,6 +11,13 @@ import type {
   SemanticChunk,
   BlockType,
 } from '../../core/domain/types';
+import {
+  scheduleNextSrsReview,
+  replaySrsReviews,
+  DEFAULT_SRS_STATE,
+  type ConceptSrs,
+  type SrsState,
+} from '../srs';
 
 // ─── Semantic Chunks ──────────────────────────────────────────────────────────
 
@@ -389,6 +396,7 @@ export function deleteEvidenceRecord(db: DatabaseSync, id: number): void {
       recomputeXpForConceptKind(db, conceptId, target.task_kind);
     }
     recomputeMasteryForConcept(db, conceptId);
+    recomputeSrsForConcept(db, conceptId);
   }
 }
 
@@ -453,6 +461,146 @@ export function recomputeXpForConceptKind(
 
   const xp = calculateXpAward(winner.difficulty, winner.score);
   db.prepare('UPDATE evidence_records SET xp_awarded = ? WHERE id = ?').run(xp, Number(winner.id));
+}
+
+// ─── Spaced repetition (concept_srs, migration 0025) ────────────────────────
+
+interface ConceptSrsRow {
+  concept_id: number | bigint;
+  ease: number;
+  interval_days: number;
+  repetitions: number;
+  lapses: number;
+  due_at: string | null;
+  last_reviewed_at: string | null;
+  last_grade: string | null;
+}
+
+function rowToConceptSrs(row: ConceptSrsRow): ConceptSrs {
+  return {
+    concept_id: Number(row.concept_id),
+    ease: row.ease,
+    interval_days: row.interval_days,
+    repetitions: row.repetitions,
+    lapses: row.lapses,
+    due_at: row.due_at,
+    last_reviewed_at: row.last_reviewed_at,
+    last_grade: (row.last_grade as EvidenceScore | null) ?? null,
+  };
+}
+
+// datetime('now') stores 'YYYY-MM-DD HH:MM:SS' (UTC, no zone). Normalize to an
+// ISO-UTC Date so replayed intervals don't drift by the local-time offset.
+function parseDbTime(value: string): Date {
+  if (/[zZ]$|[+-]\d\d:?\d\d$/.test(value)) return new Date(value);
+  return new Date(`${value.replace(' ', 'T')}Z`);
+}
+
+export function getConceptSrs(db: DatabaseSync, conceptId: number): ConceptSrs | null {
+  const row = db
+    .prepare('SELECT * FROM concept_srs WHERE concept_id = ?')
+    .get(conceptId) as unknown as ConceptSrsRow | undefined;
+  return row != null ? rowToConceptSrs(row) : null;
+}
+
+function upsertConceptSrs(
+  db: DatabaseSync,
+  conceptId: number,
+  state: SrsState,
+  dueAt: string | null,
+  lastReviewedAt: string | null,
+  lastGrade: EvidenceScore | null,
+): ConceptSrs {
+  db.prepare(
+    `INSERT INTO concept_srs
+       (concept_id, ease, interval_days, repetitions, lapses, due_at, last_reviewed_at, last_grade)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(concept_id) DO UPDATE SET
+       ease             = excluded.ease,
+       interval_days    = excluded.interval_days,
+       repetitions      = excluded.repetitions,
+       lapses           = excluded.lapses,
+       due_at           = excluded.due_at,
+       last_reviewed_at = excluded.last_reviewed_at,
+       last_grade       = excluded.last_grade`,
+  ).run(
+    conceptId,
+    state.ease,
+    state.intervalDays,
+    state.repetitions,
+    state.lapses,
+    dueAt,
+    lastReviewedAt,
+    lastGrade,
+  );
+  return getConceptSrs(db, conceptId)!;
+}
+
+// Advance a concept's SRS card after a graded review. Mirrors how main calls
+// upsertMastery alongside createEvidenceRecord at grade time.
+export function recordSrsReview(
+  db: DatabaseSync,
+  conceptId: number,
+  score: EvidenceScore,
+  now: Date = new Date(),
+): ConceptSrs {
+  const current = getConceptSrs(db, conceptId);
+  const state: SrsState = current
+    ? {
+        ease: current.ease,
+        intervalDays: current.interval_days,
+        repetitions: current.repetitions,
+        lapses: current.lapses,
+      }
+    : { ...DEFAULT_SRS_STATE };
+  const { next, dueAt } = scheduleNextSrsReview(state, score, now);
+  return upsertConceptSrs(db, conceptId, next, dueAt, now.toISOString(), score);
+}
+
+// Re-derive SRS state by replaying a concept's surviving evidence_records in
+// chronological order. Called after a record is deleted so deletion stays a
+// clean replay (mirrors recomputeMasteryForConcept). If no records remain the
+// card is removed, so the concept reads as a fresh/immediately-due card.
+export function recomputeSrsForConcept(db: DatabaseSync, conceptId: number): void {
+  const rows = db
+    .prepare(
+      `SELECT score, created_at
+         FROM evidence_records
+        WHERE concept_id = ?
+        ORDER BY created_at ASC, id ASC`,
+    )
+    .all(conceptId) as { score: string; created_at: string }[];
+  if (rows.length === 0) {
+    db.prepare('DELETE FROM concept_srs WHERE concept_id = ?').run(conceptId);
+    return;
+  }
+  const replayed = replaySrsReviews(
+    rows.map(r => ({ score: r.score as EvidenceScore, reviewedAt: parseDbTime(r.created_at) })),
+  );
+  upsertConceptSrs(
+    db,
+    conceptId,
+    replayed.state,
+    replayed.dueAt,
+    replayed.lastReviewedAt,
+    replayed.lastGrade,
+  );
+}
+
+// Count concepts currently due for review. Matches listReviewQueue membership:
+// a concept is due when it has never been scheduled (no row or null due_at) or
+// its due date has passed. datetime() normalizes both the ISO-UTC timestamps we
+// write and the migration's 'YYYY-MM-DD HH:MM:SS' backfill values.
+export function countDueConcepts(db: DatabaseSync, now: Date = new Date()): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n
+         FROM concepts c
+         LEFT JOIN concept_srs s ON s.concept_id = c.id
+        WHERE s.due_at IS NULL OR datetime(s.due_at) <= datetime(?)`,
+    )
+    .get(now.toISOString()) as { n: number | bigint };
+  return Number(row.n);
 }
 
 export function listRecordsByConcept(db: DatabaseSync, conceptId: number): EvidenceRecord[] {

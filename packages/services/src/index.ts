@@ -19,6 +19,7 @@ export * from './knowledge/repos/star_hubs';
 export * from './knowledge/repos/pdf_annotations';
 export * from './knowledge/repos/candidates';
 export * from './knowledge/repos/parse_runs';
+export * from './knowledge/srs';
 export * from './knowledge/promotion';
 export * from './knowledge/cleanup';
 

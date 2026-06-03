@@ -36,7 +36,7 @@ Every screen earns its space by answering one of three questions. If it doesn't,
 |---|---|
 | **What do I claim to understand?** | Concept list · Overview · Mastery stage badges |
 | **What evidence supports that claim?** | Challenges · Source preview · History · Your notes |
-| **What should I study or test next?** | Review queue · `never reviewed` / `recognizes` chips · stage progression |
+| **What should I study or test next?** | Review queue · spaced-repetition due scheduling (SM-2) · stage progression |
 
 ---
 

@@ -98,6 +98,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   review: {
     queue: (limit?: number) => ipcRenderer.invoke('review:queueList', limit),
+    dueCount: () => ipcRenderer.invoke('review:dueCount'),
   },
   parseRuns: {
     bySource: (sourceId: number, limit?: number) => ipcRenderer.invoke('parseRuns:bySource', sourceId, limit),
