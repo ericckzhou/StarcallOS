@@ -125,8 +125,11 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
     const parentOptions = hubs.filter(o => !blocked.has(o.id)).sort((a, b) => a.name.localeCompare(b.name));
     const childCount = childrenOf(h.id).length;
     const selectStyle: React.CSSProperties = {
-      flex: 1, minWidth: 0, background: 'rgba(17,24,39,0.28)', border: '1px solid #1f2937', borderRadius: 4,
+      flex: 1, minWidth: 0, background: 'transparent', border: '1px solid #1f2937', borderRadius: 4,
       padding: '6px 8px', color: '#cbd5e1', fontSize: 12, outline: 'none', fontFamily: 'inherit',
+      // accent-color recolors the native option highlight (blue → indigo) in
+      // Chromium/Electron.
+      accentColor: '#818cf8',
     };
     const hubName = (id: number) => hubs.find(o => o.id === id)?.name ?? `#${id}`;
     const myEdges = edges.filter(e => e.a_hub_id === h.id || e.b_hub_id === h.id);
