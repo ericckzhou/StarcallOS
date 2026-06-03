@@ -53,6 +53,19 @@ export default function SettingsPane() {
   const [lightModel, setLightModel] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [exportStatus, setExportStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  async function exportLibrary(format: 'markdown' | 'anki'): Promise<void> {
+    setExportStatus('saving');
+    try {
+      const res = await window.api.export.bundle({ scope: 'library', format });
+      if (res.ok) { setExportStatus('saved'); setTimeout(() => setExportStatus('idle'), 2200); }
+      else if (res.canceled) { setExportStatus('idle'); }
+      else { setExportStatus('error'); setTimeout(() => setExportStatus('idle'), 2800); }
+    } catch {
+      setExportStatus('error'); setTimeout(() => setExportStatus('idle'), 2800);
+    }
+  }
 
   useEffect(() => {
     window.api.settings.get().then(s => {
@@ -144,7 +157,7 @@ export default function SettingsPane() {
             return (
               <label key={m} style={{
                 display: 'block', cursor: 'pointer',
-                background: selected ? 'rgba(26,26,46,0.5)' : 'rgba(13,13,22,0.35)',
+                background: selected ? 'rgba(75,85,99,0.26)' : 'rgba(75,85,99,0.12)',
                 backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
                 border: `1px solid ${selected ? info.accent : 'rgba(31,41,55,0.7)'}`,
                 borderRadius: 6, padding: '12px 14px',
@@ -179,7 +192,7 @@ export default function SettingsPane() {
             return (
               <label key={p} style={{
                 display: 'block', cursor: 'pointer',
-                background: selected ? 'rgba(26,26,46,0.5)' : 'rgba(13,13,22,0.35)',
+                background: selected ? 'rgba(75,85,99,0.26)' : 'rgba(75,85,99,0.12)',
                 backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
                 border: `1px solid ${selected ? '#818cf8' : 'rgba(31,41,55,0.7)'}`,
                 borderRadius: 6, padding: '12px 14px',
@@ -266,6 +279,29 @@ export default function SettingsPane() {
             {msg}
           </div>
         )}
+
+        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
+          Export
+        </h1>
+        <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 16 }}>
+          Download every promoted concept across all sources as one file. (Per-source export lives on each source in the Sources sidebar.)
+        </p>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {(['markdown', 'anki'] as const).map(fmt => (
+            <button key={fmt} onClick={() => void exportLibrary(fmt)} disabled={exportStatus === 'saving'}
+              style={{
+                background: 'transparent', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+                border: '1px solid rgba(99,102,241,0.5)', borderRadius: 6, padding: '9px 18px',
+                color: exportStatus === 'saving' ? '#6b7280' : '#c7d2fe', fontSize: 13, fontWeight: 600,
+                cursor: exportStatus === 'saving' ? 'wait' : 'pointer',
+              }}>
+              Library → {fmt === 'markdown' ? 'Markdown (.md)' : 'Anki (.txt)'}
+            </button>
+          ))}
+          {exportStatus === 'saving' && <span style={{ fontSize: 12, color: '#9ca3af' }}>Choose a location…</span>}
+          {exportStatus === 'saved' && <span style={{ fontSize: 12, color: '#86efac' }}>Exported.</span>}
+          {exportStatus === 'error' && <span style={{ fontSize: 12, color: '#fca5a5' }}>Export failed.</span>}
+        </div>
       </div>
     </div>
   );
@@ -289,7 +325,7 @@ function ModelSelect({ choices, value, onChange }: {
       value={choices.includes(value) ? value : choices[0]}
       onChange={e => onChange(e.target.value)}
       style={{
-        width: '100%', background: 'rgba(26,26,46,0.45)',
+        width: '100%', background: 'transparent',
         backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
         border: '1px solid rgba(31,41,55,0.7)', borderRadius: 4,
         padding: '6px 8px', color: '#e2e8f0', fontSize: 12,

@@ -66,6 +66,10 @@ export const IPC = {
   HUBS_ADD_MEMBERS:        'hubs:addMembers',
   HUBS_REMOVE_MEMBER:      'hubs:removeMember',
   HUBS_MEMBERSHIPS:        'hubs:memberships',
+  HUBS_EDGES_LIST:         'hubs:edgesList',
+  HUBS_EDGE_CREATE:        'hubs:edgeCreate',
+  HUBS_EDGE_UPDATE:        'hubs:edgeUpdate',
+  HUBS_EDGE_DELETE:        'hubs:edgeDelete',
   REVIEW_QUEUE_LIST:       'review:queueList',
   REVIEW_DUE_COUNT:        'review:dueCount',
   REVIEW_SET_DUE:          'review:setDue',
@@ -87,6 +91,7 @@ export const IPC = {
   EVIDENCE_PROGRESS:       'evidence:progress',
   SOURCES_DELETE:          'sources:delete',
   SOURCES_CREATE_TEXT:     'sources:createText',
+  SOURCES_IMPORT_URL:      'sources:importUrl',
   CANDIDATES_BY_SOURCE:    'candidates:bySource',
   CANDIDATES_PROMOTE:      'candidates:promote',
   CANDIDATES_PROMOTE_BULK: 'candidates:promoteBulk',
@@ -105,6 +110,7 @@ export const IPC = {
   CANDIDATES_EQUATION_DELETE: 'candidates:equationDelete',
   PARSE_RUNS_BY_SOURCE:    'parseRuns:bySource',
   EXPORT_CONCEPT:          'export:concept',
+  EXPORT_BUNDLE:           'export:bundle',
 } as const;
 
 export type ExportFormat = 'markdown' | 'anki';
@@ -121,6 +127,15 @@ export interface ExportConceptResult {
   path?: string;
   canceled?: boolean;
   error?: string;
+}
+
+// Bulk export of every concept in one source (`scope: 'source'`, needs
+// `sourceId`) or across all sources (`scope: 'library'`) into a single file.
+// Shares ExportConceptResult — same write/cancel/error semantics.
+export interface ExportBundleArgs {
+  scope: 'source' | 'library';
+  sourceId?: number;
+  format: ExportFormat;
 }
 
 export interface CandidatesBundle {
@@ -140,6 +155,22 @@ export interface CreateSourceArgs {
 export interface CreateTextSourceArgs {
   text: string;
   title?: string;
+}
+
+// Import a web page as a text-backed source. Main fetches the URL (http/https
+// only), extracts readable text, and creates a source. `title` overrides the
+// page's own <title> when provided.
+export interface ImportUrlArgs {
+  url: string;
+  title?: string;
+}
+
+// On success `source` is the created row; on failure `error` explains why
+// (bad URL, fetch failed, empty page). Never throws across IPC.
+export interface ImportUrlResult {
+  ok: boolean;
+  source?: Source;
+  error?: string;
 }
 
 export interface ProcessSourceArgs {
@@ -378,6 +409,9 @@ export interface StarHub {
   updated_at: string;
 }
 export interface HubMembership { hub_id: number; concept_id: number; }
+// A user-curated edge between two hubs. `directed` true = a→b one-way, false =
+// mutual (a↔b).
+export interface StarHubEdge { id: number; a_hub_id: number; b_hub_id: number; label: string; directed: boolean; }
 
 export interface ConstellationGraphNode {
   id: number;
@@ -453,6 +487,7 @@ export interface IpcApi {
     process: (args: ProcessSourceArgs) => Promise<ProcessSourceResult>;
     delete: (sourceId: number) => Promise<void>;
     createText: (args: CreateTextSourceArgs) => Promise<Source | null>;
+    importUrl: (args: ImportUrlArgs) => Promise<ImportUrlResult>;
     bytes: (sourceId: number) => Promise<ArrayBuffer>;
     llmFilterGet: (sourceId: number) => Promise<string[] | null>;
     llmFilterSet: (args: LlmFilterSetArgs) => Promise<{ ok: true }>;
@@ -507,12 +542,18 @@ export interface IpcApi {
   };
   hubs: {
     list: () => Promise<StarHub[]>;
-    create: (args: { name: string; color?: string; description?: string; conceptIds?: number[] }) => Promise<StarHub>;
-    update: (args: { id: number; name?: string; color?: string; description?: string }) => Promise<StarHub | null>;
+    create: (args: { name: string; color?: string; description?: string; conceptIds?: number[]; parentHubId?: number | null }) => Promise<StarHub>;
+    update: (args: { id: number; name?: string; color?: string; description?: string; parentHubId?: number | null }) => Promise<StarHub | null>;
     delete: (id: number) => Promise<{ ok: true }>;
     addMembers: (args: { hubId: number; conceptIds: number[] }) => Promise<{ ok: true }>;
     removeMember: (args: { hubId: number; conceptId: number }) => Promise<{ ok: true }>;
     memberships: () => Promise<HubMembership[]>;
+    edges: {
+      list: () => Promise<StarHubEdge[]>;
+      create: (args: { aHubId: number; bHubId: number; label?: string; directed?: boolean }) => Promise<StarHubEdge>;
+      update: (args: { id: number; label?: string; directed?: boolean }) => Promise<StarHubEdge | null>;
+      delete: (id: number) => Promise<{ ok: true }>;
+    };
   };
   evidence: {
     submit: (args: SubmitEvidenceArgs) => Promise<EvidenceRecord>;
@@ -553,6 +594,7 @@ export interface IpcApi {
   };
   export: {
     concept: (args: ExportConceptArgs) => Promise<ExportConceptResult>;
+    bundle: (args: ExportBundleArgs) => Promise<ExportConceptResult>;
   };
   parseRuns: {
     bySource: (sourceId: number, limit?: number) => Promise<ParseRunRecord[]>;

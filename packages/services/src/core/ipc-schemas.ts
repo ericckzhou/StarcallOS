@@ -18,8 +18,11 @@ const annotationProvenanceSchema = z.enum(['manual_selection', 'manual_note', 'e
 
 // ─── Shared sub-schemas ───────────────────────────────────────────────────────
 
+// Normalized (0–1, fraction of page) highlight/note rectangle. Must match
+// PdfAnnotationRect in domain/types.ts — the renderer sends { x, y, width,
+// height }, NOT x1/y1/x2/y2.
 const pdfRectSchema = z.object({
-  x1: z.number(), y1: z.number(), x2: z.number(), y2: z.number(),
+  x: z.number(), y: z.number(), width: z.number(), height: z.number(),
 });
 
 const constellationLinkSchema = z.union([
@@ -61,6 +64,16 @@ export const CreateTextSourceArgsSchema = z.object({
   title: shortStr(500).optional(),
 });
 
+export const ImportUrlArgsSchema = z.object({
+  // http/https only — the main handler fetches this, so reject other schemes
+  // (file:, data:, etc.) at the boundary.
+  url:   z.string().url().max(2_000).refine(
+    u => /^https?:\/\//i.test(u),
+    { message: 'Only http/https URLs are supported' },
+  ),
+  title: shortStr(500).optional(),
+});
+
 export const SettingsPatchSchema = z.object({
   provider:        providerIdSchema.optional(),
   groqApiKey:      z.string().max(300).optional(),
@@ -80,7 +93,10 @@ export const SubmitEvidenceArgsSchema = z.object({
 export const CandidateLlmFilterArgsSchema = z.object({
   sourceId:    positiveInt,
   sourceTitle: shortStr(500).optional(),
-  candidates:  z.array(candidateFilterItemSchema).max(200),
+  // The renderer sends the full visible candidate list; the main handler dedupes
+  // and slices it to LLM_API_FILTER_LIMIT before any LLM call, so this is just a
+  // sanity bound on the payload (large sources can have >1000 candidates).
+  candidates:  z.array(candidateFilterItemSchema).max(10_000),
 });
 
 export const UpdateConceptFieldsArgsSchema = z.object({
@@ -125,6 +141,18 @@ export const ExportConceptArgsSchema = z.object({
   conceptId: positiveInt,
   format:    z.enum(['markdown', 'anki']),
 });
+
+export const ExportBundleArgsSchema = z
+  .object({
+    scope:    z.enum(['source', 'library']),
+    sourceId: positiveInt.optional(),
+    format:   z.enum(['markdown', 'anki']),
+  })
+  // A source-scoped export must name the source; a library export must not.
+  .refine(a => (a.scope === 'source' ? a.sourceId != null : a.sourceId == null), {
+    message: 'sourceId is required for scope "source" and forbidden for scope "library"',
+    path: ['sourceId'],
+  });
 
 // ─── Validation helper ────────────────────────────────────────────────────────
 

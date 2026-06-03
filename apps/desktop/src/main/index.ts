@@ -8,6 +8,7 @@ import {
   listAllConceptTags,
   buildConstellationGraph,
   listHubs, createHub, updateHub, deleteHub, addMembers, removeMember, listAllMemberships,
+  listHubEdges, createHubEdge, updateHubEdge, deleteHubEdge,
   listConceptSourceEvidence, updateConceptFields, deleteConcept, deleteConceptEvidenceSpan,
   setConceptReviewed, addConceptEvidence, updateConceptEvidence, deleteConceptEvidenceByIndex,
   type SourceEvidenceKind,
@@ -43,8 +44,8 @@ import {
   CreateSourceArgsSchema, ProcessSourceArgsSchema, CreateTextSourceArgsSchema,
   SettingsPatchSchema, SubmitEvidenceArgsSchema, CandidateLlmFilterArgsSchema,
   UpdateConceptFieldsArgsSchema, CreatePdfAnnotationArgsSchema, UpdatePdfAnnotationArgsSchema,
-  PositiveIntSchema, ExportConceptArgsSchema,
-  renderConceptExport,
+  PositiveIntSchema, ExportConceptArgsSchema, ExportBundleArgsSchema, ImportUrlArgsSchema,
+  renderConceptExport, renderBundleExport, htmlToText,
   type ConceptImportance, type LLMSettings, type PassName, type RelationKind, type SecretCodec,
   runEnricher,
   runConceptExtractor, runGraphBuilder,
@@ -60,6 +61,8 @@ import type {
   CreateSourceArgs,
   CreateTextSourceArgs,
   ExportConceptArgs,
+  ExportBundleArgs,
+  ImportUrlArgs,
   ProcessSourceArgs,
   SubmitEvidenceArgs,
   UpdatePdfAnnotationArgs,
@@ -528,6 +531,52 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     emitEvent(db, 'source.created', { sourceId: source.id }, { entityType: 'source', entityId: source.id });
     return source;
   });
+
+  // Import a web page as a text-backed source. The fetch + HTML→text extraction
+  // live here (network/parsing belong in main); the result rides the same
+  // text-source pipeline. Errors return { ok:false } rather than throwing.
+  ipcMain.handle(IPC.SOURCES_IMPORT_URL, async (_e, rawArgs: ImportUrlArgs) => {
+    const args = validateIpc(ImportUrlArgsSchema, rawArgs, IPC.SOURCES_IMPORT_URL);
+    let html: string;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      const res = await fetch(args.url, {
+        signal: controller.signal,
+        redirect: 'follow',
+        headers: {
+          'User-Agent': 'StarcallOS/0.1 (desktop article importer)',
+          Accept: 'text/html,application/xhtml+xml,text/plain',
+        },
+      }).finally(() => clearTimeout(timer));
+      if (!res.ok) return { ok: false, error: `Fetch failed: HTTP ${res.status}` };
+      const ctype = res.headers.get('content-type') ?? '';
+      if (ctype && !/text\/html|xml|text\/plain/i.test(ctype)) {
+        return { ok: false, error: `Unsupported content type: ${ctype.split(';')[0].trim()}` };
+      }
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength > 5_000_000) return { ok: false, error: 'Page too large (over 5 MB).' };
+      html = new TextDecoder('utf-8').decode(buf);
+    } catch (err) {
+      const msg = err instanceof Error
+        ? (err.name === 'AbortError' ? 'Fetch timed out (10s).' : err.message)
+        : String(err);
+      return { ok: false, error: msg };
+    }
+
+    const extracted = htmlToText(html);
+    if (!extracted.text.trim()) return { ok: false, error: 'No readable text found on the page.' };
+
+    const textDir = path.join(app.getPath('userData'), 'texts');
+    fs.mkdirSync(textDir, { recursive: true });
+    const filename = `url-${Date.now()}.txt`;
+    const filePath = path.join(textDir, filename);
+    fs.writeFileSync(filePath, extracted.text, 'utf-8');
+    const title = args.title?.trim() || extracted.title?.trim() || args.url;
+    const source = createSource(db, { filename, file_path: filePath, title });
+    emitEvent(db, 'source.created', { sourceId: source.id, origin: 'url', url: args.url }, { entityType: 'source', entityId: source.id });
+    return { ok: true, source };
+  });
   ipcMain.handle(IPC.CONCEPTS_BY_SOURCE, (_e, sourceId: number) => listConceptsBySource(db, sourceId));
   ipcMain.handle(IPC.CONCEPTS_CREATE_MANUAL, (_e, args: {
     sourceId: number;
@@ -618,6 +667,10 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.HUBS_ADD_MEMBERS, (_e, args: { hubId: number; conceptIds: number[] }) => { addMembers(db, args.hubId, args.conceptIds); return { ok: true as const }; });
   ipcMain.handle(IPC.HUBS_REMOVE_MEMBER, (_e, args: { hubId: number; conceptId: number }) => { removeMember(db, args.hubId, args.conceptId); return { ok: true as const }; });
   ipcMain.handle(IPC.HUBS_MEMBERSHIPS, () => listAllMemberships(db));
+  ipcMain.handle(IPC.HUBS_EDGES_LIST, () => listHubEdges(db));
+  ipcMain.handle(IPC.HUBS_EDGE_CREATE, (_e, args: { aHubId: number; bHubId: number; label?: string; directed?: boolean }) => createHubEdge(db, args));
+  ipcMain.handle(IPC.HUBS_EDGE_UPDATE, (_e, args: { id: number; label?: string; directed?: boolean }) => updateHubEdge(db, args.id, args));
+  ipcMain.handle(IPC.HUBS_EDGE_DELETE, (_e, id: number) => { deleteHubEdge(db, id); return { ok: true as const }; });
   ipcMain.handle(IPC.CONCEPTS_GET, (_e, id: number) => getConceptById(db, id) ?? null);
   ipcMain.handle(IPC.CONCEPTS_RENAME, (_e, args: { conceptId: number; name: string }) => {
     return renameConcept(db, args.conceptId, args.name);
@@ -666,6 +719,71 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const safeName = (concept.slug || `concept-${concept.id}`).replace(/[^\w.-]+/g, '-');
     const result = await dialog.showSaveDialog({
       defaultPath: `${safeName}.${extension}`,
+      filters: args.format === 'anki'
+        ? [{ name: 'Anki import (tab-separated)', extensions: ['txt'] }]
+        : [{ name: 'Markdown', extensions: ['md'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+
+    try {
+      fs.writeFileSync(result.filePath, content, 'utf-8');
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    return { ok: true, path: result.filePath };
+  });
+
+  // Bulk export: every concept in one source, or across the whole library, into
+  // a single Markdown/Anki file. Assembles the same per-concept ConceptExportData
+  // the single-concept handler does, then renders the bundle.
+  ipcMain.handle(IPC.EXPORT_BUNDLE, async (_e, rawArgs: ExportBundleArgs) => {
+    const args = validateIpc(ExportBundleArgsSchema, rawArgs, IPC.EXPORT_BUNDLE);
+
+    let concepts: ReturnType<typeof getConceptById>[] = [];
+    let bundleTitle: string;
+    let defaultStem: string;
+    if (args.scope === 'source') {
+      const source = getSourceById(db, args.sourceId!);
+      if (!source) return { ok: false, error: 'Source not found' };
+      concepts = listConceptsBySource(db, args.sourceId!);
+      bundleTitle = source.title || source.filename;
+      defaultStem = (bundleTitle || `source-${source.id}`).replace(/[^\w.-]+/g, '-');
+    } else {
+      // Library: every promoted concept across all sources, grouped by source.
+      for (const source of listSources(db)) {
+        concepts.push(...listConceptsBySource(db, source.id));
+      }
+      bundleTitle = 'StarcallOS Library';
+      defaultStem = 'starcall-library';
+    }
+
+    if (concepts.length === 0) {
+      return { ok: false, error: args.scope === 'source' ? 'This source has no promoted concepts to export.' : 'No promoted concepts to export yet.' };
+    }
+
+    const sourceTitleCache = new Map<number, string>();
+    const sourceTitleFor = (sourceId: number): string => {
+      let title = sourceTitleCache.get(sourceId);
+      if (title === undefined) {
+        const src = getSourceById(db, sourceId);
+        title = src ? (src.title || src.filename) : 'Unknown source';
+        sourceTitleCache.set(sourceId, title);
+      }
+      return title;
+    };
+
+    const items = concepts.filter((c): c is NonNullable<typeof c> => c != null).map(concept => ({
+      concept,
+      sourceTitle: sourceTitleFor(concept.source_id),
+      notes: listNotesByConcept(db, concept.id),
+      equations: listEquationCandidatesForConcept(db, concept.id),
+      srs: getConceptSrs(db, concept.id),
+    }));
+
+    const { content, extension } = renderBundleExport(items, args.format, bundleTitle);
+
+    const result = await dialog.showSaveDialog({
+      defaultPath: `${defaultStem}.${extension}`,
       filters: args.format === 'anki'
         ? [{ name: 'Anki import (tab-separated)', extensions: ['txt'] }]
         : [{ name: 'Markdown', extensions: ['md'] }],

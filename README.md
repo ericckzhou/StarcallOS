@@ -132,8 +132,10 @@ The grader sees the same context. No domain bias, no default associations.
 - **Star Hubs:** group concepts into named, color-coded hubs (cross-source) via
   multi-select in the concept list ("Add to ▾"). Hubs render as nebula clusters
   on the Map, and a dedicated **Hubs tab** manages them (create, rename, recolor,
-  remove members, delete) — even hubs whose source was deleted. (Member roles
-  and nesting are still planned.)
+  remove members, delete) — even hubs whose source was deleted. Hubs can also be
+  **nested** into a tree (give a hub a parent in the Hubs tab) and **linked to
+  each other** with labeled, directional connections that draw between nebulae on
+  the Map. (Member roles are still planned.)
 - **Note ↔ highlight ↔ evidence linking:** a highlight in the source also
   becomes a concept evidence entry; deleting either side keeps them in sync, and
   a note can link to a highlight and jump to its page.
@@ -142,6 +144,8 @@ The grader sees the same context. No domain bias, no default associations.
 - **Find in source** (page filter on PDF, inline match on text) and a
   "related pages only" view.
 - **Equation rendering via KaTeX**, replacing the earlier homegrown view.
+- **Export to Markdown or Anki** — a single concept (from its header), a whole
+  source, or your entire library (from the Sources sidebar).
 - **5-second undo** for deleting sources, concepts, and notes.
 
 </details>

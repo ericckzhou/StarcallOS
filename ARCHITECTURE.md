@@ -311,7 +311,11 @@ importance tag.
   formatters live in `services/src/export.ts`; the `export:concept` IPC handler
   gathers the concept, source title, notes, equations, and SRS state, then owns
   the Save dialog and file write. Anki emits one Front/Back card per concept
-  (LaTeX in MathJax `\[ \]`).
+  (LaTeX in MathJax `\[ \]`). **Bulk export** is also available from the
+  Sources sidebar — a per-source button and a whole-library button — via
+  `export:bundle` (scope `source`|`library`): the same formatters bundle many
+  concepts into one file (Markdown demotes each to an h2 under a title; Anki
+  emits one row per concept).
 - The top-level source tab defaults to **Candidates** on first launch and
   remembers the last-selected tab thereafter.
 - Equation LaTeX renders via **KaTeX** (`LatexMath.tsx`,
@@ -364,8 +368,24 @@ hubs (dimming ones not on the current source) so a hub whose source was deleted
 remains deletable. New-hub default color is randomized. User-curated, never
 LLM-written.
 
-**Still planned:** cross-hub edges in the Map, member roles
-(`core`/`supporting`/`prerequisite`/…), and hub nesting.
+**Shipped — hub nesting:** a hub can have a parent (`star_hubs.parent_hub_id`,
+`ON DELETE SET NULL` re-roots children when a parent is deleted). `createHub`
+and `updateHub` accept `parentHubId` (tri-state on update: omitted = unchanged,
+`null` = top-level, id = nest under that hub); a `wouldCycle` guard throws on a
+self/descendant parent. The **Hubs tab** renders hubs as an indented tree with a
+Parent picker (options exclude the hub and its descendants). Nesting is
+organizational — the Map still draws each hub as its own nebula by direct
+membership.
+
+**Shipped — cross-hub edges:** user-curated relationships between two hubs
+(`star_hub_edges`, migration 0026), optionally labeled and directional
+(one-way/mutual), cascading away when either endpoint hub is deleted. Managed
+per-hub in the **Hubs tab** ("Links" row) and rendered on the **Map** as dashed
+violet lines between hub-nebula centroids (drawn only when both endpoints have a
+cluster on the current view).
+
+**Still planned:** member roles (`core`/`supporting`/`prerequisite`/…) and
+Map-rail indentation by parent.
 
 Potential data model:
 

@@ -44,11 +44,17 @@ function constellationLabels(concept: Concept): string[] {
 
 // ─── Markdown ────────────────────────────────────────────────────────────────
 
-export function toMarkdown(data: ConceptExportData): string {
+// Render one concept's Markdown body. `level` is the heading depth of the
+// concept name (1 for a standalone export, 2 inside a bundle under a document
+// title); the inner sections and note headings sit one and two levels below it.
+function conceptMarkdownLines(data: ConceptExportData, level: 1 | 2): string[] {
   const { concept, sourceTitle, notes, equations } = data;
+  const nameH = '#'.repeat(level);
+  const sectionH = '#'.repeat(level + 1);
+  const noteH = '#'.repeat(level + 2);
   const lines: string[] = [];
 
-  lines.push(`# ${concept.name}`, '');
+  lines.push(`${nameH} ${concept.name}`, '');
 
   const meta: string[] = [`**Importance:** ${concept.importance}`];
   if (concept.tags.length > 0) meta.push(`**Tags:** ${concept.tags.join(', ')}`);
@@ -58,7 +64,7 @@ export function toMarkdown(data: ConceptExportData): string {
   const section = (heading: string, body: string | undefined | null): void => {
     const text = (body ?? '').trim();
     if (!text) return;
-    lines.push(`## ${heading}`, '', text, '');
+    lines.push(`${sectionH} ${heading}`, '', text, '');
   };
 
   section('Definition', concept.definition_text);
@@ -67,13 +73,13 @@ export function toMarkdown(data: ConceptExportData): string {
 
   const constellations = constellationLabels(concept);
   if (constellations.length > 0) {
-    lines.push('## Constellations', '');
+    lines.push(`${sectionH} Constellations`, '');
     for (const c of constellations) lines.push(`- ${c}`);
     lines.push('');
   }
 
   if (equations.length > 0) {
-    lines.push('## Equations', '');
+    lines.push(`${sectionH} Equations`, '');
     for (const eq of equations) {
       if (eq.attached_term) lines.push(`*${eq.attached_term}*`, '');
       lines.push('$$', eq.latex, '$$', '');
@@ -81,15 +87,32 @@ export function toMarkdown(data: ConceptExportData): string {
   }
 
   if (notes.length > 0) {
-    lines.push('## Notes', '');
+    lines.push(`${sectionH} Notes`, '');
     for (const note of notes) {
-      if (note.heading.trim()) lines.push(`### ${note.heading.trim()}`, '');
+      if (note.heading.trim()) lines.push(`${noteH} ${note.heading.trim()}`, '');
       const body = note.body.trim();
       if (body) lines.push(body, '');
     }
   }
 
+  return lines;
+}
+
+export function toMarkdown(data: ConceptExportData): string {
   // Collapse the trailing blank line into a single terminating newline.
+  return `${conceptMarkdownLines(data, 1).join('\n').replace(/\n+$/, '')}\n`;
+}
+
+// A bundle of concepts (one source, or the whole library) under a document
+// title, each concept demoted to an h2 and separated by a horizontal rule.
+export function toMarkdownBundle(items: ConceptExportData[], title: string): string {
+  const lines: string[] = [`# ${title}`, ''];
+  const count = items.length;
+  lines.push(`_${count} ${count === 1 ? 'concept' : 'concepts'}_`, '');
+  for (const item of items) {
+    lines.push('---', '');
+    lines.push(...conceptMarkdownLines(item, 2));
+  }
   return `${lines.join('\n').replace(/\n+$/, '')}\n`;
 }
 
@@ -115,7 +138,10 @@ function ankiField(s: string): string {
     .trim();
 }
 
-export function toAnki(data: ConceptExportData): string {
+const ANKI_HEADER = ['#separator:tab', '#html:true', '#columns:Front\tBack\tTags'];
+
+// One concept → one tab-separated Front/Back/Tags row (no trailing newline).
+function ankiRow(data: ConceptExportData): string {
   const { concept, equations } = data;
 
   const back: string[] = [];
@@ -143,10 +169,18 @@ export function toAnki(data: ConceptExportData): string {
   const front = ankiField(concept.name);
   const backField = back.join('<br><br>');
   const tags = concept.tags.map(t => t.replace(/\s+/g, '_')).join(' ');
+  return [front, backField, ankiField(tags)].join('\t');
+}
 
-  const header = ['#separator:tab', '#html:true', '#columns:Front\tBack\tTags'];
-  const row = [front, backField, ankiField(tags)].join('\t');
-  return `${header.join('\n')}\n${row}\n`;
+export function toAnki(data: ConceptExportData): string {
+  return `${ANKI_HEADER.join('\n')}\n${ankiRow(data)}\n`;
+}
+
+// A bundle of concepts as one Anki import file: a single header, then one
+// Front/Back/Tags row per concept.
+export function toAnkiBundle(items: ConceptExportData[]): string {
+  const rows = items.map(ankiRow);
+  return `${ANKI_HEADER.join('\n')}\n${rows.join('\n')}\n`;
 }
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────
@@ -155,4 +189,16 @@ export function renderConceptExport(data: ConceptExportData, format: ExportForma
   return format === 'anki'
     ? { content: toAnki(data), extension: 'txt' }
     : { content: toMarkdown(data), extension: 'md' };
+}
+
+// Render a multi-concept bundle (one source or the whole library). `title` is
+// the document heading for Markdown; it is unused by the flat Anki format.
+export function renderBundleExport(
+  items: ConceptExportData[],
+  format: ExportFormat,
+  title: string,
+): RenderedExport {
+  return format === 'anki'
+    ? { content: toAnkiBundle(items), extension: 'txt' }
+    : { content: toMarkdownBundle(items, title), extension: 'md' };
 }

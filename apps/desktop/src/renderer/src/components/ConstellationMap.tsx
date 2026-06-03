@@ -54,6 +54,7 @@ interface SourceMeta {
   color: string;
 }
 interface HubLite { id: number; name: string; color: string; member_count: number; description: string; }
+interface HubEdgeLite { id: number; a_hub_id: number; b_hub_id: number; label: string; directed: boolean; }
 
 // ─── Design constants ──────────────────────────────────────────────────────────
 
@@ -102,9 +103,10 @@ function useConstellationGraph() {
   const [selectedSource, setSelectedSource] = useState<number | null>(null);
   const [hubs, setHubs] = useState<HubLite[]>([]);
   const [conceptHubs, setConceptHubs] = useState<Map<number, number[]>>(new Map());
+  const [hubEdges, setHubEdges] = useState<HubEdgeLite[]>([]);
 
   const refreshHubs = useCallback(() => {
-    Promise.all([window.api.hubs.list(), window.api.hubs.memberships()]).then(([hs, ms]) => {
+    Promise.all([window.api.hubs.list(), window.api.hubs.memberships(), window.api.hubs.edges.list()]).then(([hs, ms, es]) => {
       setHubs((hs as HubLite[]).map(h => ({ id: h.id, name: h.name, color: h.color, member_count: h.member_count, description: h.description })));
       const m = new Map<number, number[]>();
       for (const { hub_id, concept_id } of ms as Array<{ hub_id: number; concept_id: number }>) {
@@ -113,6 +115,7 @@ function useConstellationGraph() {
         m.set(concept_id, arr);
       }
       setConceptHubs(m);
+      setHubEdges(es as HubEdgeLite[]);
     });
   }, []);
   useEffect(() => { refreshHubs(); }, [refreshHubs]);
@@ -150,10 +153,10 @@ function useConstellationGraph() {
   // Refetch when constellations/edges change elsewhere so deleted links drop
   // off the map without a manual reload.
   useEffect(() => {
-    const handler = () => loadGraph();
+    const handler = () => { loadGraph(); refreshHubs(); };
     window.addEventListener('starcall:graphChanged', handler);
     return () => window.removeEventListener('starcall:graphChanged', handler);
-  }, [loadGraph]);
+  }, [loadGraph, refreshHubs]);
 
   const sources = useMemo<SourceMeta[]>(() => {
     if (!graph) return [];
@@ -184,7 +187,7 @@ function useConstellationGraph() {
     };
   }, [graph, selectedSource]);
 
-  return { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view, hubs, conceptHubs, refreshHubs };
+  return { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view, hubs, conceptHubs, hubEdges, refreshHubs };
 }
 
 interface ForceLayout {
@@ -399,6 +402,47 @@ function NebulaLayer({ clusters }: { clusters: Cluster[] }) {
   );
 }
 
+const HUB_EDGE_COLOR = '#c4b5fd';
+
+interface HubEdgeLine {
+  id: number; ax: number; ay: number; bx: number; by: number; ra: number; rb: number;
+  label: string; directed: boolean; midX: number; midY: number; tip: string;
+}
+// Edges between hub nebulae: a dashed violet line from one centroid to another,
+// arrowed (one-way) or double-arrowed (mutual), with the label at the midpoint.
+const HubEdgeLayer = React.memo(function HubEdgeLayer(
+  { edges, onHover }: { edges: HubEdgeLine[]; onHover: (t: { x: number; y: number; text: string } | null) => void },
+) {
+  return (
+    <g>
+      {edges.map(e => {
+        const dx = e.bx - e.ax, dy = e.by - e.ay, d = Math.hypot(dx, dy) || 1;
+        const ux = dx / d, uy = dy / d;
+        const x1 = e.ax + ux * e.ra, y1 = e.ay + uy * e.ra;
+        const x2 = e.bx - ux * e.rb, y2 = e.by - uy * e.rb;
+        return (
+          <g key={e.id}>
+            <line
+              x1={x1} y1={y1} x2={x2} y2={y2}
+              stroke={HUB_EDGE_COLOR} strokeWidth={2.2} strokeLinecap="round" strokeDasharray="2 6" strokeOpacity={0.72}
+              markerEnd="url(#cm-arrow-hub)" markerStart={e.directed ? undefined : 'url(#cm-arrow-hub)'}
+              style={{ cursor: 'pointer' }}
+              onMouseEnter={() => onHover({ x: e.midX, y: e.midY, text: e.tip })}
+              onMouseLeave={() => onHover(null)}
+            />
+            {e.label && (
+              <text x={e.midX} y={e.midY - 5} fontSize={10} textAnchor="middle" fill={HUB_EDGE_COLOR}
+                style={{ pointerEvents: 'none', paintOrder: 'stroke', stroke: 'rgba(2,6,23,0.85)', strokeWidth: 3, strokeLinejoin: 'round', fontWeight: 600 }}>
+                {e.label.length > 24 ? e.label.slice(0, 23) + '…' : e.label}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </g>
+  );
+});
+
 const MapDefs = React.memo(function MapDefs({ sources, hubs }: { sources: SourceMeta[]; hubs: HubLite[] }) {
   return (
     <defs>
@@ -428,6 +472,9 @@ const MapDefs = React.memo(function MapDefs({ sources, hubs }: { sources: Source
       </marker>
       <marker id="cm-arrow-cross" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
         <path d="M0,1 L9,5 L0,9 Z" fill="#f472b6" />
+      </marker>
+      <marker id="cm-arrow-hub" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+        <path d="M0,1 L9,5 L0,9 Z" fill={HUB_EDGE_COLOR} />
       </marker>
     </defs>
   );
@@ -550,6 +597,10 @@ function MapLegend() {
         <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'radial-gradient(circle, rgba(129,140,248,0.5), rgba(129,140,248,0))', display: 'inline-block' }} />
         hub nebula
       </span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <svg width="24" height="9" viewBox="0 0 24 9" aria-hidden="true"><line x1="0" y1="4.5" x2="18" y2="4.5" stroke={HUB_EDGE_COLOR} strokeWidth="1.8" strokeDasharray="2 3" /><path d="M18,1.5 L24,4.5 L18,7.5 Z" fill={HUB_EDGE_COLOR} /></svg>
+        hub link
+      </span>
     </div>
   );
 }
@@ -646,7 +697,7 @@ interface Props {
 
 export default function ConstellationMap({ profile, onConceptChanged }: Props) {
   const reducedMotion = usePrefersReducedMotion();
-  const { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view, hubs, conceptHubs, refreshHubs } = useConstellationGraph();
+  const { graph, loading, sources, sourceColor, sourceName, selectedSource, setSelectedSource, view, hubs, conceptHubs, hubEdges, refreshHubs } = useConstellationGraph();
   const layout = useForceLayout(view, reducedMotion, conceptHubs);
 
   const [selected, setSelected] = useState<Concept | null>(null);
@@ -747,6 +798,27 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
       const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
       const radius = Math.max(...pts.map(p => Math.hypot(p.x - cx, p.y - cy) + p.r)) + 36;
       clusters.push({ id: h.id, name: h.name, color: h.color, cx, cy, radius, points: pts });
+    }
+  }
+
+  // Hub-to-hub edges — drawn between nebula centroids, only when BOTH endpoint
+  // hubs have a cluster on the current view (otherwise there's nothing to anchor
+  // to). Offsets stop the line short of each nebula so the arrow stays visible.
+  const clusterById = new Map(clusters.map(c => [c.id, c]));
+  const hubEdgeLines: HubEdgeLine[] = [];
+  if (showHubs) {
+    for (const e of hubEdges) {
+      const a = clusterById.get(e.a_hub_id), b = clusterById.get(e.b_hub_id);
+      if (!a || !b) continue;
+      const d = Math.hypot(b.cx - a.cx, b.cy - a.cy) || 1;
+      const ra = Math.max(0, Math.min(a.radius, d / 2 - 6));
+      const rb = Math.max(0, Math.min(b.radius, d / 2 - 6));
+      const arrow = e.directed ? '→' : '↔';
+      const tip = e.label ? `${a.name} ${arrow} ${b.name}: ${e.label}` : `${a.name} ${arrow} ${b.name}`;
+      hubEdgeLines.push({
+        id: e.id, ax: a.cx, ay: a.cy, bx: b.cx, by: b.cy, ra, rb,
+        label: e.label, directed: e.directed, midX: (a.cx + b.cx) / 2, midY: (a.cy + b.cy) / 2, tip,
+      });
     }
   }
 
@@ -890,6 +962,7 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
               <MapDefs sources={sources} hubs={hubs} />
               <g className="cm-graph" transform={`translate(${layout.tx},${layout.ty}) scale(${layout.scale})`}>
                 {showHubs && clusters.length > 0 && <NebulaLayer clusters={clusters} />}
+                {hubEdgeLines.length > 0 && <HubEdgeLayer edges={hubEdgeLines} onHover={setHoverEdge} />}
                 {view.edges.map((e, i) => {
                   const a = posById.get(e.a), b = posById.get(e.b);
                   if (!a || !b) return null;
