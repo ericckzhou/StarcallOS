@@ -213,21 +213,14 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
   }
 
   // Manual reschedule/snooze: a pure due-date override (SM-2 ease/reps untouched
-  // on the backend). offsetDays === null clears the schedule (due now). The row
-  // stays visible with its due badge updated in place (e.g. "next in 1w") so the
-  // new schedule is shown as confirmation. We intentionally do NOT dispatch
-  // review-queue-stale: a refetch would drop the row, since the queue query only
-  // returns due-now cards — hiding the schedule the user just set. The card
-  // leaves the queue on the next natural refresh and returns when due. Reverts
-  // the badge on persistence failure.
-  function rescheduleFromQueue(item: QueueItem, offsetDays: number | null): void {
+  // on the backend). dueAt === null clears the schedule (due now). The queue
+  // lists all concepts, so the row stays put and its due badge updates in place
+  // as confirmation. Reverts the badge on persistence failure.
+  function applyReschedule(item: QueueItem, dueAt: string | null, intervalDays: number): void {
     setReschedulePopoverId(null);
-    const dueAt = offsetDays == null
-      ? null
-      : new Date(Date.now() + offsetDays * 86_400_000).toISOString();
     setItems(prev => prev.map(entry =>
       entry.concept.id === item.concept.id
-        ? { ...entry, due_at: dueAt, interval_days: offsetDays ?? 0 }
+        ? { ...entry, due_at: dueAt, interval_days: intervalDays }
         : entry,
     ));
     void window.api.review.setDue({ conceptId: item.concept.id, dueAt })
@@ -236,6 +229,23 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
           ? { ...entry, due_at: item.due_at, interval_days: item.interval_days }
           : entry,
       )));
+  }
+
+  // Preset offset chips (null = due now).
+  function rescheduleFromQueue(item: QueueItem, offsetDays: number | null): void {
+    const dueAt = offsetDays == null
+      ? null
+      : new Date(Date.now() + offsetDays * 86_400_000).toISOString();
+    applyReschedule(item, dueAt, offsetDays ?? 0);
+  }
+
+  // Exact calendar date from the popover's date input (YYYY-MM-DD, local).
+  function rescheduleToDate(item: QueueItem, dateStr: string): void {
+    if (!dateStr) return;
+    const dueDate = new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(dueDate.getTime())) return;
+    const intervalDays = Math.max(0, Math.round((dueDate.getTime() - Date.now()) / 86_400_000));
+    applyReschedule(item, dueDate.toISOString(), intervalDays);
   }
 
   function undoDeleteConcept(item: QueueItem): void {
@@ -355,7 +365,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
             Review Queue <span style={{ color: '#94a3b8' }}>{items.length}</span>
           </div>
           <div style={{ marginTop: 2, fontSize: 10, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {items.filter(i => i.due_at == null).length} new · {items.filter(i => i.due_at != null && new Date(i.due_at).getTime() <= Date.now()).length} due
+            {items.filter(i => i.due_at == null).length} new · {items.filter(i => i.due_at != null && new Date(i.due_at).getTime() <= Date.now()).length} due · {items.filter(i => i.due_at != null && new Date(i.due_at).getTime() > Date.now()).length} scheduled
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -551,6 +561,23 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                               </button>
                             ))}
                           </div>
+                          <label
+                            onClick={e => e.stopPropagation()}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 11, color: '#94a3b8' }}
+                          >
+                            <span style={{ whiteSpace: 'nowrap' }}>Pick date</span>
+                            <input
+                              type="date"
+                              onClick={e => e.stopPropagation()}
+                              min={new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)}
+                              onChange={e => { e.stopPropagation(); rescheduleToDate(it, e.target.value); }}
+                              style={{
+                                flex: 1, minWidth: 0,
+                                background: 'rgba(129, 140, 248, 0.08)', border: '1px solid #263244', borderRadius: 6,
+                                padding: '4px 6px', fontSize: 11, color: '#e2e8f0', colorScheme: 'dark', cursor: 'pointer',
+                              }}
+                            />
+                          </label>
                           <div style={{ height: 1, background: 'rgba(129, 140, 248, 0.16)', margin: '9px 0' }} />
                           <button
                             role="menuitem"

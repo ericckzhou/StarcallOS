@@ -74,6 +74,105 @@ const EVIDENCE_KIND_COLOR: Record<string, string> = {
 const SOURCE_PREVIEW_KEY = 'starcall.layout.sourcePreviewOpen';
 const SOURCE_PREVIEW_NOTES_WIDTH_KEY = 'starcall.layout.sourcePreviewNotesWidth';
 
+const RESCHEDULE_PRESETS_DP: { label: string; days: number }[] = [
+  { label: '1d', days: 1 }, { label: '3d', days: 3 }, { label: '1w', days: 7 },
+  { label: '2w', days: 14 }, { label: '1mo', days: 30 },
+];
+
+// Self-contained reschedule/snooze control for the DetailPane header. Fetches
+// the concept's current SRS due on open (review:getSrs), writes via
+// review:setDue, and signals the queue/header to refresh. A pure date override
+// — SM-2 ease/reps untouched; "Reset" clears to due-now.
+function RescheduleButton({ conceptId }: { conceptId: number }) {
+  const [open, setOpen] = useState(false);
+  const [dueAt, setDueAt] = useState<string | null | undefined>(undefined); // undefined = loading
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    void window.api.review.getSrs(conceptId).then(s => { if (alive) setDueAt(s ? s.due_at : null); });
+    const close = () => setOpen(false);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    return () => { alive = false; document.removeEventListener('click', close); document.removeEventListener('keydown', onKey); };
+  }, [open, conceptId]);
+
+  function apply(due: string | null) {
+    setOpen(false);
+    void window.api.review.setDue({ conceptId, dueAt: due })
+      .then(() => window.dispatchEvent(new Event('starcall:review-queue-stale')));
+  }
+
+  const dueText = dueAt === undefined
+    ? '…'
+    : dueAt == null
+      ? 'due now'
+      : (() => { const d = Math.round((new Date(dueAt).getTime() - Date.now()) / 86_400_000); return d <= 0 ? 'due now' : `due in ${d}d`; })();
+
+  return (
+    <div style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
+        title="Reschedule review"
+        aria-label="Reschedule review"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 26, height: 24, background: open ? 'rgba(129,140,248,0.12)' : 'transparent',
+          border: `1px solid ${open ? 'rgba(129,140,248,0.5)' : '#1f2937'}`, borderRadius: 4,
+          color: open ? '#a5b4fc' : '#6b7280', cursor: 'pointer',
+        }}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
+        </svg>
+      </button>
+      {open && (
+        <div role="menu" onClick={e => e.stopPropagation()} style={{
+          position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 30, minWidth: 216,
+          background: 'rgba(4,6,26,0.34)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+          border: '1px solid #263244', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 10,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '0 2px 7px' }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Reschedule</span>
+            <span style={{ fontSize: 10, color: '#94a3b8' }}>{dueText}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+            {RESCHEDULE_PRESETS_DP.map(p => (
+              <button key={p.label} className="rel-opt" role="menuitem"
+                onClick={e => { e.stopPropagation(); apply(new Date(Date.now() + p.days * 86_400_000).toISOString()); }}
+                title={`Due again in ${p.label}`}
+                style={{ background: 'transparent', border: '1px solid rgba(129,140,248,0.28)', borderRadius: 6, padding: '6px 0', fontSize: 11, color: '#c7d2fe', cursor: 'pointer', textAlign: 'center' }}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <label onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 11, color: '#94a3b8' }}>
+            <span style={{ whiteSpace: 'nowrap' }}>Pick date</span>
+            <input
+              type="date"
+              onClick={e => e.stopPropagation()}
+              min={new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)}
+              onChange={e => { e.stopPropagation(); const v = e.target.value; if (v) { const d = new Date(`${v}T00:00:00`); if (!Number.isNaN(d.getTime())) apply(d.toISOString()); } }}
+              style={{ flex: 1, minWidth: 0, background: 'rgba(129,140,248,0.08)', border: '1px solid #263244', borderRadius: 6, padding: '4px 6px', fontSize: 11, color: '#e2e8f0', colorScheme: 'dark', cursor: 'pointer' }}
+            />
+          </label>
+          <div style={{ height: 1, background: 'rgba(129,140,248,0.16)', margin: '9px 0' }} />
+          <button role="menuitem"
+            onClick={e => { e.stopPropagation(); apply(null); }}
+            title="Clear schedule — make this due now"
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 6, padding: '5px 8px', fontSize: 11, color: '#f59e0b', cursor: 'pointer' }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
+            Reset (due now)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Props { concept: Concept | null; onDeleted?: (conceptId: number) => void; profile?: Profile; }
 
 export default function DetailPane({ concept, onDeleted, profile }: Props) {
@@ -357,6 +456,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
               <span style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 10px', borderRadius: 12, background: `${STAGE_COLORS[stage]}22`, color: STAGE_COLORS[stage], fontWeight: 600, flexShrink: 0 }}>
                 {STAGES[stage]}
               </span>
+              <RescheduleButton conceptId={concept.id} />
               <button
                 onClick={() => setSourcePreviewOpen(false)}
                 title="Hide source"
@@ -404,6 +504,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
           <span style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 10px', borderRadius: 12, background: `${STAGE_COLORS[stage]}22`, color: STAGE_COLORS[stage], fontWeight: 600 }}>
             {STAGES[stage]}
           </span>
+          <RescheduleButton conceptId={concept.id} />
           <button
             onClick={() => setSourcePreviewOpen(v => !v)}
             title="Show source on the right"

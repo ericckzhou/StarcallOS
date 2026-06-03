@@ -69,6 +69,7 @@ export const IPC = {
   REVIEW_QUEUE_LIST:       'review:queueList',
   REVIEW_DUE_COUNT:        'review:dueCount',
   REVIEW_SET_DUE:          'review:setDue',
+  REVIEW_GET_SRS:          'review:getSrs',
   SETTINGS_GET:            'settings:get',
   SETTINGS_SET:            'settings:set',
   SOURCES_BYTES:           'sources:bytes',
@@ -311,6 +312,17 @@ export interface ParseRunRecord {
   diagnostics: Record<string, unknown>;
 }
 
+export interface ConceptSrsPayload {
+  concept_id: number;
+  ease: number;
+  interval_days: number;
+  repetitions: number;
+  lapses: number;
+  due_at: string | null;
+  last_reviewed_at: string | null;
+  last_grade: 'understood' | 'recognizes' | 'gap' | 'misconception' | null;
+}
+
 export interface ReviewQueueItemPayload {
   concept: {
     id: number;
@@ -518,6 +530,7 @@ export interface IpcApi {
     dueCount: () => Promise<number>;
     // Manual reschedule/snooze. dueAt = ISO timestamp, or null to clear (due now).
     setDue: (args: { conceptId: number; dueAt: string | null }) => Promise<{ ok: true }>;
+    getSrs: (conceptId: number) => Promise<ConceptSrsPayload | null>;
   };
   parseRuns: {
     bySource: (sourceId: number, limit?: number) => Promise<ParseRunRecord[]>;
