@@ -777,6 +777,26 @@ export function segmentText(text: string): SegmentedBlock[] {
   return out;
 }
 
+// Strip Markdown syntax from a block's text once its hint has been derived, so
+// candidate terms aren't polluted by `#`, list bullets, or emphasis. Imported
+// URL/DOCX/PPTX sources store Markdown (for the structured preview); the parser
+// works off this cleaned text. Conservative on inline emphasis — only the
+// unambiguous **bold** / __bold__ / `code`; single * and _ are left alone since
+// in prose they're more often literal (math, footnotes, identifiers).
+export function stripMarkdownMarkers(text: string): string {
+  return text
+    // Leading block markers (blocks are single lines by this point).
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^>\s+/, '')
+    .replace(/^[-*]\s+/, '')
+    .replace(/^\d+[.)]\s+/, '')
+    // Inline emphasis / code — doubled and backtick forms only.
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .trim();
+}
+
 function classifyTextBlock(text: string, order: number): SegmentedBlock {
   const isMdHeading  = /^#{1,6}\s+\S/.test(text);
   const isBullet     = /^[*\-]\s/.test(text);
@@ -812,8 +832,10 @@ function classifyTextBlock(text: string, order: number): SegmentedBlock {
     ratio = 1.2;
   }
 
+  // The hint was derived from the raw Markdown above; store the marker-free text
+  // so candidate terms stay clean (the source preview keeps the real Markdown).
   return {
-    text,
+    text: stripMarkdownMarkers(text),
     page: 1,
     readingOrder: order,
     signals: {

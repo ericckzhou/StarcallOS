@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { __layoutTest } from './layout';
+import { __layoutTest, stripMarkdownMarkers, segmentText } from './layout';
 
 function item(str: string, x: number, width: number, fontSize = 10, fontName = 'Body') {
   return { str, x, y: 700, width, fontSize, fontName, page: 1 };
@@ -82,5 +82,46 @@ describe('layout typography helpers', () => {
     const bodySeg = __layoutTest.classify(bodyBlock, 10, false, 0, 0, 792);
 
     expect(headSeg.signals.headingConfidence ?? 0).toBeGreaterThan(bodySeg.signals.headingConfidence ?? 0);
+  });
+});
+
+describe('stripMarkdownMarkers', () => {
+  it('strips leading block markers (heading / bullet / number / quote)', () => {
+    expect(stripMarkdownMarkers('## React Components')).toBe('React Components');
+    expect(stripMarkdownMarkers('- useState')).toBe('useState');
+    expect(stripMarkdownMarkers('* sigmoid')).toBe('sigmoid');
+    expect(stripMarkdownMarkers('3. third item')).toBe('third item');
+    expect(stripMarkdownMarkers('> a quote')).toBe('a quote');
+  });
+
+  it('strips doubled emphasis and inline code, leaving the words', () => {
+    expect(stripMarkdownMarkers('the **bold** word')).toBe('the bold word');
+    expect(stripMarkdownMarkers('an __underline__ term')).toBe('an underline term');
+    expect(stripMarkdownMarkers('call `useEffect` here')).toBe('call useEffect here');
+  });
+
+  it('leaves single * and _ alone (likely literals in prose)', () => {
+    expect(stripMarkdownMarkers('5 * 3 = 15')).toBe('5 * 3 = 15');
+    expect(stripMarkdownMarkers('an_identifier_name')).toBe('an_identifier_name');
+  });
+
+  it('leaves marker-free prose untouched', () => {
+    expect(stripMarkdownMarkers('Gradient descent is an algorithm.')).toBe('Gradient descent is an algorithm.');
+  });
+});
+
+describe('segmentText with Markdown', () => {
+  it('classifies a Markdown heading but stores marker-free block text', () => {
+    const blocks = segmentText('## Large Language Models\n\nThey predict the next token.');
+    const heading = blocks.find(b => b.hint === 'heading' || b.hint === 'subheading');
+    expect(heading?.text).toBe('Large Language Models'); // no leading "## "
+    const body = blocks.find(b => b.hint === 'body');
+    expect(body?.text).toContain('predict the next token');
+  });
+
+  it('keeps bullet items as list_item with the bullet stripped', () => {
+    const blocks = segmentText('- one\n- two');
+    expect(blocks.every(b => b.hint === 'list_item')).toBe(true);
+    expect(blocks.map(b => b.text)).toEqual(['one', 'two']);
   });
 });
