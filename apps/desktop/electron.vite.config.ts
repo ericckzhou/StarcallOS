@@ -1,27 +1,15 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
-import fs from 'fs';
-import path from 'path';
 
-function readDotenv(): Record<string, string> {
-  try {
-    return Object.fromEntries(
-      fs.readFileSync(path.join(process.cwd(), '.env'), 'utf-8')
-        .split('\n')
-        .filter(l => l.includes('=') && !l.trimStart().startsWith('#'))
-        .map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }),
-    );
-  } catch { return {}; }
-}
-
-const env = readDotenv();
-
+// API keys are NEVER inlined at build time. A prior version used a `define`
+// block that string-substituted the local `.env` GROQ_API_KEY into the compiled
+// main bundle — which would bake a developer's key into the shipped portable
+// `.exe` (extractable with `strings`). Keys now come from OS-encrypted settings
+// (safeStorage) at runtime, with an optional dev-only `process.env` fallback the
+// main process reads at startup (see loadDevDotenv in src/main/index.ts).
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
-    define: {
-      'import.meta.env.GROQ_API_KEY': JSON.stringify(env['GROQ_API_KEY'] ?? ''),
-    },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

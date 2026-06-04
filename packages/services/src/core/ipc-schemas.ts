@@ -159,6 +159,67 @@ export const ExportBundleArgsSchema = z
     path: ['sourceId'],
   });
 
+// ─── Remaining mutating-handler schemas ────────────────────────────────────────
+// These guard the rest of the write-path IPC surface. Kept permissive (generous
+// bounds, clamped numerics left as plain numbers, no `.strict()`) so they reject
+// only genuinely malformed input — callers validate for the throw, then use their
+// original typed args, so a narrow schema can never strip a field.
+
+const idArray   = z.array(positiveInt).max(10_000);
+const colorStr  = z.string().max(50);
+const kindStr   = z.string().max(50);
+const sectionPath = z.array(shortStr(500)).max(200);
+
+export const IdArraySchema = idArray;
+
+export const CreateManualConceptArgsSchema = z.object({
+  sourceId:        positiveInt,
+  name:            shortStr(500),
+  importance:      z.string().max(50).optional(),
+  definition_text: longStr(10_000).optional(),
+  why_exists:      longStr(5_000).optional(),
+  what_breaks:     longStr(5_000).optional(),
+});
+
+export const RenameConceptArgsSchema = z.object({ conceptId: positiveInt, name: shortStr(500) });
+export const SetReviewedArgsSchema   = z.object({ conceptId: positiveInt, reviewed: z.boolean() });
+
+export const ConceptEquationCreateArgsSchema = z.object({
+  conceptId: positiveInt, latex: longStr(5_000), page: z.number().optional(),
+  variables: z.array(shortStr(200)).max(500).optional(),
+});
+export const ConceptEquationUpdateArgsSchema = z.object({
+  equationId: positiveInt, latex: longStr(5_000), page: z.number().optional(),
+  variables: z.array(shortStr(200)).max(500).optional(),
+});
+
+export const NoteCreateArgsSchema  = z.object({ conceptId: positiveInt, heading: shortStr(1_000), body: longStr(20_000).optional() });
+export const NoteUpdateArgsSchema  = z.object({ id: positiveInt, heading: shortStr(1_000).optional(), body: longStr(20_000).optional(), linkedAnnotationId: positiveInt.nullable().optional() });
+export const NoteReorderArgsSchema = z.object({ conceptId: positiveInt, orderedIds: idArray });
+
+const evidenceKind = z.string().max(50);
+export const DeleteEvidenceSpanArgsSchema    = z.object({ conceptId: positiveInt, page: z.number(), kind: evidenceKind, quote: longStr(5_000) });
+export const AddEvidenceArgsSchema           = z.object({ conceptId: positiveInt, page: z.number(), kind: evidenceKind, label: shortStr(1_000), quote: longStr(5_000).optional(), annotationId: positiveInt.optional() });
+export const UpdateEvidenceArgsSchema        = z.object({ conceptId: positiveInt, index: nonnegInt, page: z.number().optional(), kind: evidenceKind.optional(), label: shortStr(1_000).optional(), quote: longStr(5_000).optional() });
+export const DeleteEvidenceByIndexArgsSchema = z.object({ conceptId: positiveInt, index: nonnegInt });
+
+export const LlmFilterSetArgsSchema = z.object({ sourceId: positiveInt, keepTerms: z.array(shortStr(300)).max(10_000).nullable() });
+
+export const HubCreateArgsSchema   = z.object({ name: shortStr(200), color: colorStr.optional(), description: longStr(2_000).optional(), conceptIds: idArray.optional(), parentHubId: positiveInt.nullable().optional() });
+export const HubUpdateArgsSchema   = z.object({ id: positiveInt, name: shortStr(200).optional(), color: colorStr.optional(), description: longStr(2_000).optional(), parentHubId: positiveInt.nullable().optional() });
+export const HubAddMembersArgsSchema = z.object({ hubId: positiveInt, conceptIds: idArray });
+export const HubMemberArgsSchema     = z.object({ hubId: positiveInt, conceptId: positiveInt });
+export const HubSetMemberRoleArgsSchema = z.object({ hubId: positiveInt, conceptId: positiveInt, role: z.string().max(50) });
+export const HubEdgeCreateArgsSchema = z.object({ aHubId: positiveInt, bHubId: positiveInt, label: shortStr(300).optional(), directed: z.boolean().optional() });
+export const HubEdgeUpdateArgsSchema = z.object({ id: positiveInt, label: shortStr(300).optional(), directed: z.boolean().optional() });
+
+export const RelationCandidateCreateArgsSchema = z.object({ sourceId: positiveInt, from: shortStr(500), to: shortStr(500), kind: kindStr.optional(), quote: longStr(5_000).optional(), page: z.number().optional() });
+export const RelationCandidateUpdateArgsSchema = z.object({ id: positiveInt, from: shortStr(500), to: shortStr(500), kind: kindStr.optional(), quote: longStr(5_000).optional(), page: z.number().optional() });
+export const MisconceptionCandidateCreateArgsSchema = z.object({ sourceId: positiveInt, quote: longStr(5_000), page: z.number().optional(), section_path: sectionPath.optional() });
+export const MisconceptionCandidateUpdateArgsSchema = z.object({ id: positiveInt, quote: longStr(5_000), page: z.number().optional(), section_path: sectionPath.optional() });
+export const EquationCandidateCreateArgsSchema = z.object({ sourceId: positiveInt, latex: longStr(5_000), page: z.number().optional(), variables: z.array(shortStr(200)).max(500).optional(), section_path: sectionPath.optional(), attached_term: shortStr(500).nullable().optional() });
+export const EquationCandidateUpdateArgsSchema = z.object({ id: positiveInt, latex: longStr(5_000), page: z.number().optional(), variables: z.array(shortStr(200)).max(500).optional(), section_path: sectionPath.optional(), attached_term: shortStr(500).nullable().optional() });
+
 // ─── Validation helper ────────────────────────────────────────────────────────
 
 export function validateIpc<T>(schema: z.ZodType<T>, value: unknown, channel: string): T {
