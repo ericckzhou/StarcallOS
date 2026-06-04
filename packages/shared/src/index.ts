@@ -99,6 +99,7 @@ export const IPC = {
   CANDIDATES_REJECT_BULK:  'candidates:rejectBulk',
   CANDIDATES_EXTRACT:      'candidates:extract',
   CANDIDATES_LLM_FILTER:   'candidates:llmFilter',
+  CANDIDATES_LLM_FILTER_PROGRESS: 'candidates:llmFilterProgress',
   CANDIDATES_RELATION_CREATE: 'candidates:relationCreate',
   CANDIDATES_RELATION_UPDATE: 'candidates:relationUpdate',
   CANDIDATES_RELATION_DELETE: 'candidates:relationDelete',
@@ -308,6 +309,16 @@ export interface CandidateLlmFilterArgs {
   sourceId: number;
   sourceTitle?: string;
   candidates: CandidateLlmFilterCandidate[];
+  // When true, process ALL deduped candidates in sequential, paced, bounded
+  // batches (full coverage) instead of one compact 75-candidate call.
+  fullCoverage?: boolean;
+}
+
+// Per-batch progress for a full-coverage filter run (main → renderer).
+export interface CandidateLlmFilterProgress {
+  done: number;
+  total: number;
+  sent: number;
 }
 
 export interface CandidateLlmFilterDecision {
@@ -576,6 +587,9 @@ export interface IpcApi {
     rejectBulk: (candidateIds: number[]) => Promise<{ rejected: number }>;
     extract: (sourceId: number) => Promise<ExtractCandidatesResult>;
     llmFilter: (args: CandidateLlmFilterArgs) => Promise<CandidateLlmFilterResult>;
+    // Subscribe to per-batch progress during a full-coverage run. Returns an
+    // unsubscribe function.
+    onLlmFilterProgress: (cb: (p: CandidateLlmFilterProgress) => void) => () => void;
     relationCreate: (args: { sourceId: number; from: string; to: string; kind: string; quote?: string; page?: number }) => Promise<StoredRelationCandidate>;
     relationUpdate: (args: { id: number; from: string; to: string; kind: string; quote?: string; page?: number }) => Promise<StoredRelationCandidate>;
     relationDelete: (id: number) => Promise<{ ok: true }>;

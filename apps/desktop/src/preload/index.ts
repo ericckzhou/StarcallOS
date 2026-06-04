@@ -93,6 +93,11 @@ contextBridge.exposeInMainWorld('api', {
     rejectBulk: (candidateIds: number[]) => ipcRenderer.invoke('candidates:rejectBulk', candidateIds),
     extract:  (sourceId: number) => ipcRenderer.invoke('candidates:extract', sourceId),
     llmFilter: (args: unknown) => ipcRenderer.invoke('candidates:llmFilter', args),
+    onLlmFilterProgress: (cb: (p: { done: number; total: number; sent: number }) => void) => {
+      const listener = (_e: unknown, p: { done: number; total: number; sent: number }) => cb(p);
+      ipcRenderer.on('candidates:llmFilterProgress', listener);
+      return () => ipcRenderer.removeListener('candidates:llmFilterProgress', listener);
+    },
     relationCreate: (args: unknown) => ipcRenderer.invoke('candidates:relationCreate', args),
     relationUpdate: (args: unknown) => ipcRenderer.invoke('candidates:relationUpdate', args),
     relationDelete: (id: number) => ipcRenderer.invoke('candidates:relationDelete', id),

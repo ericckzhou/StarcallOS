@@ -198,10 +198,14 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
       `Filtering ${filtered.length} visible candidate${filtered.length === 1 ? '' : 's'} with your configured LLM(s) — ` +
       `batched and paced to respect provider rate limits. This may take a moment…`,
     );
+    const unsubProgress = window.api.candidates.onLlmFilterProgress(p => {
+      setLlmFilterMsg(`Filtering… batch ${p.done}/${p.total} · ${p.sent} candidates checked`);
+    });
     try {
       const result = await window.api.candidates.llmFilter({
         sourceId,
         sourceTitle,
+        fullCoverage: true,
         candidates: filtered.map(c => ({
           id: c.id,
           normalized: c.normalized,
@@ -226,6 +230,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
       setLlmFilterMsg(msg);
       setBulkMsg(msg);
     } finally {
+      unsubProgress();
       setLlmApiBusy(false);
     }
   }

@@ -45,7 +45,7 @@ import {
   SettingsPatchSchema, SubmitEvidenceArgsSchema, CandidateLlmFilterArgsSchema,
   UpdateConceptFieldsArgsSchema, CreatePdfAnnotationArgsSchema, UpdatePdfAnnotationArgsSchema,
   PositiveIntSchema, ExportConceptArgsSchema, ExportBundleArgsSchema, ImportUrlArgsSchema,
-  renderConceptExport, renderBundleExport, extractArticle,
+  renderConceptExport, renderBundleExport, extractArticle, chunkBatches,
   type ConceptImportance, type LLMSettings, type PassName, type RelationKind, type SecretCodec,
   runEnricher,
   runConceptExtractor, runGraphBuilder,
@@ -161,6 +161,14 @@ function stripJsonFences(raw: string): string {
 // Max candidates evaluated per LLM topic-fit call. The term-only payload +
 // keep-list response keep this well under the Groq free-tier TPM budget.
 const LLM_API_FILTER_LIMIT = 75;
+
+// Full-coverage filter bounds. Sequential + paced + capped so a large source
+// can never storm the rate limit (the failure mode that got the earlier
+// multi-batch/dual-provider attempt reverted). chatJSON owns the per-call 429
+// backoff; these are the outer guardrails.
+const LLM_FILTER_MAX_BATCHES = 12;        // hard ceiling (~900 candidates/run)
+const LLM_FILTER_DEADLINE_MS = 120_000;   // overall wall-clock budget
+const LLM_FILTER_BATCH_DELAY_MS = 1_000;  // pacing between batches (RPM safety)
 
 // Deduplicate candidates by normalized term — the renderer maps kept terms back
 // to every row sharing that term, so sending duplicates only wastes tokens.
@@ -1005,43 +1013,72 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     deleteEquationCandidate(db, id);
     return { ok: true as const };
   });
-  ipcMain.handle(IPC.CANDIDATES_LLM_FILTER, async (_e, rawArgs: CandidateLlmFilterArgs) => {
+  ipcMain.handle(IPC.CANDIDATES_LLM_FILTER, async (e, rawArgs: CandidateLlmFilterArgs) => {
     const args = validateIpc(CandidateLlmFilterArgsSchema, rawArgs, IPC.CANDIDATES_LLM_FILTER);
     const source = getSourceById(db, args.sourceId);
     if (!source) throw new Error(`source ${args.sourceId} not found`);
 
-    // One compact call against the configured provider. Deterministic extraction
-    // already narrowed the list; a single 75-candidate batch keeps this fast and
-    // well under low Groq TPM tiers (the manual ChatGPT prompt is the large-list
-    // fallback for full coverage).
     const config = cfgFor('concepts');
-    const candidates = dedupeByNormalized(args.candidates).slice(0, LLM_API_FILTER_LIMIT);
-    if (candidates.length === 0) {
-      return { provider: config.provider, model: config.model, sent: 0, keepTerms: [], decisions: [] };
-    }
     const title = args.sourceTitle ?? source.title ?? source.filename;
-    const { content } = await chatJSON(config, {
-      responseFormat: 'json',
-      temperature: 0,
-      maxTokens: Math.min(1200, Math.max(220, candidates.length * 12 + 120)),
-      messages: [
-        { role: 'system', content: 'You are a precise textbook concept filter. Return valid JSON only.' },
-        { role: 'user', content: buildCandidateLlmFilterPrompt(title, candidates) },
-      ],
-    }, 'concepts');
-    const decisions = parseCandidateLlmFilterResponse(content);
-    const candidateTerms = new Set(candidates.map(c => c.normalized.toLowerCase()));
-    const keepTerms = decisions
-      .filter(d => d.keep && candidateTerms.has(d.term.toLowerCase()))
-      .map(d => d.term.toLowerCase());
+    const deduped = dedupeByNormalized(args.candidates);
 
-    return {
-      provider: config.provider,
-      model: config.model,
-      sent: candidates.length,
-      keepTerms,
-      decisions,
-    };
+    // One topic-fit call over a batch → its decisions + the kept terms within it.
+    async function runBatch(batch: typeof deduped): Promise<{ decisions: ReturnType<typeof parseCandidateLlmFilterResponse>; keepTerms: string[] }> {
+      const { content } = await chatJSON(config, {
+        responseFormat: 'json',
+        temperature: 0,
+        maxTokens: Math.min(1200, Math.max(220, batch.length * 12 + 120)),
+        messages: [
+          { role: 'system', content: 'You are a precise textbook concept filter. Return valid JSON only.' },
+          { role: 'user', content: buildCandidateLlmFilterPrompt(title, batch) },
+        ],
+      }, 'concepts');
+      const decisions = parseCandidateLlmFilterResponse(content);
+      const terms = new Set(batch.map(c => c.normalized.toLowerCase()));
+      const keepTerms = decisions
+        .filter(d => d.keep && terms.has(d.term.toLowerCase()))
+        .map(d => d.term.toLowerCase());
+      return { decisions, keepTerms };
+    }
+
+    // Fast default: one compact 75-candidate call (well under low Groq TPM
+    // tiers; the manual ChatGPT prompt is the large-list fallback).
+    if (!args.fullCoverage) {
+      const batch = deduped.slice(0, LLM_API_FILTER_LIMIT);
+      if (batch.length === 0) return { provider: config.provider, model: config.model, sent: 0, keepTerms: [], decisions: [] };
+      const { decisions, keepTerms } = await runBatch(batch);
+      return { provider: config.provider, model: config.model, sent: batch.length, keepTerms, decisions };
+    }
+
+    // Full coverage: sequential, paced, bounded, fail-soft. chatJSON handles
+    // per-call 429 backoff; the cap + deadline keep a big source from stalling,
+    // and a batch that exhausts its retries stops the run with partial results
+    // rather than discarding everything.
+    const batches = chunkBatches(deduped, LLM_API_FILTER_LIMIT, LLM_FILTER_MAX_BATCHES);
+    const total = batches.length;
+    const deadline = Date.now() + LLM_FILTER_DEADLINE_MS;
+    const keepSet = new Set<string>();
+    const allDecisions: ReturnType<typeof parseCandidateLlmFilterResponse> = [];
+    let sent = 0;
+    let done = 0;
+    for (const batch of batches) {
+      if (Date.now() > deadline) break;
+      try {
+        const { decisions, keepTerms } = await runBatch(batch);
+        allDecisions.push(...decisions);
+        for (const t of keepTerms) keepSet.add(t);
+        sent += batch.length;
+      } catch (err) {
+        console.error('[starcall:llmFilter] batch failed, returning partial results', err);
+        break;
+      }
+      done += 1;
+      e.sender.send(IPC.CANDIDATES_LLM_FILTER_PROGRESS, { done, total, sent });
+      if (done < total && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, LLM_FILTER_BATCH_DELAY_MS));
+      }
+    }
+    return { provider: config.provider, model: config.model, sent, keepTerms: [...keepSet], decisions: allDecisions, batches: done };
   });
   ipcMain.handle(IPC.CANDIDATES_EXTRACT, async (_e, sourceId: number) => {
     const source = getSourceById(db, sourceId);

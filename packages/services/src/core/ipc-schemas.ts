@@ -97,6 +97,7 @@ export const CandidateLlmFilterArgsSchema = z.object({
   // and slices it to LLM_API_FILTER_LIMIT before any LLM call, so this is just a
   // sanity bound on the payload (large sources can have >1000 candidates).
   candidates:  z.array(candidateFilterItemSchema).max(10_000),
+  fullCoverage: z.boolean().optional(),
 });
 
 export const UpdateConceptFieldsArgsSchema = z.object({

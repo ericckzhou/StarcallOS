@@ -6,6 +6,7 @@ export * from './core/llm';
 export * from './core/settings';
 export * from './core/version';
 export * from './core/topic';
+export * from './core/batch';
 
 // Domain types
 export * from './core/domain/types';
