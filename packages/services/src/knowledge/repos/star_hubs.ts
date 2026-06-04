@@ -188,13 +188,22 @@ export function listHubsForConcept(db: DatabaseSync, conceptId: number): Array<{
     .map(r => ({ id: Number(r.id), name: r.name, color: r.color }));
 }
 
-// All (hub_id, concept_id) memberships — lets the renderer build per-concept
-// chips for a whole source in one round trip.
-export function listAllMemberships(db: DatabaseSync): Array<{ hub_id: number; concept_id: number }> {
+// All (hub_id, concept_id, role) memberships — lets the renderer build
+// per-concept chips for a whole source (and show/edit roles) in one round trip.
+export function listAllMemberships(db: DatabaseSync): Array<{ hub_id: number; concept_id: number; role: string }> {
   return (db
-    .prepare('SELECT hub_id, concept_id FROM star_hub_members')
-    .all() as Array<{ hub_id: number | bigint; concept_id: number | bigint }>)
-    .map(r => ({ hub_id: Number(r.hub_id), concept_id: Number(r.concept_id) }));
+    .prepare('SELECT hub_id, concept_id, role FROM star_hub_members')
+    .all() as Array<{ hub_id: number | bigint; concept_id: number | bigint; role: string }>)
+    .map(r => ({ hub_id: Number(r.hub_id), concept_id: Number(r.concept_id), role: r.role }));
+}
+
+// The roles a concept can play within a hub. Organizational only.
+export const HUB_MEMBER_ROLES = ['core', 'supporting', 'prerequisite', 'example'] as const;
+export type HubMemberRole = (typeof HUB_MEMBER_ROLES)[number];
+
+export function setMemberRole(db: DatabaseSync, hubId: number, conceptId: number, role: string): void {
+  const next = (HUB_MEMBER_ROLES as readonly string[]).includes(role) ? role : 'core';
+  db.prepare('UPDATE star_hub_members SET role = ? WHERE hub_id = ? AND concept_id = ?').run(next, hubId, conceptId);
 }
 
 // ─── Hub edges ───────────────────────────────────────────────────────────────

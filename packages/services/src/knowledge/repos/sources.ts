@@ -10,6 +10,7 @@ interface SourceRow {
   page_count: number | null;
   status: string;
   error_msg: string | null;
+  origin_url: string | null;
   created_at: string;
 }
 
@@ -23,20 +24,21 @@ function rowToSource(row: SourceRow): Source {
     page_count: row.page_count,
     status: row.status as SourceStatus,
     error_msg: row.error_msg,
+    origin_url: row.origin_url ?? null,
     created_at: row.created_at,
   };
 }
 
 export function createSource(
   db: DatabaseSync,
-  input: { filename: string; file_path: string; title?: string; author?: string },
+  input: { filename: string; file_path: string; title?: string; author?: string; origin_url?: string },
 ): Source {
   const result = db
     .prepare(
-      `INSERT INTO sources (filename, file_path, title, author)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO sources (filename, file_path, title, author, origin_url)
+       VALUES (?, ?, ?, ?, ?)`,
     )
-    .run(input.filename, input.file_path, input.title ?? null, input.author ?? null);
+    .run(input.filename, input.file_path, input.title ?? null, input.author ?? null, input.origin_url ?? null);
   return getSourceById(db, Number(result.lastInsertRowid))!;
 }
 

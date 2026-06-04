@@ -65,6 +65,7 @@ export const IPC = {
   HUBS_DELETE:             'hubs:delete',
   HUBS_ADD_MEMBERS:        'hubs:addMembers',
   HUBS_REMOVE_MEMBER:      'hubs:removeMember',
+  HUBS_SET_MEMBER_ROLE:    'hubs:setMemberRole',
   HUBS_MEMBERSHIPS:        'hubs:memberships',
   HUBS_EDGES_LIST:         'hubs:edgesList',
   HUBS_EDGE_CREATE:        'hubs:edgeCreate',
@@ -93,6 +94,7 @@ export const IPC = {
   SOURCES_CREATE_TEXT:     'sources:createText',
   SOURCES_IMPORT_URL:      'sources:importUrl',
   SOURCES_IMPORT_DOCS:     'sources:importDocs',
+  APP_OPEN_EXTERNAL:       'app:openExternal',
   CANDIDATES_BY_SOURCE:    'candidates:bySource',
   CANDIDATES_PROMOTE:      'candidates:promote',
   CANDIDATES_PROMOTE_BULK: 'candidates:promoteBulk',
@@ -435,7 +437,7 @@ export interface StarHub {
   created_at: string;
   updated_at: string;
 }
-export interface HubMembership { hub_id: number; concept_id: number; }
+export interface HubMembership { hub_id: number; concept_id: number; role: string; }
 // A user-curated edge between two hubs. `directed` true = a→b one-way, false =
 // mutual (a↔b).
 export interface StarHubEdge { id: number; a_hub_id: number; b_hub_id: number; label: string; directed: boolean; }
@@ -575,6 +577,7 @@ export interface IpcApi {
     delete: (id: number) => Promise<{ ok: true }>;
     addMembers: (args: { hubId: number; conceptIds: number[] }) => Promise<{ ok: true }>;
     removeMember: (args: { hubId: number; conceptId: number }) => Promise<{ ok: true }>;
+    setMemberRole: (args: { hubId: number; conceptId: number; role: string }) => Promise<{ ok: true }>;
     memberships: () => Promise<HubMembership[]>;
     edges: {
       list: () => Promise<StarHubEdge[]>;
@@ -626,6 +629,10 @@ export interface IpcApi {
   export: {
     concept: (args: ExportConceptArgs) => Promise<ExportConceptResult>;
     bundle: (args: ExportBundleArgs) => Promise<ExportConceptResult>;
+  };
+  app: {
+    // Open an http/https URL in the user's default browser (main: shell.openExternal).
+    openExternal: (url: string) => Promise<{ ok: boolean }>;
   };
   parseRuns: {
     bySource: (sourceId: number, limit?: number) => Promise<ParseRunRecord[]>;

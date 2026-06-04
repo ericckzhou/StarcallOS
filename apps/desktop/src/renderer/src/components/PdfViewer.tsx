@@ -901,7 +901,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
         {/* Reading view renders the body as a structured article (headings,
             lists, paragraphs). While a search query is active we fall back to a
             flat pre-wrap column so renderTextBody's match <mark>s keep working. */}
-        <div className="concept-scroll" style={{ flex: 1, overflow: 'auto', background: '#0d0d16' }}>
+        <div className="concept-scroll" style={{ flex: 1, overflow: 'auto', background: 'transparent' }}>
           {searchQuery.trim() ? (
             <div style={{
               maxWidth: 720, margin: '0 auto', padding: '28px 32px',

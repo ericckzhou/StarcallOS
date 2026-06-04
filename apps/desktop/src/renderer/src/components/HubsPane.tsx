@@ -1,7 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { StarHub, StarHubEdge } from '@starcall/shared';
 
-interface MemberLite { id: number; name: string; source_filename?: string }
+interface MemberLite { id: number; name: string; source_filename?: string; role?: string }
+
+// Organizational roles a concept can play within a hub (mirrors HUB_MEMBER_ROLES
+// in services). 'core' is the default.
+const MEMBER_ROLES = ['core', 'supporting', 'prerequisite', 'example'] as const;
 
 // New hubs default to a random palette color rather than always the same purple.
 const HUB_PALETTE = ['#818cf8', '#f472b6', '#34d399', '#fbbf24', '#22d3ee', '#fb7185', '#a78bfa', '#4ade80', '#60a5fa', '#fb923c'];
@@ -28,10 +32,10 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
         const nameById = new Map<number, MemberLite>();
         for (const n of (g as { nodes: MemberLite[] }).nodes) nameById.set(n.id, n);
         const m = new Map<number, MemberLite[]>();
-        for (const { hub_id, concept_id } of ms as Array<{ hub_id: number; concept_id: number }>) {
+        for (const { hub_id, concept_id, role } of ms as Array<{ hub_id: number; concept_id: number; role: string }>) {
           const arr = m.get(hub_id) ?? [];
           const lite = nameById.get(concept_id) ?? { id: concept_id, name: `#${concept_id}` };
-          arr.push(lite);
+          arr.push({ ...lite, role });
           m.set(hub_id, arr);
         }
         setHubs(hs as StarHub[]);
@@ -71,6 +75,16 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
     await window.api.hubs.removeMember({ hubId, conceptId });
     refresh();
     notify();
+  }
+  async function setRole(hubId: number, conceptId: number, role: string) {
+    // Optimistic: update the chip locally, then persist.
+    setMembersByHub(prev => {
+      const next = new Map(prev);
+      const arr = next.get(hubId);
+      if (arr) next.set(hubId, arr.map(m => (m.id === conceptId ? { ...m, role } : m)));
+      return next;
+    });
+    await window.api.hubs.setMemberRole({ hubId, conceptId, role });
   }
   async function addEdge(aHubId: number) {
     if (edgeDraft.target == null) return;
@@ -188,8 +202,15 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
           {members.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {members.map(m => (
-                <span key={m.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '2px 4px 2px 8px', borderRadius: 999, background: 'rgba(30,27,75,0.5)', border: '1px solid #4338ca', color: '#c7d2fe' }}>
+                <span key={m.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 4px 2px 8px', borderRadius: 999, background: 'rgba(30,27,75,0.5)', border: '1px solid #4338ca', color: '#c7d2fe' }}>
                   {m.name}
+                  <select
+                    value={(m.role && (MEMBER_ROLES as readonly string[]).includes(m.role)) ? m.role : 'core'}
+                    onChange={e => void setRole(h.id, m.id, e.target.value)}
+                    title={`Role of ${m.name} in ${h.name}`}
+                    style={{ background: 'transparent', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 999, color: '#a5b4fc', fontSize: 9, padding: '0 2px', cursor: 'pointer', fontFamily: 'inherit', outline: 'none' }}>
+                    {MEMBER_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
                   <button onClick={() => void removeMember(h.id, m.id)} title={`Remove ${m.name} from ${h.name}`}
                     style={{ background: 'transparent', border: 'none', color: '#a5b4fc', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: '0 2px' }}>×</button>
                 </span>

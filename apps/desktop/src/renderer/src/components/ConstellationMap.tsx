@@ -53,7 +53,7 @@ interface SourceMeta {
   filename: string;
   color: string;
 }
-interface HubLite { id: number; name: string; color: string; member_count: number; description: string; }
+interface HubLite { id: number; name: string; color: string; member_count: number; description: string; parent_hub_id: number | null; }
 interface HubEdgeLite { id: number; a_hub_id: number; b_hub_id: number; label: string; directed: boolean; }
 
 // ─── Design constants ──────────────────────────────────────────────────────────
@@ -107,7 +107,7 @@ function useConstellationGraph() {
 
   const refreshHubs = useCallback(() => {
     Promise.all([window.api.hubs.list(), window.api.hubs.memberships(), window.api.hubs.edges.list()]).then(([hs, ms, es]) => {
-      setHubs((hs as HubLite[]).map(h => ({ id: h.id, name: h.name, color: h.color, member_count: h.member_count, description: h.description })));
+      setHubs((hs as HubLite[]).map(h => ({ id: h.id, name: h.name, color: h.color, member_count: h.member_count, description: h.description, parent_hub_id: h.parent_hub_id })));
       const m = new Map<number, number[]>();
       for (const { hub_id, concept_id } of ms as Array<{ hub_id: number; concept_id: number }>) {
         const arr = m.get(concept_id) ?? [];
@@ -822,6 +822,25 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
     }
   }
 
+  // Order hubs as a tree (parent before its children) for the rail; depth drives
+  // the left indentation. A hub whose parent is missing is treated as a root.
+  const hubIdSet = new Set(hubs.map(h => h.id));
+  const hubsByParent = new Map<number | null, HubLite[]>();
+  for (const h of hubs) {
+    const p = h.parent_hub_id != null && hubIdSet.has(h.parent_hub_id) ? h.parent_hub_id : null;
+    const arr = hubsByParent.get(p) ?? [];
+    arr.push(h);
+    hubsByParent.set(p, arr);
+  }
+  const orderedHubs: Array<{ hub: HubLite; depth: number }> = [];
+  const walkHubs = (parent: number | null, depth: number) => {
+    for (const h of (hubsByParent.get(parent) ?? []).slice().sort((a, b) => a.name.localeCompare(b.name))) {
+      orderedHubs.push({ hub: h, depth });
+      walkHubs(h.id, depth + 1);
+    }
+  };
+  walkHubs(null, 0);
+
   return (
     <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative', zIndex: Z.graph }}>
       {sources.length > 0 && (
@@ -832,12 +851,12 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
           {hubs.length > 0 && (
             <div style={{ borderBottom: '1px solid #1f2937', padding: 8, maxHeight: '42%', overflowY: 'auto', flexShrink: 0 }}>
               <div style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Hubs</div>
-              {hubs.map(h => {
+              {orderedHubs.map(({ hub: h, depth }) => {
                 // Show ALL hubs (not just ones on this source) so hubs whose
                 // source was deleted are still editable/deletable. Dim off-view.
                 const onView = visibleHubIds.has(h.id);
                 return (
-                <div key={h.id} className="cm-hub-chip" title={onView ? undefined : `${h.name} — not on this source`} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 4px', borderRadius: 6, opacity: onView ? 1 : 0.55, background: focusedHub === h.id ? 'rgba(129,140,248,0.14)' : 'transparent' }}>
+                <div key={h.id} className="cm-hub-chip" title={onView ? undefined : `${h.name} — not on this source`} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 4px', marginLeft: depth * 12, borderLeft: depth > 0 ? '1px solid rgba(99,102,241,0.3)' : undefined, paddingLeft: depth > 0 ? 6 : 4, borderRadius: 6, opacity: onView ? 1 : 0.55, background: focusedHub === h.id ? 'rgba(129,140,248,0.14)' : 'transparent' }}>
                   <button onClick={() => setFocusedHub(f => (f === h.id ? null : h.id))} title={`Focus ${h.name} · ${h.member_count} concept${h.member_count === 1 ? '' : 's'}`}
                     style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', cursor: 'pointer', color: focusedHub === h.id ? '#e2e8f0' : '#cbd5e1', fontSize: 11, padding: 0, textAlign: 'left' }}>
                     <span style={{ width: 9, height: 9, borderRadius: '50%', background: h.color, flexShrink: 0 }} />

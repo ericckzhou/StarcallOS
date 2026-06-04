@@ -13,6 +13,7 @@ import {
   listHubMembers,
   listHubsForConcept,
   listAllMemberships,
+  setMemberRole,
   listHubEdges,
   createHubEdge,
   updateHubEdge,
@@ -319,8 +320,26 @@ describe('listAllMemberships', () => {
     const h2 = createHub(db, { name: 'H2', conceptIds: [c3.id] });
     const all = listAllMemberships(db);
     expect(all).toHaveLength(3);
-    expect(all).toContainEqual({ hub_id: h1.id, concept_id: c1.id });
-    expect(all).toContainEqual({ hub_id: h1.id, concept_id: c2.id });
-    expect(all).toContainEqual({ hub_id: h2.id, concept_id: c3.id });
+    expect(all).toContainEqual({ hub_id: h1.id, concept_id: c1.id, role: 'core' });
+    expect(all).toContainEqual({ hub_id: h1.id, concept_id: c2.id, role: 'core' });
+    expect(all).toContainEqual({ hub_id: h2.id, concept_id: c3.id, role: 'core' });
+  });
+});
+
+describe('setMemberRole', () => {
+  it('updates a member role and surfaces it via listAllMemberships', () => {
+    const { db, c1, c2 } = setup();
+    const hub = createHub(db, { name: 'Roled', conceptIds: [c1.id, c2.id] });
+    setMemberRole(db, hub.id, c1.id, 'prerequisite');
+    const all = listAllMemberships(db);
+    expect(all).toContainEqual({ hub_id: hub.id, concept_id: c1.id, role: 'prerequisite' });
+    expect(all).toContainEqual({ hub_id: hub.id, concept_id: c2.id, role: 'core' });
+  });
+
+  it('falls back to "core" for an unknown role', () => {
+    const { db, c1 } = setup();
+    const hub = createHub(db, { name: 'H', conceptIds: [c1.id] });
+    setMemberRole(db, hub.id, c1.id, 'bogus');
+    expect(listHubMembers(db, hub.id)[0].role).toBe('core');
   });
 });

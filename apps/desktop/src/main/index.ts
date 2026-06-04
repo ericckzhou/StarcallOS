@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import {
@@ -7,7 +7,7 @@ import {
   listConceptsBySource, getConceptById, listReviewQueue, searchConceptsByPrefixForConcept, renameConcept,
   listAllConceptTags,
   buildConstellationGraph,
-  listHubs, createHub, updateHub, deleteHub, addMembers, removeMember, listAllMemberships,
+  listHubs, createHub, updateHub, deleteHub, addMembers, removeMember, setMemberRole, listAllMemberships,
   listHubEdges, createHubEdge, updateHubEdge, deleteHubEdge,
   listConceptSourceEvidence, updateConceptFields, deleteConcept, deleteConceptEvidenceSpan,
   setConceptReviewed, addConceptEvidence, updateConceptEvidence, deleteConceptEvidenceByIndex,
@@ -345,7 +345,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
           (args.pageStart == null || b.page >= args.pageStart) &&
           (args.pageEnd   == null || b.page <= args.pageEnd),
         );
-        console.log(`[EXTRACT] pdf blocks: ${blocksForLLM.length} (pages ${args.pageStart ?? 1}–${args.pageEnd ?? pageCount}) diag=${JSON.stringify(diag)}`);
+        console.log(`[EXTRACT] pdf blocks: ${blocksForLLM.length} (pages ${args.pageStart ?? 1}-${args.pageEnd ?? pageCount}) diag=${JSON.stringify(diag)}`);
       }
       blockCount = blocksForLLM.length;
 
@@ -386,7 +386,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       mode = settingsForBudget.extractionMode ?? 'deterministic';
 
       if (mode === 'deterministic') {
-        console.log(`[MODE] source=${sourceId} deterministic — skipping all LLM passes (candidates persisted, lazy task gen on review)`);
+        console.log(`[MODE] source=${sourceId} deterministic - skipping all LLM passes (candidates persisted, lazy task gen on review)`);
         updateSourceStatus(db, sourceId, 'ready');
         emitEvent(db, 'source.processing_completed', { sourceId, mode: 'deterministic' }, { entityType: 'source', entityId: sourceId });
         if (isRetry) emitEvent(db, 'source.retry_completed', { sourceId, mode: 'deterministic' }, { entityType: 'source', entityId: sourceId });
@@ -585,7 +585,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const filePath = path.join(textDir, filename);
     fs.writeFileSync(filePath, extracted.text, 'utf-8');
     const title = args.title?.trim() || extracted.title?.trim() || args.url;
-    const source = createSource(db, { filename, file_path: filePath, title });
+    const source = createSource(db, { filename, file_path: filePath, title, origin_url: args.url });
     emitEvent(db, 'source.created', { sourceId: source.id, origin: 'url', url: args.url }, { entityType: 'source', entityId: source.id });
     return { ok: true, source };
   });
@@ -631,6 +631,14 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       }
     }
     return { sources, errors };
+  });
+  ipcMain.handle(IPC.APP_OPEN_EXTERNAL, async (_e, url: string) => {
+    // Only ever hand http/https URLs to the OS — never file:, etc.
+    if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+      await shell.openExternal(url);
+      return { ok: true as const };
+    }
+    return { ok: false as const };
   });
   ipcMain.handle(IPC.CONCEPTS_BY_SOURCE, (_e, sourceId: number) => listConceptsBySource(db, sourceId));
   ipcMain.handle(IPC.CONCEPTS_CREATE_MANUAL, (_e, args: {
@@ -721,6 +729,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.HUBS_DELETE, (_e, id: number) => { deleteHub(db, id); return { ok: true as const }; });
   ipcMain.handle(IPC.HUBS_ADD_MEMBERS, (_e, args: { hubId: number; conceptIds: number[] }) => { addMembers(db, args.hubId, args.conceptIds); return { ok: true as const }; });
   ipcMain.handle(IPC.HUBS_REMOVE_MEMBER, (_e, args: { hubId: number; conceptId: number }) => { removeMember(db, args.hubId, args.conceptId); return { ok: true as const }; });
+  ipcMain.handle(IPC.HUBS_SET_MEMBER_ROLE, (_e, args: { hubId: number; conceptId: number; role: string }) => { setMemberRole(db, args.hubId, args.conceptId, args.role); return { ok: true as const }; });
   ipcMain.handle(IPC.HUBS_MEMBERSHIPS, () => listAllMemberships(db));
   ipcMain.handle(IPC.HUBS_EDGES_LIST, () => listHubEdges(db));
   ipcMain.handle(IPC.HUBS_EDGE_CREATE, (_e, args: { aHubId: number; bHubId: number; label?: string; directed?: boolean }) => createHubEdge(db, args));

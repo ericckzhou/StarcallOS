@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld('api', {
       delete: (id: number) => ipcRenderer.invoke('hubs:edgeDelete', id),
     },
     removeMember: (args: { hubId: number; conceptId: number }) => ipcRenderer.invoke('hubs:removeMember', args),
+    setMemberRole: (args: { hubId: number; conceptId: number; role: string }) => ipcRenderer.invoke('hubs:setMemberRole', args),
     memberships: () => ipcRenderer.invoke('hubs:memberships'),
   },
   evidence: {
@@ -120,6 +121,9 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('export:concept', args),
     bundle: (args: { scope: 'source' | 'library'; sourceId?: number; format: 'markdown' | 'anki' }) =>
       ipcRenderer.invoke('export:bundle', args),
+  },
+  app: {
+    openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
   },
   parseRuns: {
     bySource: (sourceId: number, limit?: number) => ipcRenderer.invoke('parseRuns:bySource', sourceId, limit),
