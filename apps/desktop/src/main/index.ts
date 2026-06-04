@@ -44,8 +44,8 @@ import {
   CreateSourceArgsSchema, ProcessSourceArgsSchema, CreateTextSourceArgsSchema,
   SettingsPatchSchema, SubmitEvidenceArgsSchema, CandidateLlmFilterArgsSchema,
   UpdateConceptFieldsArgsSchema, CreatePdfAnnotationArgsSchema, UpdatePdfAnnotationArgsSchema,
-  PositiveIntSchema, ExportConceptArgsSchema, ExportBundleArgsSchema, ImportUrlArgsSchema,
-  renderConceptExport, renderBundleExport, extractArticle, chunkBatches,
+  PositiveIntSchema, ExportConceptArgsSchema, ExportBundleArgsSchema, ImportUrlArgsSchema, ImportDocsArgsSchema,
+  renderConceptExport, renderBundleExport, extractArticle, docxToMarkdown, chunkBatches,
   type ConceptImportance, type LLMSettings, type PassName, type RelationKind, type SecretCodec,
   runEnricher,
   runConceptExtractor, runGraphBuilder,
@@ -63,6 +63,7 @@ import type {
   ExportConceptArgs,
   ExportBundleArgs,
   ImportUrlArgs,
+  ImportDocsArgs,
   ProcessSourceArgs,
   SubmitEvidenceArgs,
   UpdatePdfAnnotationArgs,
@@ -587,6 +588,47 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const source = createSource(db, { filename, file_path: filePath, title });
     emitEvent(db, 'source.created', { sourceId: source.id, origin: 'url', url: args.url }, { entityType: 'source', entityId: source.id });
     return { ok: true, source };
+  });
+
+  // Import local documents (.docx for now) as text-backed sources. When no paths
+  // are given, open a file dialog (like `+ PDF`). Each file is extracted
+  // independently — a bad file lands in `errors`, never failing the batch.
+  ipcMain.handle(IPC.SOURCES_IMPORT_DOCS, async (_e, rawArgs: ImportDocsArgs) => {
+    const args = validateIpc(ImportDocsArgsSchema, rawArgs, IPC.SOURCES_IMPORT_DOCS);
+    let paths = args.paths ?? [];
+    if (paths.length === 0) {
+      const result = await dialog.showOpenDialog({
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Word documents', extensions: ['docx'] }],
+      });
+      if (result.canceled) return { sources: [], errors: [] };
+      paths = result.filePaths;
+    }
+
+    const textDir = path.join(app.getPath('userData'), 'texts');
+    fs.mkdirSync(textDir, { recursive: true });
+    const sources: ReturnType<typeof createSource>[] = [];
+    const errors: Array<{ path: string; error: string }> = [];
+
+    for (const docPath of paths) {
+      try {
+        const ext = path.extname(docPath).toLowerCase();
+        if (ext !== '.docx') { errors.push({ path: docPath, error: `Unsupported file type: ${ext || 'unknown'}` }); continue; }
+        const buffer = fs.readFileSync(docPath);
+        const markdown = (await docxToMarkdown(buffer)).trim();
+        if (!markdown) { errors.push({ path: docPath, error: 'No readable text found in the document.' }); continue; }
+        const filename = `docx-${Date.now()}-${sources.length}.txt`;
+        const filePath = path.join(textDir, filename);
+        fs.writeFileSync(filePath, markdown, 'utf-8');
+        const title = path.basename(docPath, path.extname(docPath));
+        const source = createSource(db, { filename, file_path: filePath, title });
+        emitEvent(db, 'source.created', { sourceId: source.id, origin: 'docx' }, { entityType: 'source', entityId: source.id });
+        sources.push(source);
+      } catch (err) {
+        errors.push({ path: docPath, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return { sources, errors };
   });
   ipcMain.handle(IPC.CONCEPTS_BY_SOURCE, (_e, sourceId: number) => listConceptsBySource(db, sourceId));
   ipcMain.handle(IPC.CONCEPTS_CREATE_MANUAL, (_e, args: {

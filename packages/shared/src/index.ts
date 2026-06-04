@@ -92,6 +92,7 @@ export const IPC = {
   SOURCES_DELETE:          'sources:delete',
   SOURCES_CREATE_TEXT:     'sources:createText',
   SOURCES_IMPORT_URL:      'sources:importUrl',
+  SOURCES_IMPORT_DOCS:     'sources:importDocs',
   CANDIDATES_BY_SOURCE:    'candidates:bySource',
   CANDIDATES_PROMOTE:      'candidates:promote',
   CANDIDATES_PROMOTE_BULK: 'candidates:promoteBulk',
@@ -172,6 +173,18 @@ export interface ImportUrlResult {
   ok: boolean;
   source?: Source;
   error?: string;
+}
+
+// Import one or more local documents (.docx for now) as text-backed sources.
+// Each file is extracted independently; a bad file lands in `errors` rather than
+// failing the whole batch.
+export interface ImportDocsArgs {
+  // When omitted/empty, the main process opens a file dialog (like `+ PDF`).
+  paths?: string[];
+}
+export interface ImportDocsResult {
+  sources: Source[];
+  errors: Array<{ path: string; error: string }>;
 }
 
 export interface ProcessSourceArgs {
@@ -502,6 +515,7 @@ export interface IpcApi {
     delete: (sourceId: number) => Promise<void>;
     createText: (args: CreateTextSourceArgs) => Promise<Source | null>;
     importUrl: (args: ImportUrlArgs) => Promise<ImportUrlResult>;
+    importDocs: (args: ImportDocsArgs) => Promise<ImportDocsResult>;
     bytes: (sourceId: number) => Promise<ArrayBuffer>;
     llmFilterGet: (sourceId: number) => Promise<string[] | null>;
     llmFilterSet: (args: LlmFilterSetArgs) => Promise<{ ok: true }>;

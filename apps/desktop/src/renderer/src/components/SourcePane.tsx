@@ -149,6 +149,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
   const [urlTitle, setUrlTitle] = useState('');
   const [urlBusy, setUrlBusy] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
+  const [docMsg, setDocMsg] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === 'true');
   const [processSummaries, setProcessSummaries] = useState<Record<number, string>>({});
   // Deleting a source cascades away concepts/evidence/XP, so we defer the real
@@ -265,6 +266,18 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
     closeTextModal();
   }
 
+  async function handleAddDoc() {
+    setDocMsg(null);
+    const res = await window.api.sources.importDocs({}); // main opens the file dialog
+    if (res.sources.length > 0) onSourcesChange([...sources, ...(res.sources as Source[])]);
+    if (res.errors.length > 0) {
+      console.error('[starcall:ipc] importDocs errors', res.errors);
+      const added = res.sources.length;
+      setDocMsg(`${res.errors.length} file${res.errors.length === 1 ? '' : 's'} failed${added ? ` · ${added} imported` : ''}.`);
+      setTimeout(() => setDocMsg(null), 5000);
+    }
+  }
+
   function handleDelete(e: React.MouseEvent, sourceId: number) {
     e.stopPropagation();
     if (deleteTimers.current.has(sourceId)) return;
@@ -330,6 +343,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
           <button onClick={handleAdd} style={{ background: '#312e81', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#a5b4fc', fontSize: 11, cursor: 'pointer' }}>+ PDF</button>
           <button onClick={() => setTextModal(true)} style={{ background: '#1e3a2f', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#6ee7b7', fontSize: 11, cursor: 'pointer' }}>+ Text</button>
           <button onClick={() => setUrlModal(true)} title="Import a web page by URL" style={{ background: '#0e2a3a', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#7dd3fc', fontSize: 11, cursor: 'pointer' }}>+ URL</button>
+          <button onClick={() => void handleAddDoc()} title="Import a Word document (.docx)" style={{ background: '#2a1e3a', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#d8b4fe', fontSize: 11, cursor: 'pointer' }}>+ Doc</button>
           <button
             onClick={() => setCollapsed(true)}
             title="Minimize sources"
@@ -339,6 +353,11 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
           </button>
         </div>
       </div>
+      {docMsg && (
+        <div style={{ padding: '6px 12px', fontSize: 11, color: '#fca5a5', background: 'rgba(127,29,29,0.18)', borderBottom: '1px solid rgba(31,41,55,0.75)' }}>
+          {docMsg}
+        </div>
+      )}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {sources.length === 0 && (
           <div style={{ padding: 20, color: '#374151', fontSize: 12, textAlign: 'center' }}>No PDFs yet</div>

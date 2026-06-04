@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('api', {
     delete: (sourceId: number) => ipcRenderer.invoke('sources:delete', sourceId),
     createText: (args: unknown) => ipcRenderer.invoke('sources:createText', args),
     importUrl: (args: { url: string; title?: string }) => ipcRenderer.invoke('sources:importUrl', args),
+    importDocs: (args: { paths?: string[] }) => ipcRenderer.invoke('sources:importDocs', args),
     bytes: (sourceId: number) => ipcRenderer.invoke('sources:bytes', sourceId),
     llmFilterGet: (sourceId: number) => ipcRenderer.invoke('sources:llmFilterGet', sourceId),
     llmFilterSet: (args: { sourceId: number; keepTerms: string[] | null }) => ipcRenderer.invoke('sources:llmFilterSet', args),

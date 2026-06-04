@@ -64,6 +64,10 @@ export const CreateTextSourceArgsSchema = z.object({
   title: shortStr(500).optional(),
 });
 
+export const ImportDocsArgsSchema = z.object({
+  paths: z.array(z.string().min(1)).max(50).optional(),
+});
+
 export const ImportUrlArgsSchema = z.object({
   // http/https only — the main handler fetches this, so reject other schemes
   // (file:, data:, etc.) at the boundary.
