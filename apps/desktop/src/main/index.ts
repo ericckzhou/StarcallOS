@@ -45,7 +45,7 @@ import {
   SettingsPatchSchema, SubmitEvidenceArgsSchema, CandidateLlmFilterArgsSchema,
   UpdateConceptFieldsArgsSchema, CreatePdfAnnotationArgsSchema, UpdatePdfAnnotationArgsSchema,
   PositiveIntSchema, ExportConceptArgsSchema, ExportBundleArgsSchema, ImportUrlArgsSchema,
-  renderConceptExport, renderBundleExport, htmlToText,
+  renderConceptExport, renderBundleExport, extractArticle,
   type ConceptImportance, type LLMSettings, type PassName, type RelationKind, type SecretCodec,
   runEnricher,
   runConceptExtractor, runGraphBuilder,
@@ -545,8 +545,11 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         signal: controller.signal,
         redirect: 'follow',
         headers: {
-          'User-Agent': 'StarcallOS/0.1 (desktop article importer)',
-          Accept: 'text/html,application/xhtml+xml,text/plain',
+          // Many sites (Medium, news, Cloudflare) 403 a non-browser UA, so we
+          // present a normal desktop-browser fingerprint.
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
         },
       }).finally(() => clearTimeout(timer));
       if (!res.ok) return { ok: false, error: `Fetch failed: HTTP ${res.status}` };
@@ -564,7 +567,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       return { ok: false, error: msg };
     }
 
-    const extracted = htmlToText(html);
+    const extracted = extractArticle(html);
     if (!extracted.text.trim()) return { ok: false, error: 'No readable text found on the page.' };
 
     const textDir = path.join(app.getPath('userData'), 'texts');

@@ -26,6 +26,7 @@ export * from './knowledge/cleanup';
 // Ingestion pipeline
 export * from './ingestion/pdf';
 export * from './ingestion/html_text';
+export * from './ingestion/readability';
 export * from './ingestion/layout';
 export * from './ingestion/grammar';
 export * from './ingestion/candidates';

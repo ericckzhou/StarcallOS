@@ -12,7 +12,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
+    "@mozilla/readability": "^0.6.0",
     "groq-sdk": "^1.2.0",
+    "linkedom": "^0.18.12",
     "pdf-parse": "1.1.1",
     "pdfjs-dist": "^4.10.38",
     "zod": "^4.4.3"
