@@ -26,7 +26,7 @@ jobs:
       - name: Install pnpm
         # Reads the pinned pnpm version from the root package.json
         # "packageManager" field so CI matches local.
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node 22
         uses: actions/setup-node@v6
