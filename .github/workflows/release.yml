@@ -84,7 +84,7 @@ jobs:
 
       - name: Publish to GitHub Release (for tag pushes)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             apps/desktop/dist/*.exe
