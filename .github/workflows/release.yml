@@ -19,16 +19,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install pnpm
         # No version pin here — action-setup reads the exact pnpm version from
         # the root package.json "packageManager" field, so CI matches local and
         # honors onlyBuiltDependencies in pnpm-workspace.yaml (electron/esbuild).
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -84,7 +84,7 @@ jobs:
 
       - name: Publish to GitHub Release (for tag pushes)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             apps/desktop/dist/*.exe

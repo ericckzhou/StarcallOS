@@ -19,7 +19,7 @@
     "@starcall/services": "workspace:*",
     "@starcall/shared": "workspace:*",
     "katex": "^0.17.0",
-    "pdf-parse": "1.1.1"
+    "pdf-parse": "2.4.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
@@ -30,7 +30,7 @@
     "electron": "^42.0.0",
     "electron-builder": "^25.0.0",
     "electron-vite": "^5.0.0",
-    "pdfjs-dist": "^4.10.38",
+    "pdfjs-dist": "^6.0.227",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "typescript": "*",
