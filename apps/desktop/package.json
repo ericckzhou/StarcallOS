@@ -19,7 +19,7 @@
     "@starcall/services": "workspace:*",
     "@starcall/shared": "workspace:*",
     "katex": "^0.17.0",
-    "pdf-parse": "1.1.1"
+    "pdf-parse": "2.4.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
