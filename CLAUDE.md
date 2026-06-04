@@ -121,7 +121,11 @@ Remember these as the active state of the repo:
   `×` to remove); rendered on the Map as a dashed violet `HubEdgeLayer` line
   between nebula centroids (arrow = one-way, double-arrow = mutual), only when
   both endpoint hubs have a cluster on the current view. The Map refetches hub
-  edges on `starcall:graphChanged`. Still planned: member roles.
+  edges on `starcall:graphChanged`. **Member roles are shipped**:
+  `star_hub_members.role` (core/supporting/prerequisite/example) is set via
+  `setMemberRole` (IPC `hubs.setMemberRole`) with a role dropdown on each member
+  chip in the Hubs tab; `listAllMemberships` carries `role`. The Map hub rail
+  renders the nesting tree (indented by parent).
 - Notes ↔ highlights ↔ evidence are linked (migration 0022 adds
   `concept_notes.linked_annotation_id`): a note can link to a PDF highlight (a
   dropdown of the concept's highlights); the chip jumps to the source page.

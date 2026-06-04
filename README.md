@@ -135,7 +135,8 @@ The grader sees the same context. No domain bias, no default associations.
   remove members, delete) — even hubs whose source was deleted. Hubs can also be
   **nested** into a tree (give a hub a parent in the Hubs tab) and **linked to
   each other** with labeled, directional connections that draw between nebulae on
-  the Map. (Member roles are still planned.)
+  the Map. Each member can be assigned a **role** (core / supporting /
+  prerequisite / example).
 - **Note ↔ highlight ↔ evidence linking:** a highlight in the source also
   becomes a concept evidence entry; deleting either side keeps them in sync, and
   a note can link to a highlight and jump to its page.
