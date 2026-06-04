@@ -9,6 +9,7 @@ export type Source = {
   status: string;
   page_count: number | null;
   error_msg: string | null;
+  origin_url?: string | null;
 };
 
 interface Props {
@@ -130,6 +131,85 @@ function BundleExportButton(
     </div>
   );
 }
+
+interface AddItem { key: string; label: string; hint: string; color: string; icon: React.ReactNode; onClick: () => void; }
+
+// Consolidated "+ Add" source control: one button → a portaled menu of source
+// types (PDF / Text / URL / Document). Portaled to <body> so the narrow Sources
+// sidebar can't clip it; closes on outside-click, Escape, scroll, or resize.
+function AddSourceMenu({ items }: { items: AddItem[] }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const WIDTH = 200;
+
+  function openMenu() {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - WIDTH - 8)) });
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('click', close);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [open]);
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-flex' }}>
+      <button
+        ref={btnRef}
+        onClick={e => { e.stopPropagation(); if (open) setOpen(false); else openMenu(); }}
+        title="Add a source"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          background: open ? '#3730a3' : '#312e81', border: '1px solid #4338ca', borderRadius: 4,
+          padding: '3px 9px', color: '#c7d2fe', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          transition: 'background 160ms',
+        }}
+      >
+        + Add
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 160ms' }}><path d="m6 9 6 6 6-6" /></svg>
+      </button>
+      {open && pos && createPortal((
+        <div role="menu" aria-label="Add source" onClick={e => e.stopPropagation()} style={{
+          position: 'fixed', top: pos.top, left: pos.left, zIndex: 200, width: WIDTH,
+          background: 'rgba(4,6,26,0.5)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+          border: '1px solid #263244', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 7,
+        }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '2px 6px 5px' }}>Add source</div>
+          {items.map(it => (
+            <button key={it.key} className="rel-opt" role="menuitem" title={it.label}
+              onClick={e => { e.stopPropagation(); setOpen(false); it.onClick(); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderRadius: 6, padding: '7px 8px', color: '#cbd5e1', fontSize: 12, cursor: 'pointer' }}>
+              <span style={{ color: it.color, display: 'inline-flex', flexShrink: 0 }} aria-hidden="true">{it.icon}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>{it.label}</span>
+              <span style={{ fontSize: 9, color: '#475569', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{it.hint}</span>
+            </button>
+          ))}
+        </div>
+      ), document.body)}
+    </div>
+  );
+}
+
+// Compact 16px source-type icons (stroke, inherit color).
+const IconPdf = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>;
+const IconText = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16" /><path d="M4 12h16" /><path d="M4 17h10" /></svg>;
+const IconUrl = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18" /></svg>;
+const IconDoc = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M9 13h6" /><path d="M9 17h6" /></svg>;
 
 const STATUS: Record<string, { color: string; label: string }> = {
   pending:    { color: '#6b7280', label: 'Pending' },
@@ -340,10 +420,12 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
       <div style={{ padding: '10px 10px 10px 14px', borderBottom: '1px solid rgba(31,41,55,0.75)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, background: 'rgba(4,6,26,0.22)' }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Sources</span>
         <div style={{ display: 'flex', gap: 4 }}>
-          <button onClick={handleAdd} style={{ background: '#312e81', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#a5b4fc', fontSize: 11, cursor: 'pointer' }}>+ PDF</button>
-          <button onClick={() => setTextModal(true)} style={{ background: '#1e3a2f', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#6ee7b7', fontSize: 11, cursor: 'pointer' }}>+ Text</button>
-          <button onClick={() => setUrlModal(true)} title="Import a web page by URL" style={{ background: '#0e2a3a', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#7dd3fc', fontSize: 11, cursor: 'pointer' }}>+ URL</button>
-          <button onClick={() => void handleAddDoc()} title="Import a document (.docx / .pptx)" style={{ background: '#2a1e3a', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#d8b4fe', fontSize: 11, cursor: 'pointer' }}>+ Doc</button>
+          <AddSourceMenu items={[
+            { key: 'pdf', label: 'PDF', hint: '.pdf', color: '#a5b4fc', icon: IconPdf, onClick: () => void handleAdd() },
+            { key: 'text', label: 'Text', hint: 'paste', color: '#6ee7b7', icon: IconText, onClick: () => setTextModal(true) },
+            { key: 'url', label: 'Web page', hint: 'URL', color: '#7dd3fc', icon: IconUrl, onClick: () => setUrlModal(true) },
+            { key: 'doc', label: 'Document', hint: '.docx · .pptx', color: '#d8b4fe', icon: IconDoc, onClick: () => void handleAddDoc() },
+          ]} />
           <button
             onClick={() => setCollapsed(true)}
             title="Minimize sources"
@@ -393,6 +475,16 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
                 <span style={{ fontSize: 11, color: st.color }}>{st.label}</span>
                 <div style={{ display: 'flex', gap: 4 }}>
+                  {src.origin_url && (
+                    <button
+                      onClick={e => { e.stopPropagation(); void window.api.app.openExternal(src.origin_url!); }}
+                      title={`Open original page: ${src.origin_url}`}
+                      aria-label="Open original page in browser"
+                      style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 3, padding: '1px 6px', color: '#7dd3fc', fontSize: 10, cursor: 'pointer' }}
+                    >
+                      Open ↗
+                    </button>
+                  )}
                   {src.status === 'pending' && (
                     <button
                       onClick={e => handleExtract(e, src.id)}
