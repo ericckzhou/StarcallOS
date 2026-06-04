@@ -71,3 +71,45 @@ export function htmlToText(html: string): ExtractedHtml {
 
   return { title, text: body };
 }
+
+// HTML → lightweight Markdown, preserving the structure the flat text view
+// throws away: headings (#), list items (-), block paragraphs, and bold/italic.
+// Used on Readability's cleaned article HTML so the imported source keeps its
+// shape. Still zero-dependency and string-only.
+export function htmlToMarkdown(html: string): string {
+  let s = html;
+  s = s.replace(/<!--[\s\S]*?-->/g, ' ');
+  s = s.replace(/<(script|style|head|noscript|template|svg)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ');
+
+  // Headings → #-prefixed lines (level clamped to h1–h6).
+  s = s.replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_m, lvl: string, inner: string) => {
+    const text = decodeEntities(inner.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+    return text ? `\n\n${'#'.repeat(Number(lvl))} ${text}\n\n` : '\n\n';
+  });
+  // Emphasis → ** / *  (run before generic tag stripping).
+  s = s.replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, (_m, _t, inner: string) => {
+    const t = inner.replace(/<[^>]+>/g, '').trim();
+    return t ? `**${t}**` : '';
+  });
+  s = s.replace(/<(em|i)\b[^>]*>([\s\S]*?)<\/\1>/gi, (_m, _t, inner: string) => {
+    const t = inner.replace(/<[^>]+>/g, '').trim();
+    return t ? `*${t}*` : '';
+  });
+  // List items → "- " bullets.
+  s = s.replace(/<li\b[^>]*>/gi, '\n- ');
+  s = s.replace(/<\/li\s*>/gi, '\n');
+  // Block boundaries → blank lines.
+  s = s.replace(/<\/(p|div|section|article|header|footer|tr|blockquote|ul|ol)\s*>/gi, '\n\n');
+  s = s.replace(/<br\s*\/?>/gi, '\n');
+
+  s = s.replace(/<[^>]+>/g, ' ');
+  s = decodeEntities(s);
+  s = s
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t\f\v]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/^[ \t]+|[ \t]+$/gm, '')
+    .trim();
+  return s;
+}

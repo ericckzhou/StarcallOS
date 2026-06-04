@@ -9,7 +9,7 @@
 
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
-import { htmlToText, type ExtractedHtml } from './html_text';
+import { htmlToText, htmlToMarkdown, type ExtractedHtml } from './html_text';
 
 function normalizeText(s: string): string {
   return s
@@ -25,7 +25,10 @@ export function extractArticle(html: string): ExtractedHtml {
     const { document } = parseHTML(html);
     // Readability mutates the document in place; that's fine, it's throwaway.
     const article = new Readability(document as unknown as Document).parse();
-    const text = normalizeText(article?.textContent ?? '');
+    // Prefer the structured HTML (article.content) → Markdown so headings,
+    // lists, and emphasis survive; fall back to the plain textContent.
+    const md = article?.content ? htmlToMarkdown(article.content) : '';
+    const text = md || normalizeText(article?.textContent ?? '');
     if (text) {
       const title = article?.title?.trim();
       return { title: title || undefined, text };

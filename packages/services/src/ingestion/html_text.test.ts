@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { htmlToText } from './html_text';
+import { htmlToText, htmlToMarkdown } from './html_text';
 
 describe('htmlToText', () => {
   it('extracts the <title> and strips tags from the body', () => {
@@ -52,5 +52,33 @@ describe('htmlToText', () => {
 
   it('leaves an unknown entity untouched rather than dropping it', () => {
     expect(htmlToText('<p>a &bogus; b</p>').text).toBe('a &bogus; b');
+  });
+});
+
+describe('htmlToMarkdown', () => {
+  it('converts headings to #-prefixed lines at the right level', () => {
+    const md = htmlToMarkdown('<h1>Title</h1><h2>Section</h2><h3>Sub</h3>');
+    expect(md).toContain('# Title');
+    expect(md).toContain('## Section');
+    expect(md).toContain('### Sub');
+  });
+
+  it('converts bold and italic to ** and *', () => {
+    expect(htmlToMarkdown('<p>a <strong>bold</strong> and <em>italic</em> word</p>'))
+      .toBe('a **bold** and *italic* word');
+  });
+
+  it('converts list items to - bullets', () => {
+    const md = htmlToMarkdown('<ul><li>one</li><li>two</li></ul>');
+    expect(md).toContain('- one');
+    expect(md).toContain('- two');
+  });
+
+  it('separates paragraphs with a blank line', () => {
+    expect(htmlToMarkdown('<p>First.</p><p>Second.</p>')).toBe('First.\n\nSecond.');
+  });
+
+  it('strips remaining tags and decodes entities', () => {
+    expect(htmlToMarkdown('<p>Tom &amp; <a href="/x">Jerry</a></p>')).toBe('Tom & Jerry');
   });
 });
