@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { toMarkdown, toAnki, renderConceptExport, type ConceptExportData } from './export';
+import {
+  toMarkdown, toAnki, renderConceptExport,
+  toMarkdownBundle, toAnkiBundle, renderBundleExport,
+  type ConceptExportData,
+} from './export';
 import type { Concept, ConceptNote } from './core/domain/types';
 import type { StoredEquationCandidate } from './knowledge/repos/candidates';
 
@@ -148,6 +152,69 @@ describe('toAnki', () => {
     const concept = makeConcept({ tags: ['optimization', 'first order'] });
     const row = toAnki(makeData({ concept })).split('\n')[3].split('\t');
     expect(row[2]).toBe('optimization first_order');
+  });
+});
+
+describe('toMarkdownBundle', () => {
+  const a = makeData({ concept: makeConcept({ name: 'Gradient Descent', slug: 'gradient-descent' }) });
+  const b = makeData({ concept: makeConcept({ id: 2, name: 'Backpropagation', slug: 'backpropagation' }) });
+
+  it('renders a document title, the concept count, and each concept as an h2', () => {
+    const md = toMarkdownBundle([a, b], 'Deep Learning');
+    expect(md).toContain('# Deep Learning');
+    expect(md).toContain('_2 concepts_');
+    // Concept names are h2 (line-anchored so the h1 title doesn't false-match).
+    const lines = md.split('\n');
+    expect(lines).toContain('## Gradient Descent');
+    expect(lines).toContain('## Backpropagation');
+    // Bundle demotes inner sections one level: definition is h3, never h2.
+    expect(lines).toContain('### Definition');
+    expect(lines).not.toContain('## Definition');
+  });
+
+  it('singularizes the count for a one-concept bundle and rules off each entry', () => {
+    const md = toMarkdownBundle([a], 'Solo');
+    expect(md).toContain('_1 concept_');
+    expect(md).toContain('---');
+  });
+
+  it('handles an empty bundle without throwing', () => {
+    const md = toMarkdownBundle([], 'Empty');
+    expect(md).toContain('# Empty');
+    expect(md).toContain('_0 concepts_');
+  });
+});
+
+describe('toAnkiBundle', () => {
+  it('emits a single header followed by one row per concept', () => {
+    const a = makeData({ concept: makeConcept({ name: 'Gradient Descent' }) });
+    const b = makeData({ concept: makeConcept({ id: 2, name: 'Backpropagation' }) });
+    const lines = toAnkiBundle([a, b]).split('\n');
+    expect(lines[0]).toBe('#separator:tab');
+    expect(lines[2]).toBe('#columns:Front\tBack\tTags');
+    // Two concept rows after the 3 header lines.
+    expect(lines[3].split('\t')[0]).toBe('Gradient Descent');
+    expect(lines[4].split('\t')[0]).toBe('Backpropagation');
+    expect(lines[4].split('\t')).toHaveLength(3);
+  });
+
+  it('emits only the header for an empty bundle', () => {
+    const out = toAnkiBundle([]);
+    expect(out).toBe('#separator:tab\n#html:true\n#columns:Front\tBack\tTags\n\n');
+  });
+});
+
+describe('renderBundleExport', () => {
+  const items = [makeData()];
+  it('selects the Markdown formatter and .md extension', () => {
+    const r = renderBundleExport(items, 'markdown', 'Lib');
+    expect(r.extension).toBe('md');
+    expect(r.content).toContain('# Lib');
+  });
+  it('selects the Anki formatter and .txt extension', () => {
+    const r = renderBundleExport(items, 'anki', 'Lib');
+    expect(r.extension).toBe('txt');
+    expect(r.content).toContain('#separator:tab');
   });
 });
 

@@ -38,7 +38,7 @@ export function runMigrations(
   // Warn on duplicate numeric prefixes so contributors catch collisions early.
   // The known duplicate (two 0011_ files on independent tables) is intentional
   // and already applied on all existing installs — do not rename those files.
-  // Next migration should use 0025_.
+  // Next migration should use 0028_.
   const prefixCount = new Map<string, number>();
   for (const f of allFiles) {
     const prefix = f.match(/^(\d+)_/)?.[1] ?? f;

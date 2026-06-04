@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Concept } from './ConceptPane';
 import LatexMath from './LatexMath';
 import { RichTextArea, renderMarkdown, applyMarkdownShortcut } from './RichText';
@@ -207,6 +208,20 @@ function RescheduleButton({ conceptId }: { conceptId: number }) {
 function ExportButton({ conceptId }: { conceptId: number }) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const btnRef = useRef<HTMLButtonElement>(null);
+  // The menu is portaled to <body> with fixed coords so the DetailPane header /
+  // overflow can't clip it (the absolute version was cut off at the edge).
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const MENU_WIDTH = 168;
+
+  function openMenu() {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) {
+      const left = Math.max(8, Math.min(r.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8));
+      setMenuPos({ top: r.bottom + 6, left });
+    }
+    setOpen(true);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -214,7 +229,14 @@ function ExportButton({ conceptId }: { conceptId: number }) {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('click', close);
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('click', close); document.removeEventListener('keydown', onKey); };
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('click', close);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
   }, [open]);
 
   function doExport(format: 'markdown' | 'anki') {
@@ -240,7 +262,8 @@ function ExportButton({ conceptId }: { conceptId: number }) {
   return (
     <div style={{ position: 'relative', flexShrink: 0 }}>
       <button
-        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
+        ref={btnRef}
+        onClick={e => { e.stopPropagation(); if (open) setOpen(false); else openMenu(); }}
         title="Export concept (Markdown / Anki)"
         aria-label="Export concept"
         aria-haspopup="menu"
@@ -259,10 +282,10 @@ function ExportButton({ conceptId }: { conceptId: number }) {
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>
         )}
       </button>
-      {open && (
+      {open && menuPos && createPortal((
         <div role="menu" onClick={e => e.stopPropagation()} style={{
-          position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 30, minWidth: 158,
-          background: 'rgba(4,6,26,0.34)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+          position: 'fixed', top: menuPos.top, left: menuPos.left, zIndex: 200, width: MENU_WIDTH,
+          background: 'rgba(4,6,26,0.5)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
           border: '1px solid #263244', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 9,
         }}>
           <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0 2px' }}>Export as</div>
@@ -273,7 +296,7 @@ function ExportButton({ conceptId }: { conceptId: number }) {
             <span>Anki</span><span style={extStyle}>.txt</span>
           </button>
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 }

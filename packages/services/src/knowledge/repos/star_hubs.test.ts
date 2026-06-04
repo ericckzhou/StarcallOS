@@ -13,6 +13,11 @@ import {
   listHubMembers,
   listHubsForConcept,
   listAllMemberships,
+  setMemberRole,
+  listHubEdges,
+  createHubEdge,
+  updateHubEdge,
+  deleteHubEdge,
 } from './star_hubs';
 
 type DB = ReturnType<typeof openDb>;
@@ -114,6 +119,130 @@ describe('updateHub', () => {
   });
 });
 
+describe('nesting (parent_hub_id)', () => {
+  let db: DB;
+  beforeEach(() => { ({ db } = setup()); });
+
+  it('creates a hub under a parent', () => {
+    const parent = createHub(db, { name: 'Parent' });
+    const child = createHub(db, { name: 'Child', parentHubId: parent.id });
+    expect(child.parent_hub_id).toBe(parent.id);
+    expect(createHub(db, { name: 'Root' }).parent_hub_id).toBeNull();
+  });
+
+  it('sets and clears a parent via updateHub', () => {
+    const parent = createHub(db, { name: 'Parent' });
+    const child = createHub(db, { name: 'Child' });
+    expect(updateHub(db, child.id, { parentHubId: parent.id })!.parent_hub_id).toBe(parent.id);
+    expect(updateHub(db, child.id, { parentHubId: null })!.parent_hub_id).toBeNull();
+  });
+
+  it('leaves the parent unchanged when parentHubId is omitted from the patch', () => {
+    const parent = createHub(db, { name: 'Parent' });
+    const child = createHub(db, { name: 'Child', parentHubId: parent.id });
+    expect(updateHub(db, child.id, { name: 'Renamed' })!.parent_hub_id).toBe(parent.id);
+  });
+
+  it('rejects nesting a hub under itself', () => {
+    const hub = createHub(db, { name: 'Self' });
+    expect(() => updateHub(db, hub.id, { parentHubId: hub.id })).toThrow(/itself or one of its descendants/);
+  });
+
+  it('rejects nesting a hub under one of its descendants (cycle)', () => {
+    const a = createHub(db, { name: 'A' });
+    const b = createHub(db, { name: 'B', parentHubId: a.id });
+    const c = createHub(db, { name: 'C', parentHubId: b.id });
+    // A under C would form A→…→C→A.
+    expect(() => updateHub(db, a.id, { parentHubId: c.id })).toThrow();
+    // Unrelated re-parent is still allowed.
+    expect(updateHub(db, c.id, { parentHubId: a.id })!.parent_hub_id).toBe(a.id);
+  });
+
+  it('re-roots children to null when their parent is deleted (ON DELETE SET NULL)', () => {
+    const parent = createHub(db, { name: 'Parent' });
+    const child = createHub(db, { name: 'Child', parentHubId: parent.id });
+    deleteHub(db, parent.id);
+    expect(getHub(db, child.id)!.parent_hub_id).toBeNull();
+  });
+});
+
+describe('hub edges', () => {
+  let db: DB;
+  beforeEach(() => { ({ db } = setup()); });
+
+  it('creates a labeled, directional edge between two hubs', () => {
+    const a = createHub(db, { name: 'A' });
+    const b = createHub(db, { name: 'B' });
+    const edge = createHubEdge(db, { aHubId: a.id, bHubId: b.id, label: 'feeds into', directed: true });
+    expect(edge.a_hub_id).toBe(a.id);
+    expect(edge.b_hub_id).toBe(b.id);
+    expect(edge.label).toBe('feeds into');
+    expect(edge.directed).toBe(true);
+  });
+
+  it('defaults to directed and an empty label', () => {
+    const a = createHub(db, { name: 'A' });
+    const b = createHub(db, { name: 'B' });
+    const edge = createHubEdge(db, { aHubId: a.id, bHubId: b.id });
+    expect(edge.label).toBe('');
+    expect(edge.directed).toBe(true);
+  });
+
+  it('supports a mutual (undirected) edge', () => {
+    const a = createHub(db, { name: 'A' });
+    const b = createHub(db, { name: 'B' });
+    expect(createHubEdge(db, { aHubId: a.id, bHubId: b.id, directed: false }).directed).toBe(false);
+  });
+
+  it('rejects a self-edge', () => {
+    const a = createHub(db, { name: 'A' });
+    expect(() => createHubEdge(db, { aHubId: a.id, bHubId: a.id })).toThrow(/cannot link to itself/i);
+  });
+
+  it('is idempotent on the ordered pair — re-adding returns the same row', () => {
+    const a = createHub(db, { name: 'A' });
+    const b = createHub(db, { name: 'B' });
+    const first = createHubEdge(db, { aHubId: a.id, bHubId: b.id, label: 'one' });
+    const again = createHubEdge(db, { aHubId: a.id, bHubId: b.id, label: 'two' });
+    expect(again.id).toBe(first.id);
+    expect(listHubEdges(db)).toHaveLength(1);
+  });
+
+  it('treats a→b and b→a as distinct edges', () => {
+    const a = createHub(db, { name: 'A' });
+    const b = createHub(db, { name: 'B' });
+    createHubEdge(db, { aHubId: a.id, bHubId: b.id });
+    createHubEdge(db, { aHubId: b.id, bHubId: a.id });
+    expect(listHubEdges(db)).toHaveLength(2);
+  });
+
+  it('updates label and direction; returns null for a missing edge', () => {
+    const a = createHub(db, { name: 'A' });
+    const b = createHub(db, { name: 'B' });
+    const edge = createHubEdge(db, { aHubId: a.id, bHubId: b.id, label: 'old', directed: true });
+    const updated = updateHubEdge(db, edge.id, { label: 'new', directed: false });
+    expect(updated!.label).toBe('new');
+    expect(updated!.directed).toBe(false);
+    expect(updateHubEdge(db, 99999, { label: 'x' })).toBeNull();
+  });
+
+  it('deletes an edge', () => {
+    const a = createHub(db, { name: 'A' });
+    const b = createHub(db, { name: 'B' });
+    const edge = createHubEdge(db, { aHubId: a.id, bHubId: b.id });
+    deleteHubEdge(db, edge.id);
+    expect(listHubEdges(db)).toHaveLength(0);
+  });
+
+  it('cascades edges away when an endpoint hub is deleted', () => {
+    const a = createHub(db, { name: 'A' });
+    const b = createHub(db, { name: 'B' });
+    createHubEdge(db, { aHubId: a.id, bHubId: b.id });
+    deleteHub(db, a.id);
+    expect(listHubEdges(db)).toHaveLength(0);
+  });
+});
+
 describe('deleteHub', () => {
   it('removes the hub and cascades its members', () => {
     const { db, c1 } = setup();
@@ -191,8 +320,26 @@ describe('listAllMemberships', () => {
     const h2 = createHub(db, { name: 'H2', conceptIds: [c3.id] });
     const all = listAllMemberships(db);
     expect(all).toHaveLength(3);
-    expect(all).toContainEqual({ hub_id: h1.id, concept_id: c1.id });
-    expect(all).toContainEqual({ hub_id: h1.id, concept_id: c2.id });
-    expect(all).toContainEqual({ hub_id: h2.id, concept_id: c3.id });
+    expect(all).toContainEqual({ hub_id: h1.id, concept_id: c1.id, role: 'core' });
+    expect(all).toContainEqual({ hub_id: h1.id, concept_id: c2.id, role: 'core' });
+    expect(all).toContainEqual({ hub_id: h2.id, concept_id: c3.id, role: 'core' });
+  });
+});
+
+describe('setMemberRole', () => {
+  it('updates a member role and surfaces it via listAllMemberships', () => {
+    const { db, c1, c2 } = setup();
+    const hub = createHub(db, { name: 'Roled', conceptIds: [c1.id, c2.id] });
+    setMemberRole(db, hub.id, c1.id, 'prerequisite');
+    const all = listAllMemberships(db);
+    expect(all).toContainEqual({ hub_id: hub.id, concept_id: c1.id, role: 'prerequisite' });
+    expect(all).toContainEqual({ hub_id: hub.id, concept_id: c2.id, role: 'core' });
+  });
+
+  it('falls back to "core" for an unknown role', () => {
+    const { db, c1 } = setup();
+    const hub = createHub(db, { name: 'H', conceptIds: [c1.id] });
+    setMemberRole(db, hub.id, c1.id, 'bogus');
+    expect(listHubMembers(db, hub.id)[0].role).toBe('core');
   });
 });

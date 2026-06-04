@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import * as pdfjs from 'pdfjs-dist';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import type { PdfAnnotation, PdfAnnotationRect } from '@starcall/shared';
+import { renderMarkdown } from './RichText';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — vite ?url import returns a string path the worker loader uses
 import workerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
@@ -202,6 +203,45 @@ function normalizedSelectionRectsForPage(pageEl: HTMLElement, selectionRange: Ra
     .filter((r): r is PdfAnnotationRect => r != null);
 
   return { rects, firstRect: mergedRects[0] ?? rawRects[0] ?? null };
+}
+
+// Renders a text source's body as a structured article: '#'-headings, '-'/'•'
+// bullet lists, and blank-line-separated paragraphs, with inline **bold** /
+// *italic* via renderMarkdown. Used for reading; the flat search view takes
+// over while a query is active (so match highlighting still works).
+function MarkdownArticle({ text }: { text: string }) {
+  const blocks = text.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
+  return (
+    <div style={{
+      maxWidth: 720, margin: '0 auto', padding: '28px 32px',
+      color: '#d8dee9', fontSize: 14.5, lineHeight: 1.75,
+      fontFamily: 'Georgia, Cambria, "Times New Roman", serif',
+    }}>
+      {blocks.map((blk, i) => {
+        const h = /^(#{1,6})\s+([\s\S]*)/.exec(blk);
+        if (h) {
+          const level = h[1].length;
+          const size = level <= 1 ? 23 : level === 2 ? 19 : level === 3 ? 16.5 : 15;
+          return (
+            <div key={i} style={{ fontSize: size, fontWeight: 700, color: '#e8edf5', margin: i === 0 ? '0 0 8px' : '20px 0 6px', lineHeight: 1.3 }}>
+              {renderMarkdown(h[2].replace(/\s+/g, ' '), `h${i}`)}
+            </div>
+          );
+        }
+        const lines = blk.split('\n');
+        if (lines.every(l => /^[-•]\s+/.test(l.trim()))) {
+          return (
+            <ul key={i} style={{ margin: '8px 0 14px', paddingLeft: 22 }}>
+              {lines.map((l, j) => (
+                <li key={j} style={{ margin: '3px 0' }}>{renderMarkdown(l.trim().replace(/^[-•]\s+/, ''), `li${i}-${j}`)}</li>
+              ))}
+            </ul>
+          );
+        }
+        return <p key={i} style={{ margin: '0 0 14px' }}>{renderMarkdown(lines.join(' '), `p${i}`)}</p>;
+      })}
+    </div>
+  );
 }
 
 function notePositionFromClientPoint(
@@ -858,13 +898,23 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
         <Header data={data} conceptName={conceptName} extras={renderSearchBar()} />
         {renderSearchPanel()}
-        <pre style={{
-          flex: 1, margin: 0, padding: 20, overflow: 'auto',
-          background: '#0d0d16', color: '#d1d5db', fontSize: 12, lineHeight: 1.6,
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'ui-monospace, Consolas, monospace',
-        }}>
-          {renderTextBody()}
-        </pre>
+        {/* Reading view renders the body as a structured article (headings,
+            lists, paragraphs). While a search query is active we fall back to a
+            flat pre-wrap column so renderTextBody's match <mark>s keep working. */}
+        <div className="concept-scroll" style={{ flex: 1, overflow: 'auto', background: 'transparent' }}>
+          {searchQuery.trim() ? (
+            <div style={{
+              maxWidth: 720, margin: '0 auto', padding: '28px 32px',
+              color: '#d8dee9', fontSize: 14.5, lineHeight: 1.75,
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              fontFamily: 'Georgia, Cambria, "Times New Roman", serif',
+            }}>
+              {renderTextBody()}
+            </div>
+          ) : (
+            <MarkdownArticle text={textBody ?? '(empty)'} />
+          )}
+        </div>
       </div>
     );
   }

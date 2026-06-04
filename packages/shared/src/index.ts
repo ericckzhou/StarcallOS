@@ -65,7 +65,12 @@ export const IPC = {
   HUBS_DELETE:             'hubs:delete',
   HUBS_ADD_MEMBERS:        'hubs:addMembers',
   HUBS_REMOVE_MEMBER:      'hubs:removeMember',
+  HUBS_SET_MEMBER_ROLE:    'hubs:setMemberRole',
   HUBS_MEMBERSHIPS:        'hubs:memberships',
+  HUBS_EDGES_LIST:         'hubs:edgesList',
+  HUBS_EDGE_CREATE:        'hubs:edgeCreate',
+  HUBS_EDGE_UPDATE:        'hubs:edgeUpdate',
+  HUBS_EDGE_DELETE:        'hubs:edgeDelete',
   REVIEW_QUEUE_LIST:       'review:queueList',
   REVIEW_DUE_COUNT:        'review:dueCount',
   REVIEW_SET_DUE:          'review:setDue',
@@ -87,6 +92,9 @@ export const IPC = {
   EVIDENCE_PROGRESS:       'evidence:progress',
   SOURCES_DELETE:          'sources:delete',
   SOURCES_CREATE_TEXT:     'sources:createText',
+  SOURCES_IMPORT_URL:      'sources:importUrl',
+  SOURCES_IMPORT_DOCS:     'sources:importDocs',
+  APP_OPEN_EXTERNAL:       'app:openExternal',
   CANDIDATES_BY_SOURCE:    'candidates:bySource',
   CANDIDATES_PROMOTE:      'candidates:promote',
   CANDIDATES_PROMOTE_BULK: 'candidates:promoteBulk',
@@ -94,6 +102,7 @@ export const IPC = {
   CANDIDATES_REJECT_BULK:  'candidates:rejectBulk',
   CANDIDATES_EXTRACT:      'candidates:extract',
   CANDIDATES_LLM_FILTER:   'candidates:llmFilter',
+  CANDIDATES_LLM_FILTER_PROGRESS: 'candidates:llmFilterProgress',
   CANDIDATES_RELATION_CREATE: 'candidates:relationCreate',
   CANDIDATES_RELATION_UPDATE: 'candidates:relationUpdate',
   CANDIDATES_RELATION_DELETE: 'candidates:relationDelete',
@@ -105,6 +114,7 @@ export const IPC = {
   CANDIDATES_EQUATION_DELETE: 'candidates:equationDelete',
   PARSE_RUNS_BY_SOURCE:    'parseRuns:bySource',
   EXPORT_CONCEPT:          'export:concept',
+  EXPORT_BUNDLE:           'export:bundle',
 } as const;
 
 export type ExportFormat = 'markdown' | 'anki';
@@ -121,6 +131,15 @@ export interface ExportConceptResult {
   path?: string;
   canceled?: boolean;
   error?: string;
+}
+
+// Bulk export of every concept in one source (`scope: 'source'`, needs
+// `sourceId`) or across all sources (`scope: 'library'`) into a single file.
+// Shares ExportConceptResult — same write/cancel/error semantics.
+export interface ExportBundleArgs {
+  scope: 'source' | 'library';
+  sourceId?: number;
+  format: ExportFormat;
 }
 
 export interface CandidatesBundle {
@@ -140,6 +159,34 @@ export interface CreateSourceArgs {
 export interface CreateTextSourceArgs {
   text: string;
   title?: string;
+}
+
+// Import a web page as a text-backed source. Main fetches the URL (http/https
+// only), extracts readable text, and creates a source. `title` overrides the
+// page's own <title> when provided.
+export interface ImportUrlArgs {
+  url: string;
+  title?: string;
+}
+
+// On success `source` is the created row; on failure `error` explains why
+// (bad URL, fetch failed, empty page). Never throws across IPC.
+export interface ImportUrlResult {
+  ok: boolean;
+  source?: Source;
+  error?: string;
+}
+
+// Import one or more local documents (.docx for now) as text-backed sources.
+// Each file is extracted independently; a bad file lands in `errors` rather than
+// failing the whole batch.
+export interface ImportDocsArgs {
+  // When omitted/empty, the main process opens a file dialog (like `+ PDF`).
+  paths?: string[];
+}
+export interface ImportDocsResult {
+  sources: Source[];
+  errors: Array<{ path: string; error: string }>;
 }
 
 export interface ProcessSourceArgs {
@@ -218,11 +265,14 @@ export interface UpdatePdfAnnotationArgs {
   rotation?: number | null;
 }
 
-// A constellation link: the linked concept name plus the user's reason for the
-// link. Legacy data may still contain bare strings (no reason captured yet).
+// A constellation link: the linked concept (by stable id when known, with name
+// as a display/fallback) plus the user's reason. `targetId` makes the link
+// rename-proof and unambiguous; legacy data may be a bare string or have no
+// targetId, in which case the graph resolves by name.
 export interface ConstellationLink {
   name: string;
   reason: string;
+  targetId?: number;
 }
 
 export interface UpdateConceptFieldsArgs {
@@ -274,6 +324,16 @@ export interface CandidateLlmFilterArgs {
   sourceId: number;
   sourceTitle?: string;
   candidates: CandidateLlmFilterCandidate[];
+  // When true, process ALL deduped candidates in sequential, paced, bounded
+  // batches (full coverage) instead of one compact 75-candidate call.
+  fullCoverage?: boolean;
+}
+
+// Per-batch progress for a full-coverage filter run (main → renderer).
+export interface CandidateLlmFilterProgress {
+  done: number;
+  total: number;
+  sent: number;
 }
 
 export interface CandidateLlmFilterDecision {
@@ -377,7 +437,10 @@ export interface StarHub {
   created_at: string;
   updated_at: string;
 }
-export interface HubMembership { hub_id: number; concept_id: number; }
+export interface HubMembership { hub_id: number; concept_id: number; role: string; }
+// A user-curated edge between two hubs. `directed` true = a→b one-way, false =
+// mutual (a↔b).
+export interface StarHubEdge { id: number; a_hub_id: number; b_hub_id: number; label: string; directed: boolean; }
 
 export interface ConstellationGraphNode {
   id: number;
@@ -453,6 +516,8 @@ export interface IpcApi {
     process: (args: ProcessSourceArgs) => Promise<ProcessSourceResult>;
     delete: (sourceId: number) => Promise<void>;
     createText: (args: CreateTextSourceArgs) => Promise<Source | null>;
+    importUrl: (args: ImportUrlArgs) => Promise<ImportUrlResult>;
+    importDocs: (args: ImportDocsArgs) => Promise<ImportDocsResult>;
     bytes: (sourceId: number) => Promise<ArrayBuffer>;
     llmFilterGet: (sourceId: number) => Promise<string[] | null>;
     llmFilterSet: (args: LlmFilterSetArgs) => Promise<{ ok: true }>;
@@ -507,12 +572,19 @@ export interface IpcApi {
   };
   hubs: {
     list: () => Promise<StarHub[]>;
-    create: (args: { name: string; color?: string; description?: string; conceptIds?: number[] }) => Promise<StarHub>;
-    update: (args: { id: number; name?: string; color?: string; description?: string }) => Promise<StarHub | null>;
+    create: (args: { name: string; color?: string; description?: string; conceptIds?: number[]; parentHubId?: number | null }) => Promise<StarHub>;
+    update: (args: { id: number; name?: string; color?: string; description?: string; parentHubId?: number | null }) => Promise<StarHub | null>;
     delete: (id: number) => Promise<{ ok: true }>;
     addMembers: (args: { hubId: number; conceptIds: number[] }) => Promise<{ ok: true }>;
     removeMember: (args: { hubId: number; conceptId: number }) => Promise<{ ok: true }>;
+    setMemberRole: (args: { hubId: number; conceptId: number; role: string }) => Promise<{ ok: true }>;
     memberships: () => Promise<HubMembership[]>;
+    edges: {
+      list: () => Promise<StarHubEdge[]>;
+      create: (args: { aHubId: number; bHubId: number; label?: string; directed?: boolean }) => Promise<StarHubEdge>;
+      update: (args: { id: number; label?: string; directed?: boolean }) => Promise<StarHubEdge | null>;
+      delete: (id: number) => Promise<{ ok: true }>;
+    };
   };
   evidence: {
     submit: (args: SubmitEvidenceArgs) => Promise<EvidenceRecord>;
@@ -532,6 +604,9 @@ export interface IpcApi {
     rejectBulk: (candidateIds: number[]) => Promise<{ rejected: number }>;
     extract: (sourceId: number) => Promise<ExtractCandidatesResult>;
     llmFilter: (args: CandidateLlmFilterArgs) => Promise<CandidateLlmFilterResult>;
+    // Subscribe to per-batch progress during a full-coverage run. Returns an
+    // unsubscribe function.
+    onLlmFilterProgress: (cb: (p: CandidateLlmFilterProgress) => void) => () => void;
     relationCreate: (args: { sourceId: number; from: string; to: string; kind: string; quote?: string; page?: number }) => Promise<StoredRelationCandidate>;
     relationUpdate: (args: { id: number; from: string; to: string; kind: string; quote?: string; page?: number }) => Promise<StoredRelationCandidate>;
     relationDelete: (id: number) => Promise<{ ok: true }>;
@@ -553,6 +628,11 @@ export interface IpcApi {
   };
   export: {
     concept: (args: ExportConceptArgs) => Promise<ExportConceptResult>;
+    bundle: (args: ExportBundleArgs) => Promise<ExportConceptResult>;
+  };
+  app: {
+    // Open an http/https URL in the user's default browser (main: shell.openExternal).
+    openExternal: (url: string) => Promise<{ ok: boolean }>;
   };
   parseRuns: {
     bySource: (sourceId: number, limit?: number) => Promise<ParseRunRecord[]>;

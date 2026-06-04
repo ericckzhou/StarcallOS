@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import {
@@ -7,7 +7,8 @@ import {
   listConceptsBySource, getConceptById, listReviewQueue, searchConceptsByPrefixForConcept, renameConcept,
   listAllConceptTags,
   buildConstellationGraph,
-  listHubs, createHub, updateHub, deleteHub, addMembers, removeMember, listAllMemberships,
+  listHubs, createHub, updateHub, deleteHub, addMembers, removeMember, setMemberRole, listAllMemberships,
+  listHubEdges, createHubEdge, updateHubEdge, deleteHubEdge,
   listConceptSourceEvidence, updateConceptFields, deleteConcept, deleteConceptEvidenceSpan,
   setConceptReviewed, addConceptEvidence, updateConceptEvidence, deleteConceptEvidenceByIndex,
   type SourceEvidenceKind,
@@ -43,8 +44,8 @@ import {
   CreateSourceArgsSchema, ProcessSourceArgsSchema, CreateTextSourceArgsSchema,
   SettingsPatchSchema, SubmitEvidenceArgsSchema, CandidateLlmFilterArgsSchema,
   UpdateConceptFieldsArgsSchema, CreatePdfAnnotationArgsSchema, UpdatePdfAnnotationArgsSchema,
-  PositiveIntSchema, ExportConceptArgsSchema,
-  renderConceptExport,
+  PositiveIntSchema, ExportConceptArgsSchema, ExportBundleArgsSchema, ImportUrlArgsSchema, ImportDocsArgsSchema,
+  renderConceptExport, renderBundleExport, extractArticle, docxToMarkdown, pptxToMarkdown, chunkBatches,
   type ConceptImportance, type LLMSettings, type PassName, type RelationKind, type SecretCodec,
   runEnricher,
   runConceptExtractor, runGraphBuilder,
@@ -60,6 +61,9 @@ import type {
   CreateSourceArgs,
   CreateTextSourceArgs,
   ExportConceptArgs,
+  ExportBundleArgs,
+  ImportUrlArgs,
+  ImportDocsArgs,
   ProcessSourceArgs,
   SubmitEvidenceArgs,
   UpdatePdfAnnotationArgs,
@@ -158,6 +162,14 @@ function stripJsonFences(raw: string): string {
 // Max candidates evaluated per LLM topic-fit call. The term-only payload +
 // keep-list response keep this well under the Groq free-tier TPM budget.
 const LLM_API_FILTER_LIMIT = 75;
+
+// Full-coverage filter bounds. Sequential + paced + capped so a large source
+// can never storm the rate limit (the failure mode that got the earlier
+// multi-batch/dual-provider attempt reverted). chatJSON owns the per-call 429
+// backoff; these are the outer guardrails.
+const LLM_FILTER_MAX_BATCHES = 12;        // hard ceiling (~900 candidates/run)
+const LLM_FILTER_DEADLINE_MS = 120_000;   // overall wall-clock budget
+const LLM_FILTER_BATCH_DELAY_MS = 1_000;  // pacing between batches (RPM safety)
 
 // Deduplicate candidates by normalized term — the renderer maps kept terms back
 // to every row sharing that term, so sending duplicates only wastes tokens.
@@ -333,7 +345,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
           (args.pageStart == null || b.page >= args.pageStart) &&
           (args.pageEnd   == null || b.page <= args.pageEnd),
         );
-        console.log(`[EXTRACT] pdf blocks: ${blocksForLLM.length} (pages ${args.pageStart ?? 1}–${args.pageEnd ?? pageCount}) diag=${JSON.stringify(diag)}`);
+        console.log(`[EXTRACT] pdf blocks: ${blocksForLLM.length} (pages ${args.pageStart ?? 1}-${args.pageEnd ?? pageCount}) diag=${JSON.stringify(diag)}`);
       }
       blockCount = blocksForLLM.length;
 
@@ -374,7 +386,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       mode = settingsForBudget.extractionMode ?? 'deterministic';
 
       if (mode === 'deterministic') {
-        console.log(`[MODE] source=${sourceId} deterministic — skipping all LLM passes (candidates persisted, lazy task gen on review)`);
+        console.log(`[MODE] source=${sourceId} deterministic - skipping all LLM passes (candidates persisted, lazy task gen on review)`);
         updateSourceStatus(db, sourceId, 'ready');
         emitEvent(db, 'source.processing_completed', { sourceId, mode: 'deterministic' }, { entityType: 'source', entityId: sourceId });
         if (isRetry) emitEvent(db, 'source.retry_completed', { sourceId, mode: 'deterministic' }, { entityType: 'source', entityId: sourceId });
@@ -528,6 +540,106 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     emitEvent(db, 'source.created', { sourceId: source.id }, { entityType: 'source', entityId: source.id });
     return source;
   });
+
+  // Import a web page as a text-backed source. The fetch + HTML→text extraction
+  // live here (network/parsing belong in main); the result rides the same
+  // text-source pipeline. Errors return { ok:false } rather than throwing.
+  ipcMain.handle(IPC.SOURCES_IMPORT_URL, async (_e, rawArgs: ImportUrlArgs) => {
+    const args = validateIpc(ImportUrlArgsSchema, rawArgs, IPC.SOURCES_IMPORT_URL);
+    let html: string;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10_000);
+      const res = await fetch(args.url, {
+        signal: controller.signal,
+        redirect: 'follow',
+        headers: {
+          // Many sites (Medium, news, Cloudflare) 403 a non-browser UA, so we
+          // present a normal desktop-browser fingerprint.
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      }).finally(() => clearTimeout(timer));
+      if (!res.ok) return { ok: false, error: `Fetch failed: HTTP ${res.status}` };
+      const ctype = res.headers.get('content-type') ?? '';
+      if (ctype && !/text\/html|xml|text\/plain/i.test(ctype)) {
+        return { ok: false, error: `Unsupported content type: ${ctype.split(';')[0].trim()}` };
+      }
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength > 5_000_000) return { ok: false, error: 'Page too large (over 5 MB).' };
+      html = new TextDecoder('utf-8').decode(buf);
+    } catch (err) {
+      const msg = err instanceof Error
+        ? (err.name === 'AbortError' ? 'Fetch timed out (10s).' : err.message)
+        : String(err);
+      return { ok: false, error: msg };
+    }
+
+    const extracted = extractArticle(html);
+    if (!extracted.text.trim()) return { ok: false, error: 'No readable text found on the page.' };
+
+    const textDir = path.join(app.getPath('userData'), 'texts');
+    fs.mkdirSync(textDir, { recursive: true });
+    const filename = `url-${Date.now()}.txt`;
+    const filePath = path.join(textDir, filename);
+    fs.writeFileSync(filePath, extracted.text, 'utf-8');
+    const title = args.title?.trim() || extracted.title?.trim() || args.url;
+    const source = createSource(db, { filename, file_path: filePath, title, origin_url: args.url });
+    emitEvent(db, 'source.created', { sourceId: source.id, origin: 'url', url: args.url }, { entityType: 'source', entityId: source.id });
+    return { ok: true, source };
+  });
+
+  // Import local documents (.docx for now) as text-backed sources. When no paths
+  // are given, open a file dialog (like `+ PDF`). Each file is extracted
+  // independently — a bad file lands in `errors`, never failing the batch.
+  ipcMain.handle(IPC.SOURCES_IMPORT_DOCS, async (_e, rawArgs: ImportDocsArgs) => {
+    const args = validateIpc(ImportDocsArgsSchema, rawArgs, IPC.SOURCES_IMPORT_DOCS);
+    let paths = args.paths ?? [];
+    if (paths.length === 0) {
+      const result = await dialog.showOpenDialog({
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Documents', extensions: ['docx', 'pptx'] }],
+      });
+      if (result.canceled) return { sources: [], errors: [] };
+      paths = result.filePaths;
+    }
+
+    const textDir = path.join(app.getPath('userData'), 'texts');
+    fs.mkdirSync(textDir, { recursive: true });
+    const sources: ReturnType<typeof createSource>[] = [];
+    const errors: Array<{ path: string; error: string }> = [];
+
+    for (const docPath of paths) {
+      try {
+        const ext = path.extname(docPath).toLowerCase();
+        const buffer = fs.readFileSync(docPath);
+        let markdown: string;
+        if (ext === '.docx') markdown = (await docxToMarkdown(buffer)).trim();
+        else if (ext === '.pptx') markdown = pptxToMarkdown(buffer).trim();
+        else { errors.push({ path: docPath, error: `Unsupported file type: ${ext || 'unknown'}` }); continue; }
+        if (!markdown) { errors.push({ path: docPath, error: 'No readable text found in the document.' }); continue; }
+        const filename = `${ext.slice(1)}-${Date.now()}-${sources.length}.txt`;
+        const filePath = path.join(textDir, filename);
+        fs.writeFileSync(filePath, markdown, 'utf-8');
+        const title = path.basename(docPath, path.extname(docPath));
+        const source = createSource(db, { filename, file_path: filePath, title });
+        emitEvent(db, 'source.created', { sourceId: source.id, origin: ext.slice(1) }, { entityType: 'source', entityId: source.id });
+        sources.push(source);
+      } catch (err) {
+        errors.push({ path: docPath, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return { sources, errors };
+  });
+  ipcMain.handle(IPC.APP_OPEN_EXTERNAL, async (_e, url: string) => {
+    // Only ever hand http/https URLs to the OS — never file:, etc.
+    if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+      await shell.openExternal(url);
+      return { ok: true as const };
+    }
+    return { ok: false as const };
+  });
   ipcMain.handle(IPC.CONCEPTS_BY_SOURCE, (_e, sourceId: number) => listConceptsBySource(db, sourceId));
   ipcMain.handle(IPC.CONCEPTS_CREATE_MANUAL, (_e, args: {
     sourceId: number;
@@ -617,7 +729,12 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.HUBS_DELETE, (_e, id: number) => { deleteHub(db, id); return { ok: true as const }; });
   ipcMain.handle(IPC.HUBS_ADD_MEMBERS, (_e, args: { hubId: number; conceptIds: number[] }) => { addMembers(db, args.hubId, args.conceptIds); return { ok: true as const }; });
   ipcMain.handle(IPC.HUBS_REMOVE_MEMBER, (_e, args: { hubId: number; conceptId: number }) => { removeMember(db, args.hubId, args.conceptId); return { ok: true as const }; });
+  ipcMain.handle(IPC.HUBS_SET_MEMBER_ROLE, (_e, args: { hubId: number; conceptId: number; role: string }) => { setMemberRole(db, args.hubId, args.conceptId, args.role); return { ok: true as const }; });
   ipcMain.handle(IPC.HUBS_MEMBERSHIPS, () => listAllMemberships(db));
+  ipcMain.handle(IPC.HUBS_EDGES_LIST, () => listHubEdges(db));
+  ipcMain.handle(IPC.HUBS_EDGE_CREATE, (_e, args: { aHubId: number; bHubId: number; label?: string; directed?: boolean }) => createHubEdge(db, args));
+  ipcMain.handle(IPC.HUBS_EDGE_UPDATE, (_e, args: { id: number; label?: string; directed?: boolean }) => updateHubEdge(db, args.id, args));
+  ipcMain.handle(IPC.HUBS_EDGE_DELETE, (_e, id: number) => { deleteHubEdge(db, id); return { ok: true as const }; });
   ipcMain.handle(IPC.CONCEPTS_GET, (_e, id: number) => getConceptById(db, id) ?? null);
   ipcMain.handle(IPC.CONCEPTS_RENAME, (_e, args: { conceptId: number; name: string }) => {
     return renameConcept(db, args.conceptId, args.name);
@@ -666,6 +783,71 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const safeName = (concept.slug || `concept-${concept.id}`).replace(/[^\w.-]+/g, '-');
     const result = await dialog.showSaveDialog({
       defaultPath: `${safeName}.${extension}`,
+      filters: args.format === 'anki'
+        ? [{ name: 'Anki import (tab-separated)', extensions: ['txt'] }]
+        : [{ name: 'Markdown', extensions: ['md'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+
+    try {
+      fs.writeFileSync(result.filePath, content, 'utf-8');
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    return { ok: true, path: result.filePath };
+  });
+
+  // Bulk export: every concept in one source, or across the whole library, into
+  // a single Markdown/Anki file. Assembles the same per-concept ConceptExportData
+  // the single-concept handler does, then renders the bundle.
+  ipcMain.handle(IPC.EXPORT_BUNDLE, async (_e, rawArgs: ExportBundleArgs) => {
+    const args = validateIpc(ExportBundleArgsSchema, rawArgs, IPC.EXPORT_BUNDLE);
+
+    let concepts: ReturnType<typeof getConceptById>[] = [];
+    let bundleTitle: string;
+    let defaultStem: string;
+    if (args.scope === 'source') {
+      const source = getSourceById(db, args.sourceId!);
+      if (!source) return { ok: false, error: 'Source not found' };
+      concepts = listConceptsBySource(db, args.sourceId!);
+      bundleTitle = source.title || source.filename;
+      defaultStem = (bundleTitle || `source-${source.id}`).replace(/[^\w.-]+/g, '-');
+    } else {
+      // Library: every promoted concept across all sources, grouped by source.
+      for (const source of listSources(db)) {
+        concepts.push(...listConceptsBySource(db, source.id));
+      }
+      bundleTitle = 'StarcallOS Library';
+      defaultStem = 'starcall-library';
+    }
+
+    if (concepts.length === 0) {
+      return { ok: false, error: args.scope === 'source' ? 'This source has no promoted concepts to export.' : 'No promoted concepts to export yet.' };
+    }
+
+    const sourceTitleCache = new Map<number, string>();
+    const sourceTitleFor = (sourceId: number): string => {
+      let title = sourceTitleCache.get(sourceId);
+      if (title === undefined) {
+        const src = getSourceById(db, sourceId);
+        title = src ? (src.title || src.filename) : 'Unknown source';
+        sourceTitleCache.set(sourceId, title);
+      }
+      return title;
+    };
+
+    const items = concepts.filter((c): c is NonNullable<typeof c> => c != null).map(concept => ({
+      concept,
+      sourceTitle: sourceTitleFor(concept.source_id),
+      notes: listNotesByConcept(db, concept.id),
+      equations: listEquationCandidatesForConcept(db, concept.id),
+      srs: getConceptSrs(db, concept.id),
+    }));
+
+    const { content, extension } = renderBundleExport(items, args.format, bundleTitle);
+
+    const result = await dialog.showSaveDialog({
+      defaultPath: `${defaultStem}.${extension}`,
       filters: args.format === 'anki'
         ? [{ name: 'Anki import (tab-separated)', extensions: ['txt'] }]
         : [{ name: 'Markdown', extensions: ['md'] }],
@@ -884,43 +1066,72 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     deleteEquationCandidate(db, id);
     return { ok: true as const };
   });
-  ipcMain.handle(IPC.CANDIDATES_LLM_FILTER, async (_e, rawArgs: CandidateLlmFilterArgs) => {
+  ipcMain.handle(IPC.CANDIDATES_LLM_FILTER, async (e, rawArgs: CandidateLlmFilterArgs) => {
     const args = validateIpc(CandidateLlmFilterArgsSchema, rawArgs, IPC.CANDIDATES_LLM_FILTER);
     const source = getSourceById(db, args.sourceId);
     if (!source) throw new Error(`source ${args.sourceId} not found`);
 
-    // One compact call against the configured provider. Deterministic extraction
-    // already narrowed the list; a single 75-candidate batch keeps this fast and
-    // well under low Groq TPM tiers (the manual ChatGPT prompt is the large-list
-    // fallback for full coverage).
     const config = cfgFor('concepts');
-    const candidates = dedupeByNormalized(args.candidates).slice(0, LLM_API_FILTER_LIMIT);
-    if (candidates.length === 0) {
-      return { provider: config.provider, model: config.model, sent: 0, keepTerms: [], decisions: [] };
-    }
     const title = args.sourceTitle ?? source.title ?? source.filename;
-    const { content } = await chatJSON(config, {
-      responseFormat: 'json',
-      temperature: 0,
-      maxTokens: Math.min(1200, Math.max(220, candidates.length * 12 + 120)),
-      messages: [
-        { role: 'system', content: 'You are a precise textbook concept filter. Return valid JSON only.' },
-        { role: 'user', content: buildCandidateLlmFilterPrompt(title, candidates) },
-      ],
-    }, 'concepts');
-    const decisions = parseCandidateLlmFilterResponse(content);
-    const candidateTerms = new Set(candidates.map(c => c.normalized.toLowerCase()));
-    const keepTerms = decisions
-      .filter(d => d.keep && candidateTerms.has(d.term.toLowerCase()))
-      .map(d => d.term.toLowerCase());
+    const deduped = dedupeByNormalized(args.candidates);
 
-    return {
-      provider: config.provider,
-      model: config.model,
-      sent: candidates.length,
-      keepTerms,
-      decisions,
-    };
+    // One topic-fit call over a batch → its decisions + the kept terms within it.
+    async function runBatch(batch: typeof deduped): Promise<{ decisions: ReturnType<typeof parseCandidateLlmFilterResponse>; keepTerms: string[] }> {
+      const { content } = await chatJSON(config, {
+        responseFormat: 'json',
+        temperature: 0,
+        maxTokens: Math.min(1200, Math.max(220, batch.length * 12 + 120)),
+        messages: [
+          { role: 'system', content: 'You are a precise textbook concept filter. Return valid JSON only.' },
+          { role: 'user', content: buildCandidateLlmFilterPrompt(title, batch) },
+        ],
+      }, 'concepts');
+      const decisions = parseCandidateLlmFilterResponse(content);
+      const terms = new Set(batch.map(c => c.normalized.toLowerCase()));
+      const keepTerms = decisions
+        .filter(d => d.keep && terms.has(d.term.toLowerCase()))
+        .map(d => d.term.toLowerCase());
+      return { decisions, keepTerms };
+    }
+
+    // Fast default: one compact 75-candidate call (well under low Groq TPM
+    // tiers; the manual ChatGPT prompt is the large-list fallback).
+    if (!args.fullCoverage) {
+      const batch = deduped.slice(0, LLM_API_FILTER_LIMIT);
+      if (batch.length === 0) return { provider: config.provider, model: config.model, sent: 0, keepTerms: [], decisions: [] };
+      const { decisions, keepTerms } = await runBatch(batch);
+      return { provider: config.provider, model: config.model, sent: batch.length, keepTerms, decisions };
+    }
+
+    // Full coverage: sequential, paced, bounded, fail-soft. chatJSON handles
+    // per-call 429 backoff; the cap + deadline keep a big source from stalling,
+    // and a batch that exhausts its retries stops the run with partial results
+    // rather than discarding everything.
+    const batches = chunkBatches(deduped, LLM_API_FILTER_LIMIT, LLM_FILTER_MAX_BATCHES);
+    const total = batches.length;
+    const deadline = Date.now() + LLM_FILTER_DEADLINE_MS;
+    const keepSet = new Set<string>();
+    const allDecisions: ReturnType<typeof parseCandidateLlmFilterResponse> = [];
+    let sent = 0;
+    let done = 0;
+    for (const batch of batches) {
+      if (Date.now() > deadline) break;
+      try {
+        const { decisions, keepTerms } = await runBatch(batch);
+        allDecisions.push(...decisions);
+        for (const t of keepTerms) keepSet.add(t);
+        sent += batch.length;
+      } catch (err) {
+        console.error('[starcall:llmFilter] batch failed, returning partial results', err);
+        break;
+      }
+      done += 1;
+      e.sender.send(IPC.CANDIDATES_LLM_FILTER_PROGRESS, { done, total, sent });
+      if (done < total && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, LLM_FILTER_BATCH_DELAY_MS));
+      }
+    }
+    return { provider: config.provider, model: config.model, sent, keepTerms: [...keepSet], decisions: allDecisions, batches: done };
   });
   ipcMain.handle(IPC.CANDIDATES_EXTRACT, async (_e, sourceId: number) => {
     const source = getSourceById(db, sourceId);

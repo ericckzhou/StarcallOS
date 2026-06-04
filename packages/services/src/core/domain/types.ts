@@ -11,6 +11,7 @@ export interface Source {
   page_count: number | null;
   status: SourceStatus;
   error_msg: string | null;
+  origin_url: string | null;
   created_at: string;
 }
 

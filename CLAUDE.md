@@ -39,6 +39,12 @@ Remember these as the active state of the repo:
   Single explicit `filePath` calls remain backward compatible.
 - `+ Text` opens a centered workspace-sized glass import overlay. Keep the
   existing text-source API and do not reintroduce the old sidebar form.
+- `+ URL` imports a web page as a text-backed source: `sources.importUrl({url})`
+  → main fetches (http/https only, 10s timeout, 5 MB cap) → the pure
+  `htmlToText` extractor (`ingestion/html_text.ts`, zero-dep tag-strip + entity
+  decode) → write `.txt` → `createSource`, riding the same text-source pipeline.
+  No page geometry, so candidate quality is lower than a real PDF. DOCX/PPTX/
+  image-OCR importers are deliberately out of scope for now.
 - Promoted concepts can be manually added/edited/deleted and attached to an
   existing source. Adding a concept opens a centered glass modal overlay (not an
   inline sidebar form). Review queue concepts are grouped by source and
@@ -79,8 +85,15 @@ Remember these as the active state of the repo:
   owns the `dialog.showSaveDialog` + `fs.writeFileSync`. Anki is one Front/Back
   card per concept (definition/why/what/constellations/equations; LaTeX in
   MathJax `\[ \]`); notes are Markdown-only. Args validated by
-  `ExportConceptArgsSchema`. Single-concept only for now (source/library export
-  is a planned extension).
+  `ExportConceptArgsSchema`. Bulk export is also shipped: the SourcePane
+  exposes a per-source export button (each ready row), and the **Settings tab**
+  has an "Export" section with whole-library Markdown/Anki buttons → `export:bundle`
+  (`ExportBundleArgsSchema`, scope `source`|`library`). Bundle formatters
+  (`toMarkdownBundle` / `toAnkiBundle` / `renderBundleExport`) reuse the same
+  per-concept `ConceptExportData`: Markdown demotes each concept to an h2 under
+  a document title with `---` separators; Anki emits one header + one row per
+  concept. The main `export:bundle` handler gathers `listConceptsBySource` (one
+  source, or every source for `library`) and owns the save dialog/write.
 - Star Hubs are shipped: named/color-coded cross-source concept groups
   (`star_hubs` + `star_hub_members`, migration 0019). Members are added via
   Select-mode multi-select in `ConceptPane` ("Add to ▾"; the old in-pane "+ Hub"
@@ -89,8 +102,30 @@ Remember these as the active state of the repo:
   (`HubsPane.tsx`) for full management: create (random default color),
   rename/recolor/describe, remove members, delete. The Map rail lists ALL hubs
   (dimming ones not on the current source) so a hub whose source was deleted is
-  still deletable. New-hub default color is randomized. Still planned: member
-  roles, nesting.
+  still deletable. New-hub default color is randomized. **Hub nesting is
+  shipped**: a hub can have a parent via `star_hubs.parent_hub_id` (column
+  predates this; `ON DELETE SET NULL` re-roots children when a parent is
+  deleted). `createHub`/`updateHub` accept `parentHubId` (tri-state on update:
+  omitted = unchanged, `null` = top-level, id = nest); the repo's `wouldCycle`
+  guard throws on a self/descendant parent. The Hubs tab renders hubs as an
+  indented tree (`renderTree`/`renderHubCard`) with a Parent `<select>` in the
+  edit form whose options exclude the hub and its descendants. Nesting is
+  organizational only — the Constellation Map still draws each hub as its own
+  nebula by direct membership (Map-rail indentation is a deliberate follow-up).
+  **Cross-hub edges are shipped**: user-curated relationships between two hubs
+  (`star_hub_edges`, migration 0026; optional `label`, `directed` flag for
+  one-way/mutual; cascades on hub delete). Repo CRUD `listHubEdges` /
+  `createHubEdge` (rejects self-edge, idempotent on ordered pair) /
+  `updateHubEdge` / `deleteHubEdge`; IPC `hubs.edges.{list,create,update,delete}`.
+  Managed per-hub in the Hubs tab "Links" row (add target + label + direction,
+  `×` to remove); rendered on the Map as a dashed violet `HubEdgeLayer` line
+  between nebula centroids (arrow = one-way, double-arrow = mutual), only when
+  both endpoint hubs have a cluster on the current view. The Map refetches hub
+  edges on `starcall:graphChanged`. **Member roles are shipped**:
+  `star_hub_members.role` (core/supporting/prerequisite/example) is set via
+  `setMemberRole` (IPC `hubs.setMemberRole`) with a role dropdown on each member
+  chip in the Hubs tab; `listAllMemberships` carries `role`. The Map hub rail
+  renders the nesting tree (indented by parent).
 - Notes ↔ highlights ↔ evidence are linked (migration 0022 adds
   `concept_notes.linked_annotation_id`): a note can link to a PDF highlight (a
   dropdown of the concept's highlights); the chip jumps to the source page.

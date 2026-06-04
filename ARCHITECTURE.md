@@ -311,7 +311,11 @@ importance tag.
   formatters live in `services/src/export.ts`; the `export:concept` IPC handler
   gathers the concept, source title, notes, equations, and SRS state, then owns
   the Save dialog and file write. Anki emits one Front/Back card per concept
-  (LaTeX in MathJax `\[ \]`).
+  (LaTeX in MathJax `\[ \]`). **Bulk export** is also available from the
+  Sources sidebar — a per-source button and a whole-library button — via
+  `export:bundle` (scope `source`|`library`): the same formatters bundle many
+  concepts into one file (Markdown demotes each to an h2 under a title; Anki
+  emits one row per concept).
 - The top-level source tab defaults to **Candidates** on first launch and
   remembers the last-selected tab thereafter.
 - Equation LaTeX renders via **KaTeX** (`LatexMath.tsx`,
@@ -364,8 +368,24 @@ hubs (dimming ones not on the current source) so a hub whose source was deleted
 remains deletable. New-hub default color is randomized. User-curated, never
 LLM-written.
 
-**Still planned:** cross-hub edges in the Map, member roles
-(`core`/`supporting`/`prerequisite`/…), and hub nesting.
+**Shipped — hub nesting:** a hub can have a parent (`star_hubs.parent_hub_id`,
+`ON DELETE SET NULL` re-roots children when a parent is deleted). `createHub`
+and `updateHub` accept `parentHubId` (tri-state on update: omitted = unchanged,
+`null` = top-level, id = nest under that hub); a `wouldCycle` guard throws on a
+self/descendant parent. The **Hubs tab** renders hubs as an indented tree with a
+Parent picker (options exclude the hub and its descendants). Nesting is
+organizational — the Map still draws each hub as its own nebula by direct
+membership.
+
+**Shipped — cross-hub edges:** user-curated relationships between two hubs
+(`star_hub_edges`, migration 0026), optionally labeled and directional
+(one-way/mutual), cascading away when either endpoint hub is deleted. Managed
+per-hub in the **Hubs tab** ("Links" row) and rendered on the **Map** as dashed
+violet lines between hub-nebula centroids (drawn only when both endpoints have a
+cluster on the current view).
+
+**Still planned:** member roles (`core`/`supporting`/`prerequisite`/…) and
+Map-rail indentation by parent.
 
 Potential data model:
 
@@ -405,4 +425,6 @@ Uses Node.js 22 built-in `node:sqlite` (experimental). No native compilation req
 
 Shipped: richer deterministic candidate parser, equations, relations, misconception phrases; deterministic mode (default); candidate_gated mode (LLM-cheap); full mode (legacy); per-provider settings (Groq + Anthropic); per-source topic anchors; bucket/tag/min-score + filtered LLM filters with persistence and compact API batching (min-score now applies to the suspicious bucket too); bulk-promote w/ safe-default gate; lazy task gen; lazy concept enrichment; ChatGPT prompt round-trip; continuous-scroll side-by-side PDF viewer with fit-to-width, − / % / + zoom, a selectable/copyable text layer, evidence rail, auto-scroll to the first evidence page, concept-scoped highlights, and draggable sticky notes; click-to-rename concept titles; evidence-kind chips on the concept header; cross-source constellations via Overview typeahead; Challenge-task regeneration that excludes already-answered prompts and adds a twist; grader that always surfaces next-stage gaps; History-delete that recomputes XP winner and mastery stage; Review Queue sort-cycle (default/importance/stage); source tab defaulting to Candidates; user-authored concept notes; profile/avatar/XP/background customization with image **and video** backgrounds; multi-PDF import; centered text-source import overlay; manual concept/equation/candidate CRUD; parse_runs audit; Re-extract preserving user data; running-header section detection (deterministic) with `section_source` provenance; concept search (ConceptPane + Candidate Review, `/` focus); Paper tab (low-chrome autosave scratchpad per concept); constellation links with required reasons; **global Constellation Map** (force-directed SVG, source-focused, directional/cross-source edges, reduced-motion aware, nebula hub clusters, stable per-source-id node color, refetch on constellation edit); **Star Hubs** (cross-source concept groups) with a dedicated **Hubs tab** for full management (create/rename/recolor/remove-members/delete, orphaned hubs included); **KaTeX** equation rendering; **note ↔ highlight ↔ evidence linking** (highlight creates an evidence span carrying `annotationId`, two-way delete sync, notes link to highlights and jump to page); **concept tags** (colored, pick-existing-or-create, dismissible auto kind chips); **source search** (PDF page filter + text inline match) and "related pages only"; **constellation reason via evidence selector**; **5s undo** for source/concept/note delete (deferred delete, flush on unmount).
 
-Queued (not blocking): cross-hub edges in the Map; hub member roles + nesting; full-coverage LLM topic filter (paced multi-batch + 429 backoff, currently 75/call); ID-based constellation links (vs name-based); refactor `CandidateReview.tsx` into per-panel files; per-pass model override UI; CSS design tokens; more tests for `promotion`, `cleanup`, `enrich_concept`, annotations, candidate CRUD, LLM topic filtering, source-preview page anchoring, and `buildConstellationGraph`.
+Queued (not blocking): image-OCR source importer (tesseract.js, deferred — PDF/text/URL/DOCX/PPTX shipped); strip Markdown markers (`#`/`-`/`**`) from imported URL/DOCX/PPTX text before candidate parsing if they add term noise; refactor `CandidateReview.tsx` into per-panel files; per-pass model override UI; CSS design tokens; more tests for `promotion`, `cleanup`, `enrich_concept`, annotations, candidate CRUD, LLM topic filtering, and source-preview page anchoring. (Known/benign: duplicate `0011` migration prefix is intentional and already applied — do not rename.)
+
+(Shipped recently: source/library/concept export to Markdown/Anki; URL import with readability + Markdown structure; DOCX and PPTX importers; consolidated `+ Add` source menu; hub nesting, cross-hub edges, and member roles; Map-rail nesting by parent; ID-based constellation links; full-coverage paced/bounded LLM topic filter; URL "Open original".)

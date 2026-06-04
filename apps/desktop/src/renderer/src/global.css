@@ -12,10 +12,18 @@ html, body, #root {
 }
 
 /* Dark option list for native <select> popups. Chromium honors these on the
-   rendered menu items. */
+   rendered menu items. accent-color recolors the highlighted option from the
+   default blue to the app's indigo. */
+select {
+  accent-color: #818cf8;
+}
 select option {
   background-color: #0d0d16;
   color: #e2e8f0;
+}
+select option:checked {
+  background: linear-gradient(#312e81, #312e81);
+  color: #e0e7ff;
 }
 
 html {

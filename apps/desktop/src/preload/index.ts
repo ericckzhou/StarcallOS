@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('api', {
     process: (args: unknown) => ipcRenderer.invoke('sources:process', args),
     delete: (sourceId: number) => ipcRenderer.invoke('sources:delete', sourceId),
     createText: (args: unknown) => ipcRenderer.invoke('sources:createText', args),
+    importUrl: (args: { url: string; title?: string }) => ipcRenderer.invoke('sources:importUrl', args),
+    importDocs: (args: { paths?: string[] }) => ipcRenderer.invoke('sources:importDocs', args),
     bytes: (sourceId: number) => ipcRenderer.invoke('sources:bytes', sourceId),
     llmFilterGet: (sourceId: number) => ipcRenderer.invoke('sources:llmFilterGet', sourceId),
     llmFilterSet: (args: { sourceId: number; keepTerms: string[] | null }) => ipcRenderer.invoke('sources:llmFilterSet', args),
@@ -65,11 +67,18 @@ contextBridge.exposeInMainWorld('api', {
   },
   hubs: {
     list: () => ipcRenderer.invoke('hubs:list'),
-    create: (args: { name: string; color?: string; description?: string; conceptIds?: number[] }) => ipcRenderer.invoke('hubs:create', args),
-    update: (args: { id: number; name?: string; color?: string; description?: string }) => ipcRenderer.invoke('hubs:update', args),
+    create: (args: { name: string; color?: string; description?: string; conceptIds?: number[]; parentHubId?: number | null }) => ipcRenderer.invoke('hubs:create', args),
+    update: (args: { id: number; name?: string; color?: string; description?: string; parentHubId?: number | null }) => ipcRenderer.invoke('hubs:update', args),
     delete: (id: number) => ipcRenderer.invoke('hubs:delete', id),
     addMembers: (args: { hubId: number; conceptIds: number[] }) => ipcRenderer.invoke('hubs:addMembers', args),
+    edges: {
+      list: () => ipcRenderer.invoke('hubs:edgesList'),
+      create: (args: { aHubId: number; bHubId: number; label?: string; directed?: boolean }) => ipcRenderer.invoke('hubs:edgeCreate', args),
+      update: (args: { id: number; label?: string; directed?: boolean }) => ipcRenderer.invoke('hubs:edgeUpdate', args),
+      delete: (id: number) => ipcRenderer.invoke('hubs:edgeDelete', id),
+    },
     removeMember: (args: { hubId: number; conceptId: number }) => ipcRenderer.invoke('hubs:removeMember', args),
+    setMemberRole: (args: { hubId: number; conceptId: number; role: string }) => ipcRenderer.invoke('hubs:setMemberRole', args),
     memberships: () => ipcRenderer.invoke('hubs:memberships'),
   },
   evidence: {
@@ -86,6 +95,11 @@ contextBridge.exposeInMainWorld('api', {
     rejectBulk: (candidateIds: number[]) => ipcRenderer.invoke('candidates:rejectBulk', candidateIds),
     extract:  (sourceId: number) => ipcRenderer.invoke('candidates:extract', sourceId),
     llmFilter: (args: unknown) => ipcRenderer.invoke('candidates:llmFilter', args),
+    onLlmFilterProgress: (cb: (p: { done: number; total: number; sent: number }) => void) => {
+      const listener = (_e: unknown, p: { done: number; total: number; sent: number }) => cb(p);
+      ipcRenderer.on('candidates:llmFilterProgress', listener);
+      return () => ipcRenderer.removeListener('candidates:llmFilterProgress', listener);
+    },
     relationCreate: (args: unknown) => ipcRenderer.invoke('candidates:relationCreate', args),
     relationUpdate: (args: unknown) => ipcRenderer.invoke('candidates:relationUpdate', args),
     relationDelete: (id: number) => ipcRenderer.invoke('candidates:relationDelete', id),
@@ -105,6 +119,11 @@ contextBridge.exposeInMainWorld('api', {
   export: {
     concept: (args: { conceptId: number; format: 'markdown' | 'anki' }) =>
       ipcRenderer.invoke('export:concept', args),
+    bundle: (args: { scope: 'source' | 'library'; sourceId?: number; format: 'markdown' | 'anki' }) =>
+      ipcRenderer.invoke('export:bundle', args),
+  },
+  app: {
+    openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
   },
   parseRuns: {
     bySource: (sourceId: number, limit?: number) => ipcRenderer.invoke('parseRuns:bySource', sourceId, limit),

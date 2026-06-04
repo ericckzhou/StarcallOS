@@ -478,12 +478,16 @@ export function buildConstellationGraph(db: DatabaseSync): ConstellationGraph {
     let links: Array<unknown> = [];
     try { links = JSON.parse(r.where_reappears) as Array<unknown>; } catch { links = []; }
     for (const raw of links) {
-      // Links are either a bare name (legacy) or { name, reason }.
+      // Links are a bare name (legacy), { name, reason }, or { name, reason,
+      // targetId }. Prefer the stable targetId (rename-proof, unambiguous) and
+      // fall back to name resolution when it's absent or its concept is gone.
       const name = typeof raw === 'string' ? raw : (raw as { name?: string })?.name ?? '';
       const reason = typeof raw === 'string' ? '' : ((raw as { reason?: string })?.reason ?? '');
-      if (!name) continue;
-      const targets = idsByName.get(normalizeConceptName(name));
-      if (!targets || targets.length === 0) { danglingConstellations += 1; bump(Number(r.source_id), 'danglingConstellations'); continue; }
+      const targetId = typeof raw === 'string' ? undefined : (raw as { targetId?: number })?.targetId;
+      let targets: number[] = [];
+      if (targetId != null && byId.has(targetId)) targets = [targetId];
+      else if (name) targets = idsByName.get(normalizeConceptName(name)) ?? [];
+      if (targets.length === 0) { danglingConstellations += 1; bump(Number(r.source_id), 'danglingConstellations'); continue; }
       for (const toId of targets) {
         if (toId === fromId) continue;
         const lo = Math.min(fromId, toId), hi = Math.max(fromId, toId);

@@ -6,6 +6,7 @@ export * from './core/llm';
 export * from './core/settings';
 export * from './core/version';
 export * from './core/topic';
+export * from './core/batch';
 
 // Domain types
 export * from './core/domain/types';
@@ -25,6 +26,10 @@ export * from './knowledge/cleanup';
 
 // Ingestion pipeline
 export * from './ingestion/pdf';
+export * from './ingestion/html_text';
+export * from './ingestion/readability';
+export * from './ingestion/docx';
+export * from './ingestion/pptx';
 export * from './ingestion/layout';
 export * from './ingestion/grammar';
 export * from './ingestion/candidates';
