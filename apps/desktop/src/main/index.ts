@@ -45,7 +45,7 @@ import {
   SettingsPatchSchema, SubmitEvidenceArgsSchema, CandidateLlmFilterArgsSchema,
   UpdateConceptFieldsArgsSchema, CreatePdfAnnotationArgsSchema, UpdatePdfAnnotationArgsSchema,
   PositiveIntSchema, ExportConceptArgsSchema, ExportBundleArgsSchema, ImportUrlArgsSchema, ImportDocsArgsSchema,
-  renderConceptExport, renderBundleExport, extractArticle, docxToMarkdown, chunkBatches,
+  renderConceptExport, renderBundleExport, extractArticle, docxToMarkdown, pptxToMarkdown, chunkBatches,
   type ConceptImportance, type LLMSettings, type PassName, type RelationKind, type SecretCodec,
   runEnricher,
   runConceptExtractor, runGraphBuilder,
@@ -599,7 +599,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     if (paths.length === 0) {
       const result = await dialog.showOpenDialog({
         properties: ['openFile', 'multiSelections'],
-        filters: [{ name: 'Word documents', extensions: ['docx'] }],
+        filters: [{ name: 'Documents', extensions: ['docx', 'pptx'] }],
       });
       if (result.canceled) return { sources: [], errors: [] };
       paths = result.filePaths;
@@ -613,16 +613,18 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     for (const docPath of paths) {
       try {
         const ext = path.extname(docPath).toLowerCase();
-        if (ext !== '.docx') { errors.push({ path: docPath, error: `Unsupported file type: ${ext || 'unknown'}` }); continue; }
         const buffer = fs.readFileSync(docPath);
-        const markdown = (await docxToMarkdown(buffer)).trim();
+        let markdown: string;
+        if (ext === '.docx') markdown = (await docxToMarkdown(buffer)).trim();
+        else if (ext === '.pptx') markdown = pptxToMarkdown(buffer).trim();
+        else { errors.push({ path: docPath, error: `Unsupported file type: ${ext || 'unknown'}` }); continue; }
         if (!markdown) { errors.push({ path: docPath, error: 'No readable text found in the document.' }); continue; }
-        const filename = `docx-${Date.now()}-${sources.length}.txt`;
+        const filename = `${ext.slice(1)}-${Date.now()}-${sources.length}.txt`;
         const filePath = path.join(textDir, filename);
         fs.writeFileSync(filePath, markdown, 'utf-8');
         const title = path.basename(docPath, path.extname(docPath));
         const source = createSource(db, { filename, file_path: filePath, title });
-        emitEvent(db, 'source.created', { sourceId: source.id, origin: 'docx' }, { entityType: 'source', entityId: source.id });
+        emitEvent(db, 'source.created', { sourceId: source.id, origin: ext.slice(1) }, { entityType: 'source', entityId: source.id });
         sources.push(source);
       } catch (err) {
         errors.push({ path: docPath, error: err instanceof Error ? err.message : String(err) });

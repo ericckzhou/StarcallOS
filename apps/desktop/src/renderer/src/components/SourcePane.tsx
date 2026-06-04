@@ -343,7 +343,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
           <button onClick={handleAdd} style={{ background: '#312e81', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#a5b4fc', fontSize: 11, cursor: 'pointer' }}>+ PDF</button>
           <button onClick={() => setTextModal(true)} style={{ background: '#1e3a2f', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#6ee7b7', fontSize: 11, cursor: 'pointer' }}>+ Text</button>
           <button onClick={() => setUrlModal(true)} title="Import a web page by URL" style={{ background: '#0e2a3a', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#7dd3fc', fontSize: 11, cursor: 'pointer' }}>+ URL</button>
-          <button onClick={() => void handleAddDoc()} title="Import a Word document (.docx)" style={{ background: '#2a1e3a', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#d8b4fe', fontSize: 11, cursor: 'pointer' }}>+ Doc</button>
+          <button onClick={() => void handleAddDoc()} title="Import a document (.docx / .pptx)" style={{ background: '#2a1e3a', border: 'none', borderRadius: 4, padding: '3px 8px', color: '#d8b4fe', fontSize: 11, cursor: 'pointer' }}>+ Doc</button>
           <button
             onClick={() => setCollapsed(true)}
             title="Minimize sources"
