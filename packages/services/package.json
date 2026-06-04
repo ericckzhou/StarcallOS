@@ -11,7 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.98.0",
+    "@anthropic-ai/sdk": "^0.100.1",
     "@mozilla/readability": "^0.6.0",
     "fflate": "^0.8.3",
     "groq-sdk": "^1.2.0",
