@@ -25,7 +25,7 @@ jobs:
         # No version pin here — action-setup reads the exact pnpm version from
         # the root package.json "packageManager" field, so CI matches local and
         # honors onlyBuiltDependencies in pnpm-workspace.yaml (electron/esbuild).
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node 22
         uses: actions/setup-node@v4
