@@ -1,0 +1,50 @@
+name: ci
+
+# Typecheck and test on every push to main and every PR. Mirrors the green
+# gate the release workflow runs before packaging, without the
+# electron-builder step — so the badge reflects test health, not release cuts.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        # Reads the pinned pnpm version from the root package.json
+        # "packageManager" field so CI matches local.
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      # services emits the .d.ts that shared and desktop typechecks resolve, so
+      # it must be built first.
+      - name: Build services package
+        run: pnpm -C packages/services build
+
+      - name: Build shared package
+        run: pnpm -C packages/shared build
+
+      - name: Typecheck (all packages)
+        run: pnpm -r typecheck
+
+      - name: Test (all packages)
+        run: pnpm -r test
