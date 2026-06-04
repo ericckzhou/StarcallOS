@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Root workspace + both packages share one pnpm lockfile, so a single npm
+  # ecosystem entry at the repo root covers all of them.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Batch low-risk dev tooling so the inbox isn't flooded with one PR each.
+      dev-dependencies:
+        dependency-type: development
+    labels:
+      - dependencies
+
+  # Keep the GitHub Actions used by ci.yml / release.yml current (pinned action
+  # versions drift and accrue their own advisories).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - ci

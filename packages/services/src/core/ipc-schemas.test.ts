@@ -8,6 +8,13 @@ import {
   ExportConceptArgsSchema,
   SubmitEvidenceArgsSchema,
   ImportDocsArgsSchema,
+  IdArraySchema,
+  HubCreateArgsSchema,
+  NoteCreateArgsSchema,
+  AddEvidenceArgsSchema,
+  RelationCandidateCreateArgsSchema,
+  LlmFilterSetArgsSchema,
+  RenameConceptArgsSchema,
 } from './ipc-schemas';
 
 describe('validateIpc', () => {
@@ -103,5 +110,89 @@ describe('ImportDocsArgsSchema', () => {
 
   it('rejects empty path strings', () => {
     expect(ImportDocsArgsSchema.safeParse({ paths: [''] }).success).toBe(false);
+  });
+});
+
+// ─── Remaining mutating-handler schemas (added with the IPC-validation pass) ────
+
+describe('IdArraySchema', () => {
+  it('accepts an array of positive ids', () => {
+    expect(IdArraySchema.safeParse([1, 2, 3]).success).toBe(true);
+    expect(IdArraySchema.safeParse([]).success).toBe(true);
+  });
+
+  it('rejects non-positive or non-integer ids', () => {
+    expect(IdArraySchema.safeParse([1, 0]).success).toBe(false);
+    expect(IdArraySchema.safeParse([1, -2]).success).toBe(false);
+    expect(IdArraySchema.safeParse([1.5]).success).toBe(false);
+    expect(IdArraySchema.safeParse(['1']).success).toBe(false);
+  });
+});
+
+describe('HubCreateArgsSchema', () => {
+  it('accepts a name with optional color/description/members/parent', () => {
+    expect(HubCreateArgsSchema.safeParse({ name: 'Optimizers' }).success).toBe(true);
+    expect(HubCreateArgsSchema.safeParse({ name: 'X', color: '#fff', conceptIds: [1, 2], parentHubId: 3 }).success).toBe(true);
+    expect(HubCreateArgsSchema.safeParse({ name: 'Top-level', parentHubId: null }).success).toBe(true);
+  });
+
+  it('rejects a missing name or a non-positive parent/member id', () => {
+    expect(HubCreateArgsSchema.safeParse({}).success).toBe(false);
+    expect(HubCreateArgsSchema.safeParse({ name: 'X', parentHubId: 0 }).success).toBe(false);
+    expect(HubCreateArgsSchema.safeParse({ name: 'X', conceptIds: [0] }).success).toBe(false);
+  });
+});
+
+describe('NoteCreateArgsSchema', () => {
+  it('requires a conceptId and a heading; body is optional', () => {
+    expect(NoteCreateArgsSchema.safeParse({ conceptId: 1, heading: 'h' }).success).toBe(true);
+    expect(NoteCreateArgsSchema.safeParse({ conceptId: 1, heading: 'h', body: 'b' }).success).toBe(true);
+  });
+
+  it('rejects a missing heading or a bad conceptId', () => {
+    expect(NoteCreateArgsSchema.safeParse({ conceptId: 1 }).success).toBe(false);
+    expect(NoteCreateArgsSchema.safeParse({ conceptId: 0, heading: 'h' }).success).toBe(false);
+  });
+});
+
+describe('AddEvidenceArgsSchema', () => {
+  it('accepts a span with the required fields (page may be 0)', () => {
+    expect(AddEvidenceArgsSchema.safeParse({ conceptId: 1, page: 0, kind: 'highlight', label: 'L' }).success).toBe(true);
+    expect(AddEvidenceArgsSchema.safeParse({ conceptId: 1, page: 4, kind: 'definition', label: 'L', quote: 'q', annotationId: 9 }).success).toBe(true);
+  });
+
+  it('rejects a non-positive conceptId or a non-positive annotationId', () => {
+    expect(AddEvidenceArgsSchema.safeParse({ conceptId: 0, page: 1, kind: 'x', label: 'L' }).success).toBe(false);
+    expect(AddEvidenceArgsSchema.safeParse({ conceptId: 1, page: 1, kind: 'x', label: 'L', annotationId: 0 }).success).toBe(false);
+  });
+});
+
+describe('RelationCandidateCreateArgsSchema', () => {
+  it('accepts a source-scoped relation with optional kind/quote/page', () => {
+    expect(RelationCandidateCreateArgsSchema.safeParse({ sourceId: 1, from: 'A', to: 'B' }).success).toBe(true);
+    expect(RelationCandidateCreateArgsSchema.safeParse({ sourceId: 1, from: 'A', to: 'B', kind: 'requires', quote: 'q', page: 2 }).success).toBe(true);
+  });
+
+  it('rejects a missing endpoint or a bad sourceId', () => {
+    expect(RelationCandidateCreateArgsSchema.safeParse({ sourceId: 1, from: 'A' }).success).toBe(false);
+    expect(RelationCandidateCreateArgsSchema.safeParse({ sourceId: 0, from: 'A', to: 'B' }).success).toBe(false);
+  });
+});
+
+describe('LlmFilterSetArgsSchema', () => {
+  it('accepts a term list or an explicit null (clear)', () => {
+    expect(LlmFilterSetArgsSchema.safeParse({ sourceId: 1, keepTerms: ['a', 'b'] }).success).toBe(true);
+    expect(LlmFilterSetArgsSchema.safeParse({ sourceId: 1, keepTerms: null }).success).toBe(true);
+  });
+
+  it('rejects a missing keepTerms field', () => {
+    expect(LlmFilterSetArgsSchema.safeParse({ sourceId: 1 }).success).toBe(false);
+  });
+});
+
+describe('RenameConceptArgsSchema', () => {
+  it('requires a positive conceptId and a name', () => {
+    expect(RenameConceptArgsSchema.safeParse({ conceptId: 1, name: 'New name' }).success).toBe(true);
+    expect(RenameConceptArgsSchema.safeParse({ conceptId: 1 }).success).toBe(false);
   });
 });

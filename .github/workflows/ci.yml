@@ -8,9 +8,11 @@ on:
   push:
     branches:
       - main
+      - dev
   pull_request:
     branches:
       - main
+      - dev
   workflow_dispatch:
 
 jobs:
@@ -34,6 +36,12 @@ jobs:
 
       - name: Install workspace deps
         run: pnpm install --frozen-lockfile
+
+      # Surface known dependency advisories without gating the build (transitive
+      # advisories shouldn't block a merge, but they should be visible in the log).
+      - name: Audit dependencies
+        run: pnpm audit --audit-level=high
+        continue-on-error: true
 
       # services emits the .d.ts that shared and desktop typechecks resolve, so
       # it must be built first.

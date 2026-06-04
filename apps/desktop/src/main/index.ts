@@ -1,6 +1,8 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage, session, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import net from 'node:net';
+import { lookup } from 'node:dns/promises';
 import {
   openDb,
   listSources, createSource, updateSourceStatus, getSourceById, deleteSource,
@@ -40,11 +42,21 @@ import {
   createParseRun, listParseRunsBySource,
   loadSettings, saveSettings, migrateSecretsAtRest, sanitizeSettingsInput, applyEnvFallbacks, resolveProviderConfig, MODEL_CHOICES,
   chatJSON,
-  validateIpc,
+  validateIpc, isPrivateIp, isBlockedHostname,
   CreateSourceArgsSchema, ProcessSourceArgsSchema, CreateTextSourceArgsSchema,
   SettingsPatchSchema, SubmitEvidenceArgsSchema, CandidateLlmFilterArgsSchema,
   UpdateConceptFieldsArgsSchema, CreatePdfAnnotationArgsSchema, UpdatePdfAnnotationArgsSchema,
   PositiveIntSchema, ExportConceptArgsSchema, ExportBundleArgsSchema, ImportUrlArgsSchema, ImportDocsArgsSchema,
+  IdArraySchema, CreateManualConceptArgsSchema, RenameConceptArgsSchema, SetReviewedArgsSchema,
+  ConceptEquationCreateArgsSchema, ConceptEquationUpdateArgsSchema,
+  NoteCreateArgsSchema, NoteUpdateArgsSchema, NoteReorderArgsSchema,
+  DeleteEvidenceSpanArgsSchema, AddEvidenceArgsSchema, UpdateEvidenceArgsSchema, DeleteEvidenceByIndexArgsSchema,
+  LlmFilterSetArgsSchema,
+  HubCreateArgsSchema, HubUpdateArgsSchema, HubAddMembersArgsSchema, HubMemberArgsSchema, HubSetMemberRoleArgsSchema,
+  HubEdgeCreateArgsSchema, HubEdgeUpdateArgsSchema,
+  RelationCandidateCreateArgsSchema, RelationCandidateUpdateArgsSchema,
+  MisconceptionCandidateCreateArgsSchema, MisconceptionCandidateUpdateArgsSchema,
+  EquationCandidateCreateArgsSchema, EquationCandidateUpdateArgsSchema,
   renderConceptExport, renderBundleExport, extractArticle, docxToMarkdown, pptxToMarkdown, chunkBatches,
   type ConceptImportance, type LLMSettings, type PassName, type RelationKind, type SecretCodec,
   runEnricher,
@@ -80,6 +92,38 @@ function toRelationKind(value: string | undefined): RelationKind {
   return RELATION_KIND_VALUES.has(value ?? '') ? (value as RelationKind) : 'requires';
 }
 
+// ─── URL-import SSRF guard ──────────────────────────────────────────────────────
+// The URL importer fetches an arbitrary user-supplied URL in the main process.
+// Block requests that target the loopback/private/link-local space (including
+// the cloud-metadata endpoint 169.254.169.254) so a pasted or redirected URL
+// can't reach internal services. The range/hostname predicates are pure and
+// unit-tested in @starcall/services (core/net_guard); this layer adds the URL
+// parsing + DNS resolution. Residual, documented limitations: DNS rebinding
+// between this lookup and fetch's own resolution (TOCTOU), and a blind GET still
+// being sent on a redirect hop before we re-check the final URL — both narrow
+// for a user-initiated desktop importer.
+async function assertPublicUrl(urlStr: string): Promise<void> {
+  let u: URL;
+  try { u = new URL(urlStr); } catch { throw new Error('Invalid URL'); }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    throw new Error('Only http/https URLs are supported');
+  }
+  const host = u.hostname;
+  if (net.isIP(host)) {
+    if (isPrivateIp(host)) throw new Error('Refusing to fetch a private or loopback address');
+    return;
+  }
+  if (isBlockedHostname(host)) {
+    throw new Error('Refusing to fetch a local or internal hostname');
+  }
+  let addrs: Awaited<ReturnType<typeof lookup>>;
+  try { addrs = await lookup(host, { all: true }); } catch { throw new Error(`Could not resolve host: ${host}`); }
+  if (addrs.length === 0) throw new Error(`Could not resolve host: ${host}`);
+  for (const a of addrs) {
+    if (isPrivateIp(a.address)) throw new Error('Refusing to fetch a host that resolves to a private address');
+  }
+}
+
 // Window/taskbar icon. In dev __dirname is out/main, so reach the build asset;
 // in a packaged app it's shipped as an extraResource at resourcesPath/icon.png.
 function resolveAppIcon(): string | undefined {
@@ -105,8 +149,31 @@ function createWindow(): void {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // OS-level process isolation on top of context isolation. The preload
+      // only uses contextBridge + ipcRenderer, both available under sandbox.
+      sandbox: true,
     },
   });
+
+  // Seal the shell: this is a single-page local app, never a browser. Deny any
+  // attempt to open a new window (e.g. injected window.open / target=_blank) and
+  // route only http/https links to the OS browser through the same vetted path
+  // as app:openExternal. Everything else is dropped.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  // Block in-place navigation away from the app's own document. A crafted link
+  // or injected redirect surfaced through ingested text can't move the window
+  // off-origin; outbound http/https is handed to the OS browser instead.
+  win.webContents.on('will-navigate', (event, url) => {
+    const current = win.webContents.getURL();
+    if (url !== current) {
+      event.preventDefault();
+      if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    }
+  });
+
   win.on('page-title-updated', (_e, title) => {
     if (title !== 'StarcallOS') win.setTitle('StarcallOS');
   });
@@ -122,11 +189,47 @@ function createWindow(): void {
   }
 }
 
+// Provider keys are read from the OS-encrypted settings file first; these env
+// vars are only a fallback for headless/dev use. Read at RUNTIME from
+// process.env (never inlined into the bundle) so a key can't leak inside a
+// packaged build. Both providers are handled identically — the old code only
+// wired GROQ via a build-time define, leaving the ANTHROPIC fallback dead.
 function envFallbacks(): { groq?: string; anthropic?: string } {
   return {
-    groq:      (import.meta.env.GROQ_API_KEY      as string | undefined) || undefined,
-    anthropic: (import.meta.env.ANTHROPIC_API_KEY as string | undefined) || undefined,
+    groq:      process.env['GROQ_API_KEY']      || undefined,
+    anthropic: process.env['ANTHROPIC_API_KEY'] || undefined,
   };
+}
+
+// Dev-only convenience: load GROQ_API_KEY / ANTHROPIC_API_KEY from a local `.env`
+// into process.env so `pnpm dev` can use a key without opening Settings. NEVER
+// runs in a packaged build, and values are read at runtime — they are never
+// baked into the shipped bundle. Existing process.env values win (explicit
+// shell env > .env file). Silently does nothing if no `.env` is found.
+function loadDevDotenv(): void {
+  if (app.isPackaged) return;
+  const candidates = [
+    process.cwd(),
+    path.join(__dirname, '../..'),       // apps/desktop
+    path.join(__dirname, '../../../..'), // repo root
+  ];
+  for (const dir of candidates) {
+    let text: string;
+    try {
+      text = fs.readFileSync(path.join(dir, '.env'), 'utf-8');
+    } catch {
+      continue;
+    }
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+      const i = trimmed.indexOf('=');
+      const key = trimmed.slice(0, i).trim();
+      const value = trimmed.slice(i + 1).trim();
+      if (key && process.env[key] === undefined) process.env[key] = value;
+    }
+    return;
+  }
 }
 
 // OS-backed secret codec for API keys (DPAPI on Windows, Keychain on macOS,
@@ -548,6 +651,8 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const args = validateIpc(ImportUrlArgsSchema, rawArgs, IPC.SOURCES_IMPORT_URL);
     let html: string;
     try {
+      // Block the target before connecting (covers a directly pasted internal URL).
+      await assertPublicUrl(args.url);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 10_000);
       const res = await fetch(args.url, {
@@ -561,6 +666,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
           'Accept-Language': 'en-US,en;q=0.9',
         },
       }).finally(() => clearTimeout(timer));
+      // Re-check the post-redirect URL before reading the body, so a public URL
+      // that 30x-redirects to an internal address never has its content ingested.
+      await assertPublicUrl(res.url || args.url);
       if (!res.ok) return { ok: false, error: `Fetch failed: HTTP ${res.status}` };
       const ctype = res.headers.get('content-type') ?? '';
       if (ctype && !/text\/html|xml|text\/plain/i.test(ctype)) {
@@ -648,26 +756,31 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     definition_text?: string;
     why_exists?: string;
     what_breaks?: string;
-  }) => createManualConcept(db, {
-    sourceId: args.sourceId,
-    name: args.name,
-    importance: toConceptImportance(args.importance),
-    definition_text: args.definition_text,
-    why_exists: args.why_exists,
-    what_breaks: args.what_breaks,
-  }));
+  }) => {
+    validateIpc(CreateManualConceptArgsSchema, args, IPC.CONCEPTS_CREATE_MANUAL);
+    return createManualConcept(db, {
+      sourceId: args.sourceId,
+      name: args.name,
+      importance: toConceptImportance(args.importance),
+      definition_text: args.definition_text,
+      why_exists: args.why_exists,
+      what_breaks: args.what_breaks,
+    });
+  });
   ipcMain.handle(IPC.CONCEPTS_TASKS, (_e, conceptId: number) => listTasksByConcept(db, conceptId));
   ipcMain.handle(IPC.CONCEPTS_MASTERY, (_e, conceptId: number) => getMastery(db, conceptId));
   ipcMain.handle(IPC.CONCEPTS_MISCONCEPTIONS, (_e, conceptId: number) => listMisconceptionsByConcept(db, conceptId));
   ipcMain.handle(IPC.CONCEPTS_EQUATIONS, (_e, conceptId: number) => listEquationCandidatesForConcept(db, conceptId));
-  ipcMain.handle(IPC.CONCEPTS_EQUATION_CREATE, (_e, args: { conceptId: number; latex: string; page?: number; variables?: string[] }) =>
-    createManualEquationForConcept(db, args),
-  );
-  ipcMain.handle(IPC.CONCEPTS_EQUATION_UPDATE, (_e, args: { equationId: number; latex: string; page?: number; variables?: string[] }) =>
-    updateEquationCandidate(db, args.equationId, { latex: args.latex, page: args.page, variables: args.variables }),
-  );
+  ipcMain.handle(IPC.CONCEPTS_EQUATION_CREATE, (_e, args: { conceptId: number; latex: string; page?: number; variables?: string[] }) => {
+    validateIpc(ConceptEquationCreateArgsSchema, args, IPC.CONCEPTS_EQUATION_CREATE);
+    return createManualEquationForConcept(db, args);
+  });
+  ipcMain.handle(IPC.CONCEPTS_EQUATION_UPDATE, (_e, args: { equationId: number; latex: string; page?: number; variables?: string[] }) => {
+    validateIpc(ConceptEquationUpdateArgsSchema, args, IPC.CONCEPTS_EQUATION_UPDATE);
+    return updateEquationCandidate(db, args.equationId, { latex: args.latex, page: args.page, variables: args.variables });
+  });
   ipcMain.handle(IPC.CONCEPTS_EQUATION_DELETE, (_e, equationId: number) => {
-    deleteEquationCandidate(db, equationId);
+    deleteEquationCandidate(db, validateIpc(PositiveIntSchema, equationId, IPC.CONCEPTS_EQUATION_DELETE));
     return { ok: true as const };
   });
   ipcMain.handle(IPC.CONCEPTS_ENSURE_TASKS, async (_e, conceptId: number) => {
@@ -678,19 +791,22 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   });
 
   ipcMain.handle(IPC.CONCEPT_NOTES_LIST, (_e, conceptId: number) => listNotesByConcept(db, conceptId));
-  ipcMain.handle(IPC.CONCEPT_NOTES_CREATE, (_e, args: { conceptId: number; heading: string; body?: string }) =>
-    createNote(db, args.conceptId, { heading: args.heading, body: args.body }),
-  );
-  ipcMain.handle(IPC.CONCEPT_NOTES_UPDATE, (_e, args: { id: number; heading?: string; body?: string; linkedAnnotationId?: number | null }) =>
-    updateNote(db, args.id, { heading: args.heading, body: args.body, linkedAnnotationId: args.linkedAnnotationId }),
-  );
+  ipcMain.handle(IPC.CONCEPT_NOTES_CREATE, (_e, args: { conceptId: number; heading: string; body?: string }) => {
+    validateIpc(NoteCreateArgsSchema, args, IPC.CONCEPT_NOTES_CREATE);
+    return createNote(db, args.conceptId, { heading: args.heading, body: args.body });
+  });
+  ipcMain.handle(IPC.CONCEPT_NOTES_UPDATE, (_e, args: { id: number; heading?: string; body?: string; linkedAnnotationId?: number | null }) => {
+    validateIpc(NoteUpdateArgsSchema, args, IPC.CONCEPT_NOTES_UPDATE);
+    return updateNote(db, args.id, { heading: args.heading, body: args.body, linkedAnnotationId: args.linkedAnnotationId });
+  });
   ipcMain.handle(IPC.CONCEPT_NOTES_DELETE, (_e, id: number) => {
-    deleteNote(db, id);
+    deleteNote(db, validateIpc(PositiveIntSchema, id, IPC.CONCEPT_NOTES_DELETE));
     return { ok: true };
   });
-  ipcMain.handle(IPC.CONCEPT_NOTES_REORDER, (_e, args: { conceptId: number; orderedIds: number[] }) =>
-    reorderNotes(db, args.conceptId, args.orderedIds),
-  );
+  ipcMain.handle(IPC.CONCEPT_NOTES_REORDER, (_e, args: { conceptId: number; orderedIds: number[] }) => {
+    validateIpc(NoteReorderArgsSchema, args, IPC.CONCEPT_NOTES_REORDER);
+    return reorderNotes(db, args.conceptId, args.orderedIds);
+  });
   ipcMain.handle(IPC.CONCEPTS_ENRICH, async (_e, conceptId: number) => {
     return enrichConceptDefinition(cfgFor('lazy_tasks'), db, conceptId);
   });
@@ -711,6 +827,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     return { ok: true as const };
   });
   ipcMain.handle(IPC.CONCEPTS_SET_REVIEWED, (_e, args: { conceptId: number; reviewed: boolean }) => {
+    validateIpc(SetReviewedArgsSchema, args, IPC.CONCEPTS_SET_REVIEWED);
     setConceptReviewed(db, args.conceptId, args.reviewed);
     // "Done" without a graded challenge is an honest neutral review: advance the
     // SRS card with a passing-but-effortful grade so the concept leaves the
@@ -724,33 +841,53 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.CONCEPTS_ALL_TAGS, () => listAllConceptTags(db));
   ipcMain.handle(IPC.CONCEPTS_GRAPH, () => buildConstellationGraph(db));
   ipcMain.handle(IPC.HUBS_LIST, () => listHubs(db));
-  ipcMain.handle(IPC.HUBS_CREATE, (_e, args: { name: string; color?: string; description?: string; conceptIds?: number[] }) => createHub(db, args));
-  ipcMain.handle(IPC.HUBS_UPDATE, (_e, args: { id: number; name?: string; color?: string; description?: string }) => updateHub(db, args.id, args));
-  ipcMain.handle(IPC.HUBS_DELETE, (_e, id: number) => { deleteHub(db, id); return { ok: true as const }; });
-  ipcMain.handle(IPC.HUBS_ADD_MEMBERS, (_e, args: { hubId: number; conceptIds: number[] }) => { addMembers(db, args.hubId, args.conceptIds); return { ok: true as const }; });
-  ipcMain.handle(IPC.HUBS_REMOVE_MEMBER, (_e, args: { hubId: number; conceptId: number }) => { removeMember(db, args.hubId, args.conceptId); return { ok: true as const }; });
-  ipcMain.handle(IPC.HUBS_SET_MEMBER_ROLE, (_e, args: { hubId: number; conceptId: number; role: string }) => { setMemberRole(db, args.hubId, args.conceptId, args.role); return { ok: true as const }; });
+  ipcMain.handle(IPC.HUBS_CREATE, (_e, args: { name: string; color?: string; description?: string; conceptIds?: number[]; parentHubId?: number | null }) => {
+    validateIpc(HubCreateArgsSchema, args, IPC.HUBS_CREATE);
+    return createHub(db, args);
+  });
+  ipcMain.handle(IPC.HUBS_UPDATE, (_e, args: { id: number; name?: string; color?: string; description?: string; parentHubId?: number | null }) => {
+    validateIpc(HubUpdateArgsSchema, args, IPC.HUBS_UPDATE);
+    return updateHub(db, args.id, args);
+  });
+  ipcMain.handle(IPC.HUBS_DELETE, (_e, id: number) => { deleteHub(db, validateIpc(PositiveIntSchema, id, IPC.HUBS_DELETE)); return { ok: true as const }; });
+  ipcMain.handle(IPC.HUBS_ADD_MEMBERS, (_e, args: { hubId: number; conceptIds: number[] }) => { validateIpc(HubAddMembersArgsSchema, args, IPC.HUBS_ADD_MEMBERS); addMembers(db, args.hubId, args.conceptIds); return { ok: true as const }; });
+  ipcMain.handle(IPC.HUBS_REMOVE_MEMBER, (_e, args: { hubId: number; conceptId: number }) => { validateIpc(HubMemberArgsSchema, args, IPC.HUBS_REMOVE_MEMBER); removeMember(db, args.hubId, args.conceptId); return { ok: true as const }; });
+  ipcMain.handle(IPC.HUBS_SET_MEMBER_ROLE, (_e, args: { hubId: number; conceptId: number; role: string }) => { validateIpc(HubSetMemberRoleArgsSchema, args, IPC.HUBS_SET_MEMBER_ROLE); setMemberRole(db, args.hubId, args.conceptId, args.role); return { ok: true as const }; });
   ipcMain.handle(IPC.HUBS_MEMBERSHIPS, () => listAllMemberships(db));
   ipcMain.handle(IPC.HUBS_EDGES_LIST, () => listHubEdges(db));
-  ipcMain.handle(IPC.HUBS_EDGE_CREATE, (_e, args: { aHubId: number; bHubId: number; label?: string; directed?: boolean }) => createHubEdge(db, args));
-  ipcMain.handle(IPC.HUBS_EDGE_UPDATE, (_e, args: { id: number; label?: string; directed?: boolean }) => updateHubEdge(db, args.id, args));
-  ipcMain.handle(IPC.HUBS_EDGE_DELETE, (_e, id: number) => { deleteHubEdge(db, id); return { ok: true as const }; });
+  ipcMain.handle(IPC.HUBS_EDGE_CREATE, (_e, args: { aHubId: number; bHubId: number; label?: string; directed?: boolean }) => {
+    validateIpc(HubEdgeCreateArgsSchema, args, IPC.HUBS_EDGE_CREATE);
+    return createHubEdge(db, args);
+  });
+  ipcMain.handle(IPC.HUBS_EDGE_UPDATE, (_e, args: { id: number; label?: string; directed?: boolean }) => {
+    validateIpc(HubEdgeUpdateArgsSchema, args, IPC.HUBS_EDGE_UPDATE);
+    return updateHubEdge(db, args.id, args);
+  });
+  ipcMain.handle(IPC.HUBS_EDGE_DELETE, (_e, id: number) => { deleteHubEdge(db, validateIpc(PositiveIntSchema, id, IPC.HUBS_EDGE_DELETE)); return { ok: true as const }; });
   ipcMain.handle(IPC.CONCEPTS_GET, (_e, id: number) => getConceptById(db, id) ?? null);
   ipcMain.handle(IPC.CONCEPTS_RENAME, (_e, args: { conceptId: number; name: string }) => {
+    validateIpc(RenameConceptArgsSchema, args, IPC.CONCEPTS_RENAME);
     return renameConcept(db, args.conceptId, args.name);
   });
   ipcMain.handle(IPC.CONCEPTS_DELETE_EVIDENCE_SPAN, (_e, args: {
     conceptId: number; page: number; kind: string; quote: string;
   }) => {
+    validateIpc(DeleteEvidenceSpanArgsSchema, args, IPC.CONCEPTS_DELETE_EVIDENCE_SPAN);
     deleteConceptEvidenceSpan(db, args.conceptId, args.page, args.kind, args.quote);
     return listConceptSourceEvidence(db, args.conceptId);
   });
-  ipcMain.handle(IPC.CONCEPTS_ADD_EVIDENCE, (_e, args: { conceptId: number; page: number; kind: SourceEvidenceKind; label: string; quote?: string; annotationId?: number }) =>
-    addConceptEvidence(db, args.conceptId, { page: args.page, kind: args.kind, label: args.label, quote: args.quote, annotationId: args.annotationId }));
-  ipcMain.handle(IPC.CONCEPTS_UPDATE_EVIDENCE, (_e, args: { conceptId: number; index: number; page?: number; kind?: SourceEvidenceKind; label?: string; quote?: string }) =>
-    updateConceptEvidence(db, args.conceptId, args.index, { page: args.page, kind: args.kind, label: args.label, quote: args.quote }));
-  ipcMain.handle(IPC.CONCEPTS_DELETE_EVIDENCE, (_e, args: { conceptId: number; index: number }) =>
-    deleteConceptEvidenceByIndex(db, args.conceptId, args.index));
+  ipcMain.handle(IPC.CONCEPTS_ADD_EVIDENCE, (_e, args: { conceptId: number; page: number; kind: SourceEvidenceKind; label: string; quote?: string; annotationId?: number }) => {
+    validateIpc(AddEvidenceArgsSchema, args, IPC.CONCEPTS_ADD_EVIDENCE);
+    return addConceptEvidence(db, args.conceptId, { page: args.page, kind: args.kind, label: args.label, quote: args.quote, annotationId: args.annotationId });
+  });
+  ipcMain.handle(IPC.CONCEPTS_UPDATE_EVIDENCE, (_e, args: { conceptId: number; index: number; page?: number; kind?: SourceEvidenceKind; label?: string; quote?: string }) => {
+    validateIpc(UpdateEvidenceArgsSchema, args, IPC.CONCEPTS_UPDATE_EVIDENCE);
+    return updateConceptEvidence(db, args.conceptId, args.index, { page: args.page, kind: args.kind, label: args.label, quote: args.quote });
+  });
+  ipcMain.handle(IPC.CONCEPTS_DELETE_EVIDENCE, (_e, args: { conceptId: number; index: number }) => {
+    validateIpc(DeleteEvidenceByIndexArgsSchema, args, IPC.CONCEPTS_DELETE_EVIDENCE);
+    return deleteConceptEvidenceByIndex(db, args.conceptId, args.index);
+  });
   ipcMain.handle(IPC.REVIEW_QUEUE_LIST, (_e, limit?: number) => listReviewQueue(db, limit ?? 50));
   ipcMain.handle(IPC.REVIEW_DUE_COUNT, () => ({
     newCount: countNewConcepts(db),
@@ -869,6 +1006,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
 
   ipcMain.handle(IPC.SOURCES_LLM_FILTER_GET, (_e, sourceId: number) => getLlmFilter(db, sourceId));
   ipcMain.handle(IPC.SOURCES_LLM_FILTER_SET, (_e, args: { sourceId: number; keepTerms: string[] | null }) => {
+    validateIpc(LlmFilterSetArgsSchema, args, IPC.SOURCES_LLM_FILTER_SET);
     setLlmFilter(db, args.sourceId, args.keepTerms);
     return { ok: true as const };
   });
@@ -971,7 +1109,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   });
   ipcMain.handle(IPC.EVIDENCE_HISTORY, (_e, conceptId: number) => listRecordsByConcept(db, conceptId));
   ipcMain.handle(IPC.EVIDENCE_DELETE, (_e, recordId: number) => {
-    deleteEvidenceRecord(db, recordId);
+    deleteEvidenceRecord(db, validateIpc(PositiveIntSchema, recordId, IPC.EVIDENCE_DELETE));
     return { ok: true };
   });
 
@@ -981,8 +1119,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     misconceptions: listMisconceptionCandidatesBySource(db, sourceId),
     equations:      listEquationCandidatesBySource(db, sourceId),
   }));
-  ipcMain.handle(IPC.CANDIDATES_PROMOTE, (_e, candidateId: number) => promoteCandidate(db, candidateId));
+  ipcMain.handle(IPC.CANDIDATES_PROMOTE, (_e, candidateId: number) => promoteCandidate(db, validateIpc(PositiveIntSchema, candidateId, IPC.CANDIDATES_PROMOTE)));
   ipcMain.handle(IPC.CANDIDATES_PROMOTE_BULK, (_e, candidateIds: number[]) => {
+    validateIpc(IdArraySchema, candidateIds, IPC.CANDIDATES_PROMOTE_BULK);
     // Return the *candidate* IDs we promoted (not the new concept IDs) so the
     // renderer can drop them from the visible list with a simple set lookup.
     const promoted: number[] = [];
@@ -999,71 +1138,89 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     return { promoted, errors };
   });
   ipcMain.handle(IPC.CANDIDATES_REJECT,  (_e, candidateId: number) => {
-    rejectCandidate(db, candidateId);
+    rejectCandidate(db, validateIpc(PositiveIntSchema, candidateId, IPC.CANDIDATES_REJECT));
     return { ok: true };
   });
-  ipcMain.handle(IPC.CANDIDATES_REJECT_BULK, (_e, candidateIds: number[]) => rejectCandidatesBulk(db, candidateIds));
+  ipcMain.handle(IPC.CANDIDATES_REJECT_BULK, (_e, candidateIds: number[]) => rejectCandidatesBulk(db, validateIpc(IdArraySchema, candidateIds, IPC.CANDIDATES_REJECT_BULK)));
   ipcMain.handle(IPC.CANDIDATES_RELATION_CREATE, (_e, args: {
     sourceId: number; from: string; to: string; kind?: string; quote?: string; page?: number;
-  }) => createRelationCandidate(db, args.sourceId, {
-    from: args.from,
-    to: args.to,
-    kind: toRelationKind(args.kind),
-    quote: args.quote ?? '',
-    page: Math.max(0, Math.floor(args.page ?? 0)),
-  }));
+  }) => {
+    validateIpc(RelationCandidateCreateArgsSchema, args, IPC.CANDIDATES_RELATION_CREATE);
+    return createRelationCandidate(db, args.sourceId, {
+      from: args.from,
+      to: args.to,
+      kind: toRelationKind(args.kind),
+      quote: args.quote ?? '',
+      page: Math.max(0, Math.floor(args.page ?? 0)),
+    });
+  });
   ipcMain.handle(IPC.CANDIDATES_RELATION_UPDATE, (_e, args: {
     id: number; from: string; to: string; kind?: string; quote?: string; page?: number;
-  }) => updateRelationCandidate(db, args.id, {
-    from: args.from,
-    to: args.to,
-    kind: toRelationKind(args.kind),
-    quote: args.quote ?? '',
-    page: Math.max(0, Math.floor(args.page ?? 0)),
-  }));
+  }) => {
+    validateIpc(RelationCandidateUpdateArgsSchema, args, IPC.CANDIDATES_RELATION_UPDATE);
+    return updateRelationCandidate(db, args.id, {
+      from: args.from,
+      to: args.to,
+      kind: toRelationKind(args.kind),
+      quote: args.quote ?? '',
+      page: Math.max(0, Math.floor(args.page ?? 0)),
+    });
+  });
   ipcMain.handle(IPC.CANDIDATES_RELATION_DELETE, (_e, id: number) => {
     deleteRelationCandidate(db, id);
     return { ok: true as const };
   });
   ipcMain.handle(IPC.CANDIDATES_MISCONCEPTION_CREATE, (_e, args: {
     sourceId: number; quote: string; page?: number; section_path?: string[];
-  }) => createMisconceptionCandidate(db, args.sourceId, {
-    quote: args.quote,
-    page: Math.max(0, Math.floor(args.page ?? 0)),
-    section_path: args.section_path ?? [],
-  }));
+  }) => {
+    validateIpc(MisconceptionCandidateCreateArgsSchema, args, IPC.CANDIDATES_MISCONCEPTION_CREATE);
+    return createMisconceptionCandidate(db, args.sourceId, {
+      quote: args.quote,
+      page: Math.max(0, Math.floor(args.page ?? 0)),
+      section_path: args.section_path ?? [],
+    });
+  });
   ipcMain.handle(IPC.CANDIDATES_MISCONCEPTION_UPDATE, (_e, args: {
     id: number; quote: string; page?: number; section_path?: string[];
-  }) => updateMisconceptionCandidate(db, args.id, {
-    quote: args.quote,
-    page: Math.max(0, Math.floor(args.page ?? 0)),
-    section_path: args.section_path ?? [],
-  }));
+  }) => {
+    validateIpc(MisconceptionCandidateUpdateArgsSchema, args, IPC.CANDIDATES_MISCONCEPTION_UPDATE);
+    return updateMisconceptionCandidate(db, args.id, {
+      quote: args.quote,
+      page: Math.max(0, Math.floor(args.page ?? 0)),
+      section_path: args.section_path ?? [],
+    });
+  });
   ipcMain.handle(IPC.CANDIDATES_MISCONCEPTION_DELETE, (_e, id: number) => {
     deleteMisconceptionCandidate(db, id);
     return { ok: true as const };
   });
   ipcMain.handle(IPC.CANDIDATES_EQUATION_CREATE, (_e, args: {
     sourceId: number; latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null;
-  }) => createEquationCandidateForSource(db, {
-    sourceId: args.sourceId,
-    latex: args.latex,
-    page: Math.max(0, Math.floor(args.page ?? 0)),
-    variables: args.variables,
-    section_path: args.section_path ?? [],
-    attached_term: args.attached_term ?? null,
-  }));
+  }) => {
+    validateIpc(EquationCandidateCreateArgsSchema, args, IPC.CANDIDATES_EQUATION_CREATE);
+    return createEquationCandidateForSource(db, {
+      sourceId: args.sourceId,
+      latex: args.latex,
+      page: Math.max(0, Math.floor(args.page ?? 0)),
+      variables: args.variables,
+      section_path: args.section_path ?? [],
+      attached_term: args.attached_term ?? null,
+    });
+  });
   ipcMain.handle(IPC.CANDIDATES_EQUATION_UPDATE, (_e, args: {
     id: number; latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null;
-  }) => updateEquationCandidate(db, args.id, {
-    latex: args.latex,
-    page: Math.max(0, Math.floor(args.page ?? 0)),
-    variables: args.variables,
-    section_path: args.section_path ?? [],
-    attached_term: args.attached_term ?? null,
-  }));
+  }) => {
+    validateIpc(EquationCandidateUpdateArgsSchema, args, IPC.CANDIDATES_EQUATION_UPDATE);
+    return updateEquationCandidate(db, args.id, {
+      latex: args.latex,
+      page: Math.max(0, Math.floor(args.page ?? 0)),
+      variables: args.variables,
+      section_path: args.section_path ?? [],
+      attached_term: args.attached_term ?? null,
+    });
+  });
   ipcMain.handle(IPC.CANDIDATES_EQUATION_DELETE, (_e, id: number) => {
-    deleteEquationCandidate(db, id);
+    deleteEquationCandidate(db, validateIpc(PositiveIntSchema, id, IPC.CANDIDATES_EQUATION_DELETE));
     return { ok: true as const };
   });
   ipcMain.handle(IPC.CANDIDATES_LLM_FILTER, async (e, rawArgs: CandidateLlmFilterArgs) => {
@@ -1223,10 +1380,58 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
 // module top so it applies before app.whenReady fires.
 app.setName('StarcallOS');
 
+// Content-Security-Policy applied to every renderer response. Electron's
+// security guidance recommends `default-src 'self'` for loadFile apps; we relax
+// the minimum the app actually needs: 'unsafe-inline' for the Vite inline
+// bootstrap script and React/KaTeX inline styles, data:/blob: for user
+// background/avatar media, and a blob: worker for pdf.js. connect-src stays
+// 'self' so injected content can't exfiltrate — the renderer makes zero
+// outbound HTTP (all network lives in main, reached over IPC). In dev the Vite
+// server needs 'unsafe-eval' + a websocket for HMR.
+function contentSecurityPolicy(): string {
+  const dev = !!process.env['ELECTRON_RENDERER_URL'];
+  const scriptSrc = dev
+    ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+    : "script-src 'self' 'unsafe-inline'";
+  const connectSrc = dev
+    ? "connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:*"
+    : "connect-src 'self'";
+  return [
+    "default-src 'self'",
+    scriptSrc,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "media-src 'self' data: blob:",
+    "font-src 'self' data:",
+    connectSrc,
+    "worker-src 'self' blob:",
+    "child-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+}
+
 app.whenReady().then(() => {
   // Disable the app-level menu entirely (kills the File/Edit/View/Window/Help bar).
   // Per-window calls (`removeMenu`, `setMenuBarVisibility(false)`) belt-and-suspender it.
   Menu.setApplicationMenu(null);
+
+  // Dev-only: hydrate process.env from a local .env so the env-fallback keys
+  // work in `pnpm dev`. No-op in a packaged build (keys come from Settings).
+  loadDevDotenv();
+
+  // Stamp a Content-Security-Policy on every renderer response.
+  const csp = contentSecurityPolicy();
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+      },
+    });
+  });
 
   // One-time at-rest migration: encrypt any API key left as plaintext by a
   // pre-encryption install, so an upgrade doesn't leave a secret on disk until
