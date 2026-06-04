@@ -27,7 +27,7 @@ const pdfRectSchema = z.object({
 
 const constellationLinkSchema = z.union([
   z.string().max(300),
-  z.object({ name: shortStr(300), reason: shortStr(1_000) }),
+  z.object({ name: shortStr(300), reason: shortStr(1_000), targetId: positiveInt.optional() }),
 ]);
 
 const candidateFilterItemSchema = z.object({

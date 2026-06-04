@@ -10,7 +10,7 @@ function mkConcept(
   db: DB,
   sourceId: number,
   name: string,
-  whereReappears: Array<string | { name: string; reason: string }> = [],
+  whereReappears: Array<string | { name: string; reason: string; targetId?: number }> = [],
   importance: ConceptImportance = 'core',
 ): number {
   return createConcept(db, {
@@ -90,6 +90,55 @@ describe('buildConstellationGraph', () => {
     expect(g.stats.danglingConstellations).toBe(1);
     expect(g.stats.nodeCount).toBe(1);
     expect(g.edges.length).toBe(0);
+    db.close();
+  });
+
+  it('resolves a link by targetId even when the stored name no longer matches (rename-proof)', () => {
+    const db = openDb(':memory:');
+    const s = createSource(db, { filename: 'a.pdf', file_path: 'a.pdf' });
+    const two = mkConcept(db, s.id, 'Renamed Concept');
+    // The link still carries the OLD name but the stable targetId — simulating a
+    // rename of the target after the link was made.
+    mkConcept(db, s.id, 'One', [{ name: 'Old Name', reason: 'r', targetId: two }]);
+
+    const g = buildConstellationGraph(db);
+    expect(g.stats.danglingConstellations).toBe(0);
+    expect(g.edges.length).toBe(1);
+    const one = g.nodes.find(n => n.name === 'One')!.id;
+    const edge = g.edges[0];
+    expect((edge.a === one && edge.b === two) || (edge.a === two && edge.b === one)).toBe(true);
+    db.close();
+  });
+
+  it('uses targetId to disambiguate a name shared across sources', () => {
+    const db = openDb(':memory:');
+    const sa = createSource(db, { filename: 'a.pdf', file_path: 'a.pdf' });
+    const sb = createSource(db, { filename: 'b.pdf', file_path: 'b.pdf' });
+    const dupA = mkConcept(db, sa.id, 'Dup');
+    const dupB = mkConcept(db, sb.id, 'Dup');
+    // Link explicitly to the source-B 'Dup' by id, despite the name collision.
+    mkConcept(db, sa.id, 'Linker', [{ name: 'Dup', reason: 'r', targetId: dupB }]);
+
+    const g = buildConstellationGraph(db);
+    const linker = g.nodes.find(n => n.name === 'Linker')!.id;
+    const edges = g.edges.filter(e => e.a === linker || e.b === linker);
+    expect(edges.length).toBe(1);
+    const other = edges[0].a === linker ? edges[0].b : edges[0].a;
+    expect(other).toBe(dupB);
+    expect(other).not.toBe(dupA);
+    db.close();
+  });
+
+  it('falls back to name resolution when targetId points at a deleted concept', () => {
+    const db = openDb(':memory:');
+    const s = createSource(db, { filename: 'a.pdf', file_path: 'a.pdf' });
+    mkConcept(db, s.id, 'Two');
+    // targetId 999999 does not exist, but the name 'Two' still resolves.
+    mkConcept(db, s.id, 'One', [{ name: 'Two', reason: 'r', targetId: 999999 }]);
+
+    const g = buildConstellationGraph(db);
+    expect(g.stats.danglingConstellations).toBe(0);
+    expect(g.edges.length).toBe(1);
     db.close();
   });
 

@@ -249,11 +249,14 @@ export interface UpdatePdfAnnotationArgs {
   rotation?: number | null;
 }
 
-// A constellation link: the linked concept name plus the user's reason for the
-// link. Legacy data may still contain bare strings (no reason captured yet).
+// A constellation link: the linked concept (by stable id when known, with name
+// as a display/fallback) plus the user's reason. `targetId` makes the link
+// rename-proof and unambiguous; legacy data may be a bare string or have no
+// targetId, in which case the graph resolves by name.
 export interface ConstellationLink {
   name: string;
   reason: string;
+  targetId?: number;
 }
 
 export interface UpdateConceptFieldsArgs {

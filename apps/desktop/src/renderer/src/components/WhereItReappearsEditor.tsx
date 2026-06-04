@@ -3,6 +3,9 @@ import React, { useEffect, useRef, useState } from 'react';
 export interface ConstellationLink {
   name: string;
   reason: string;
+  // Stable id of the linked concept when known — makes the link rename-proof.
+  // Absent on legacy links (resolved by name); set when picked or re-edited.
+  targetId?: number;
 }
 
 interface Hit {
@@ -180,6 +183,9 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
     const reason = pending.reason.trim();
     if (!reason) return; // reason is required
     const link: ConstellationLink = { name: pending.name, reason };
+    // Persist the resolved target id (from picking a suggestion, or re-resolved
+    // when editing a legacy link) so the link survives a future rename.
+    if (pending.targetId != null) link.targetId = pending.targetId;
     if (pending.editIndex == null) onChange([...value, link]);
     else onChange(value.map((l, idx) => (idx === pending.editIndex ? link : l)));
     setPending(null);
