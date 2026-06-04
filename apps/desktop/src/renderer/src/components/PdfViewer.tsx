@@ -858,13 +858,20 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
         <Header data={data} conceptName={conceptName} extras={renderSearchBar()} />
         {renderSearchPanel()}
-        <pre style={{
-          flex: 1, margin: 0, padding: 20, overflow: 'auto',
-          background: '#0d0d16', color: '#d1d5db', fontSize: 12, lineHeight: 1.6,
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'ui-monospace, Consolas, monospace',
-        }}>
-          {renderTextBody()}
-        </pre>
+        {/* Readable article column rather than a monospace wall: proportional
+            font, comfortable measure, generous line-height. pre-wrap preserves
+            the paragraph breaks from the extracted text; renderTextBody keeps
+            search-match <mark>s working. */}
+        <div className="concept-scroll" style={{ flex: 1, overflow: 'auto', background: '#0d0d16' }}>
+          <div style={{
+            maxWidth: 720, margin: '0 auto', padding: '28px 32px',
+            color: '#d8dee9', fontSize: 14.5, lineHeight: 1.75,
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            fontFamily: 'Georgia, Cambria, "Times New Roman", serif',
+          }}>
+            {renderTextBody()}
+          </div>
+        </div>
       </div>
     );
   }
