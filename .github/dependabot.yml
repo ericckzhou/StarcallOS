@@ -17,6 +17,28 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # Frontend/test-toolchain majors need a deliberate migration (codemods,
+      # full renderer smoke-test), so don't open major-bump PRs for them — they
+      # just get triaged and closed. Minor/patch still flow through the
+      # dev-dependencies group above. Tackle these by hand when you choose to.
+      # Note: this also suppresses a security update that would require one of
+      # these majors — acceptable for build/test tooling that ships no runtime
+      # surface. Electron and the PDF/SDK deps are deliberately NOT ignored.
+      - dependency-name: react
+        update-types: [version-update:semver-major]
+      - dependency-name: react-dom
+        update-types: [version-update:semver-major]
+      - dependency-name: "@types/react"
+        update-types: [version-update:semver-major]
+      - dependency-name: "@types/react-dom"
+        update-types: [version-update:semver-major]
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+      - dependency-name: vitest
+        update-types: [version-update:semver-major]
+      - dependency-name: "@vitejs/plugin-react"
+        update-types: [version-update:semver-major]
     labels:
       - dependencies
 
