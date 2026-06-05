@@ -2481,7 +2481,7 @@ function StageHeader({ stage, score }: { stage: number; score: EvidenceScore }) 
 // Per-attempt calibration verdict from the stored gap (confidence - outcome).
 // Mirrors the 0.15 tolerance used by the services rollup.
 function calibrationVerdict(gap: number): { label: string; color: string } {
-  if (gap > 0.15) return { label: 'overconfident', color: '#f59e0b' };
+  if (gap > 0.15) return { label: 'overconfident', color: '#ef4444' };
   if (gap < -0.15) return { label: 'underconfident', color: '#818cf8' };
   return { label: 'well calibrated', color: '#22c55e' };
 }

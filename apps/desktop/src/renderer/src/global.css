@@ -11,10 +11,13 @@ html, body, #root {
   color-scheme: dark;
 }
 
-/* Dark option list for native <select> popups. Chromium honors these on the
-   rendered menu items. accent-color recolors the highlighted option from the
-   default blue to the app's indigo. */
+/* Dark option list for native <select> popups. `color-scheme: dark` is the key:
+   without it Chromium paints the native popup chrome (and the listbox on
+   Windows) in the OS light theme, so it shows up as a white menu regardless of
+   the `option` rules below. With it the popup renders dark; accent-color recolors
+   the highlighted option from the default blue to the app's indigo. */
 select {
+  color-scheme: dark;
   accent-color: #818cf8;
 }
 select option {
@@ -322,6 +325,14 @@ body::after {
   .csbar-fill, .csbar-fill::after { animation: none !important; }
   .csbar-row { transition: none !important; }
 }
+
+/* Calibration gauge marker: pops up from the track on mount. */
+.calib-marker { animation: calib-pop 0.5s cubic-bezier(0.22, 0.7, 0.3, 1) both; }
+@keyframes calib-pop {
+  0% { opacity: 0; transform: scaleY(0.3); }
+  100% { opacity: 1; transform: scaleY(1); }
+}
+@media (prefers-reduced-motion: reduce) { .calib-marker { animation: none !important; } }
 
 /* Evidence rail row actions: visible but muted, full on hover/focus. */
 .ev-action { opacity: 0.55; transition: opacity 130ms ease, color 130ms ease; }
