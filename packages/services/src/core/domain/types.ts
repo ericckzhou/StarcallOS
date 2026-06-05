@@ -209,6 +209,15 @@ export interface ConceptNote {
 
 export type EvidenceScore = 'understood' | 'recognizes' | 'gap' | 'misconception';
 
+// A claim the learner asserted that the concept's source context does not
+// support — a possible hallucination or imported outside belief. Structured so
+// the UI can show the claim, why it isn't supported, and a severity badge.
+export interface UnsupportedClaim {
+  claim: string;
+  reason: string;
+  severity: 'minor' | 'major';
+}
+
 export interface EvidenceRecord {
   id: number;
   task_id: number;
@@ -225,4 +234,11 @@ export interface EvidenceRecord {
   task_kind_snapshot:   string | null;
   task_difficulty_snapshot: 1 | 2 | 3 | 4 | 5 | null;
   xp_awarded: number;
+  // Source-grounding signals (migration 0029). grounding_score is 0..1 or null
+  // (null = not assessed: no source context was available — not "ungrounded").
+  // grounding_context_used mirrors that gate explicitly. unsupported_claims is
+  // empty when grounding was not assessed or the answer was fully supported.
+  grounding_score: number | null;
+  grounding_context_used: boolean;
+  unsupported_claims: UnsupportedClaim[];
 }

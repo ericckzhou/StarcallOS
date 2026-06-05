@@ -8,6 +8,7 @@ import type {
   CompressionStage,
   EvidenceRecord,
   EvidenceScore,
+  UnsupportedClaim,
   SemanticChunk,
   BlockType,
 } from '../../core/domain/types';
@@ -284,6 +285,17 @@ interface RecordRow {
   task_kind_snapshot: string | null;
   task_difficulty_snapshot: number | null;
   xp_awarded: number;
+  grounding_score: number | null;
+  grounding_context_used: number | null;
+  unsupported_claims: string | null;
+}
+
+function parseUnsupportedClaims(json: string | null | undefined): UnsupportedClaim[] {
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json);
+    return Array.isArray(arr) ? (arr as UnsupportedClaim[]) : [];
+  } catch { return []; }
 }
 
 function rowToRecord(row: RecordRow): EvidenceRecord {
@@ -302,6 +314,9 @@ function rowToRecord(row: RecordRow): EvidenceRecord {
     task_kind_snapshot: row.task_kind_snapshot ?? null,
     task_difficulty_snapshot: row.task_difficulty_snapshot as 1 | 2 | 3 | 4 | 5 | null,
     xp_awarded: row.xp_awarded,
+    grounding_score: row.grounding_score ?? null,
+    grounding_context_used: !!row.grounding_context_used,
+    unsupported_claims: parseUnsupportedClaims(row.unsupported_claims),
   };
 }
 
@@ -341,19 +356,30 @@ export function calculateEligibleXpAward(
 
 export function createEvidenceRecord(
   db: DatabaseSync,
-  input: Omit<EvidenceRecord, 'id' | 'created_at' | 'task_difficulty_snapshot' | 'xp_awarded'> &
-    Partial<Pick<EvidenceRecord, 'task_difficulty_snapshot' | 'xp_awarded'>>,
+  input: Omit<
+    EvidenceRecord,
+    'id' | 'created_at' | 'task_difficulty_snapshot' | 'xp_awarded'
+      | 'grounding_score' | 'grounding_context_used' | 'unsupported_claims'
+  > &
+    Partial<Pick<
+      EvidenceRecord,
+      'task_difficulty_snapshot' | 'xp_awarded'
+        | 'grounding_score' | 'grounding_context_used' | 'unsupported_claims'
+    >>,
 ): EvidenceRecord {
   const difficulty = input.task_difficulty_snapshot ?? 3;
   const xpAwarded = input.xp_awarded ?? calculateXpAward(difficulty, input.score);
+  const groundingScore = input.grounding_score ?? null;
+  const groundingContextUsed = input.grounding_context_used ?? false;
+  const unsupportedClaims: UnsupportedClaim[] = input.unsupported_claims ?? [];
   const result = db
     .prepare(
       `INSERT INTO evidence_records
          (task_id, concept_id, user_response, score, compression_stage,
           gaps_detected, misconceptions_detected, grader_reasoning,
           task_prompt_snapshot, task_kind_snapshot, task_difficulty_snapshot,
-          xp_awarded)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          xp_awarded, grounding_score, grounding_context_used, unsupported_claims)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.task_id,
@@ -368,6 +394,9 @@ export function createEvidenceRecord(
       input.task_kind_snapshot ?? null,
       difficulty,
       xpAwarded,
+      groundingScore,
+      groundingContextUsed ? 1 : 0,
+      JSON.stringify(unsupportedClaims),
     );
   const row = db
     .prepare('SELECT * FROM evidence_records WHERE id = ?')

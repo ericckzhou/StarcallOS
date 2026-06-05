@@ -79,6 +79,20 @@ Remember these as the active state of the repo:
   prerequisites (`listReviewQueue` carries `blocked_prerequisites`). IPC:
   `concepts.prerequisites` / `concepts.edgeCreate` / `concepts.edgeDelete` and the
   `prereq.{suggestions,compute,accept,reject}` namespace.
+- The grader is source-grounded (migration 0029). At submit, main assembles the
+  concept's source context via `buildGroundingContext` (definition/why/what +
+  deduped evidence-span quotes, ≥80 non-ws chars to count, capped at 4000) and
+  passes it as `gradeResponse`'s `source_context`. The grader then also returns
+  `grounding_score` (0–1 or `null`) and `unsupported_claims`
+  (`Array<{ claim, reason, severity: 'minor'|'major' }>`), persisted on
+  `evidence_records` alongside `grounding_context_used`. Grounding is assessed
+  ONLY when context exists — `parseGradeResult(raw, hasContext)` forces the
+  not-assessed shape (`null` score, no claims) when `hasContext` is false, so a
+  sparse deterministic-mode concept is never scored "ungrounded". These fields
+  are intrinsic to one attempt (no delete/replay recompute). `UnsupportedClaim`
+  lives in `core/domain/types.ts`; the GradeCard + History rows render a
+  grounded/partially-grounded/unsupported badge + claim list. `CONTRACT_VERSION`
+  1.2.0; contract in `contracts/grader.md`.
 - The review queue is SRS-driven (`concept_srs`, migration 0025). `listReviewQueue`
   lists ALL promoted concepts with their due state (each row carries `due_at`),
   ordered by urgency: brand-new first, then by `due_at` ascending (most-overdue →

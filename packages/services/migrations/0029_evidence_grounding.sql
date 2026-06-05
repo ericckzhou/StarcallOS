@@ -1,0 +1,33 @@
+-- Migration 0029: Source-grounding signals on graded evidence records.
+--
+-- The grader now additionally judges how well a learner's answer is BACKED BY
+-- the concept's source evidence (its definition/why/what fields + evidence_json
+-- span quotes + chunk claims), not just whether the answer is plausible. This is
+-- the resolver of the product's "source-grounded over plausible" promise.
+--
+-- All three columns are intrinsic to a single graded attempt (they describe that
+-- one answer against that one source context), so — like score/stage/gaps — they
+-- need NO recompute on delete. evidence_records stays append-only at grade time.
+--
+--   grounding_score        REAL 0..1, NULLABLE. How well the answer's claims
+--                          trace to the provided source context. NULL means the
+--                          grounding was NOT assessed (no/insufficient source
+--                          context was available — common for sparse
+--                          deterministic-mode concepts). NULL must never read as
+--                          "ungrounded": absence of context is not evidence of
+--                          hallucination.
+--   grounding_context_used INTEGER 0/1 (SQLite has no BOOLEAN). Explicit flag for
+--                          whether real source context was fed to the grader for
+--                          this attempt. Redundant with (grounding_score IS NOT
+--                          NULL) by construction, but stored explicitly for
+--                          debugging/auditing the grounding gate.
+--   unsupported_claims     TEXT, JSON array of structured objects, default '[]':
+--                            [{ "claim": string, "reason": string,
+--                               "severity": "minor" | "major" }]
+--                          Claims the learner asserted that the source context
+--                          does not support (potential hallucinations / imported
+--                          outside beliefs). Empty when grounding was not assessed
+--                          or the answer was fully supported.
+ALTER TABLE evidence_records ADD COLUMN grounding_score REAL;
+ALTER TABLE evidence_records ADD COLUMN grounding_context_used INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE evidence_records ADD COLUMN unsupported_claims TEXT NOT NULL DEFAULT '[]';

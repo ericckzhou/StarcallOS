@@ -285,6 +285,18 @@ importance tag.
   "understood" score — framed as the stage-N → N+1 next step (missing
   first-principles compression, missing failure mode, missing sibling-concept
   link), so the learner always has a concrete way to push further.
+- The grader is **source-grounded**: at submit time the main process assembles
+  the concept's source context (`buildGroundingContext` — its definition/why/what
+  fields plus deduped evidence-span quotes, token-bounded) and passes it to the
+  grader, which additionally scores how well the answer is *backed by the source*
+  (`grounding_score` 0–1) and flags `unsupported_claims` — structured
+  `{ claim, reason, severity }` objects for assertions the source does not
+  support (possible hallucinations / imported outside beliefs). These persist on
+  `evidence_records` (`grounding_score`, `grounding_context_used`,
+  `unsupported_claims`, migration 0029) and render in the GradeCard + History.
+  Grounding is assessed ONLY when real source context exists: a sparse concept
+  yields `grounding_score = null` (not "ungrounded") so absence of context is
+  never read as hallucination.
 - Constellations are now cross-source: the Overview typeahead links a concept
   to any promoted concept across all sources (the suggestion row shows the
   other concept's source filename). Entries are user-curated only — enrich,

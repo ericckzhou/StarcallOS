@@ -13,6 +13,7 @@ type Mastery = { compression_stage: number };
 type Misconception = { id: number; description: string; why_think_it: string; why_wrong: string };
 type Equation = { id: number; latex: string; variables: string[]; page: number };
 type EvidenceScore = 'understood' | 'recognizes' | 'gap' | 'misconception';
+type UnsupportedClaim = { claim: string; reason: string; severity: 'minor' | 'major' };
 type Grade = {
   score: EvidenceScore;
   compression_stage: number;
@@ -20,6 +21,9 @@ type Grade = {
   misconceptions_detected: string[];
   grader_reasoning: string;
   xp_awarded?: number;
+  grounding_score?: number | null;
+  grounding_context_used?: boolean;
+  unsupported_claims?: UnsupportedClaim[];
 };
 type HistoryRecord = {
   id: number;
@@ -34,6 +38,9 @@ type HistoryRecord = {
   task_kind_snapshot?: string | null;
   task_difficulty_snapshot?: number | null;
   xp_awarded?: number;
+  grounding_score?: number | null;
+  grounding_context_used?: boolean;
+  unsupported_claims?: UnsupportedClaim[];
 };
 type StudyProgress = {
   total_xp: number;
@@ -2244,6 +2251,30 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
                 {r.gaps_detected.length > 3 && <span style={{ fontSize: 10, color: '#4b5563' }}>+{r.gaps_detected.length - 3} more</span>}
               </div>
             )}
+            {r.grounding_context_used && r.grounding_score != null && (() => {
+              const g = groundingDisplay(r.grounding_score);
+              if (!g) return null;
+              const n = r.unsupported_claims?.length ?? 0;
+              return (
+                <div style={{ marginTop: 8, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span
+                    title={`How well your answer was backed by the source (${Math.round(r.grounding_score * 100)}%)`}
+                    style={{
+                      fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                      color: g.color, background: g.color + '22', border: `1px solid ${g.color}55`,
+                      padding: '1px 6px', borderRadius: 8,
+                    }}
+                  >
+                    {g.label} · {Math.round(r.grounding_score * 100)}%
+                  </span>
+                  {n > 0 && (
+                    <span style={{ fontSize: 10, color: '#9ca3af' }}>
+                      {n} unsupported claim{n === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         );
       })}
@@ -2404,6 +2435,65 @@ function StageHeader({ stage, score }: { stage: number; score: EvidenceScore }) 
   );
 }
 
+// Map a 0..1 grounding score to a label + color. null/undefined means the
+// grader had no source context to judge against → caller hides the section.
+function groundingDisplay(score: number | null | undefined): { label: string; color: string } | null {
+  if (score == null) return null;
+  if (score >= 0.8) return { label: 'grounded', color: '#22c55e' };
+  if (score >= 0.5) return { label: 'partially grounded', color: '#f59e0b' };
+  return { label: 'unsupported', color: '#ef4444' };
+}
+
+// Source-grounding readout: a colored score badge plus any claims the source
+// did not support (severity-tagged). Renders nothing unless the grader actually
+// used source context for this attempt — a sparse concept never shows here.
+function GroundingSection({ groundingScore, contextUsed, claims }: {
+  groundingScore?: number | null;
+  contextUsed?: boolean;
+  claims?: UnsupportedClaim[];
+}) {
+  if (!contextUsed || groundingScore == null) return null;
+  const g = groundingDisplay(groundingScore);
+  if (!g) return null;
+  const list = claims ?? [];
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 11, color: '#818cf8', fontWeight: 600 }}>Source Grounding</span>
+        <span
+          title={`How well your answer is backed by the source (${Math.round(groundingScore * 100)}%)`}
+          style={{
+            fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+            color: g.color, background: g.color + '22', border: `1px solid ${g.color}55`,
+            padding: '2px 8px', borderRadius: 10,
+          }}
+        >
+          {g.label} · {Math.round(groundingScore * 100)}%
+        </span>
+      </div>
+      {list.length > 0 && (
+        <>
+          <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 4 }}>Claims the source doesn’t support</div>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {list.map((c, i) => (
+              <li key={i} style={{ fontSize: 12, color: '#9ca3af', marginBottom: 5, lineHeight: 1.5 }}>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                  color: c.severity === 'major' ? '#ef4444' : '#f59e0b',
+                  border: `1px solid ${(c.severity === 'major' ? '#ef4444' : '#f59e0b')}55`,
+                  borderRadius: 4, padding: '1px 5px', marginRight: 6,
+                }}>{c.severity}</span>
+                <span style={{ color: '#cbd5e1' }}>{c.claim}</span>
+                {c.reason && <span style={{ color: '#6b7280' }}> — {c.reason}</span>}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
 function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task: Task | null; userResponse: string; onReset: () => void }) {
   const stage = grade.compression_stage;
   const xp = grade.xp_awarded ?? 0;
@@ -2456,6 +2546,11 @@ function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task:
           </ul>
         </div>
       )}
+      <GroundingSection
+        groundingScore={grade.grounding_score}
+        contextUsed={grade.grounding_context_used}
+        claims={grade.unsupported_claims}
+      />
       <button onClick={onReset} style={{
         background: '#1e1e2e', border: '1px solid #374151', borderRadius: 6,
         padding: '8px 16px', color: '#818cf8', fontSize: 13, cursor: 'pointer', alignSelf: 'flex-start',

@@ -11,7 +11,7 @@ import {
   buildConstellationGraph,
   listHubs, createHub, updateHub, deleteHub, addMembers, removeMember, setMemberRole, listAllMemberships,
   listHubEdges, createHubEdge, updateHubEdge, deleteHubEdge,
-  listConceptSourceEvidence, updateConceptFields, deleteConcept, deleteConceptEvidenceSpan,
+  listConceptSourceEvidence, buildGroundingContext, updateConceptFields, deleteConcept, deleteConceptEvidenceSpan,
   setConceptReviewed, addConceptEvidence, updateConceptEvidence, deleteConceptEvidenceByIndex,
   type SourceEvidenceKind,
   enrichConceptDefinition,
@@ -1387,9 +1387,14 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     if (!task || !concept) throw new Error('Task or concept not found');
 
     resetUsageStats();
+    // Assemble the concept's source material so the grader can judge whether the
+    // answer is BACKED BY the source, not merely plausible. When the concept is
+    // too sparse (hasContext=false) we pass nothing and grounding is skipped.
+    const grounding = buildGroundingContext(db, conceptId);
     const grade = await gradeResponse(cfgFor('grader'), {
       concept_name: concept.name, concept_definition: concept.definition_text,
       task_kind: task.kind, task_prompt: task.prompt, user_response: userResponse,
+      source_context: grounding.hasContext ? grounding.context : undefined,
     });
     {
       const s = getUsageStats();
@@ -1408,6 +1413,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       task_kind_snapshot: task.kind,
       task_difficulty_snapshot: task.difficulty,
       xp_awarded: calculateEligibleXpAward(db, conceptId, task.kind, task.difficulty, grade.score),
+      grounding_score: grade.grounding_score,
+      grounding_context_used: grade.grounding_context_used,
+      unsupported_claims: grade.unsupported_claims,
     });
 
     upsertMastery(db, conceptId, grade.compression_stage);
