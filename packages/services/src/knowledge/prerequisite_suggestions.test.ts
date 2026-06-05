@@ -9,6 +9,7 @@ import {
   deriveEdgeFromRelation,
   computeDeterministicSuggestions,
   listPrerequisiteSuggestions,
+  listPrerequisiteSuggestionsForConcept,
   acceptPrerequisiteSuggestion,
   rejectPrerequisiteSuggestion,
   clearPrerequisiteSuggestionsForSource,
@@ -140,6 +141,78 @@ describe('computeDeterministicSuggestions', () => {
     const res2 = computeDeterministicSuggestions(db, s.id);
     expect(res2.created).toBe(0); // INSERT OR IGNORE keeps the dismissed row
     expect(listPrerequisiteSuggestions(db, s.id, 'pending')).toEqual([]);
+    db.close();
+  });
+});
+
+describe('computeDeterministicSuggestions — cross-source resolution', () => {
+  it('resolves a relation term to a promoted concept on ANOTHER source', () => {
+    const db = openDb(':memory:');
+    const a = createSource(db, { filename: 'a.pdf', file_path: 'a.pdf' });
+    const b = createSource(db, { filename: 'b.pdf', file_path: 'b.pdf' });
+    const bp = mk(db, a.id, 'Backpropagation'); // source A
+    const cr = mk(db, b.id, 'Chain Rule');       // source B (the other source)
+    createRelationCandidate(db, a.id, {
+      from: 'Backpropagation', to: 'chain rule', kind: 'requires', quote: 'q', page: 1,
+    });
+    const res = computeDeterministicSuggestions(db, a.id);
+    expect(res.created).toBe(1);
+    const [sug] = listPrerequisiteSuggestions(db, a.id);
+    expect(sug.from_id).toBe(cr); // the cross-source Chain Rule is the prerequisite
+    expect(sug.to_id).toBe(bp);
+    db.close();
+  });
+
+  it('skips an ambiguous name that matches concepts on multiple other sources', () => {
+    const db = openDb(':memory:');
+    const a = createSource(db, { filename: 'a.pdf', file_path: 'a.pdf' });
+    const b = createSource(db, { filename: 'b.pdf', file_path: 'b.pdf' });
+    const c = createSource(db, { filename: 'c.pdf', file_path: 'c.pdf' });
+    mk(db, a.id, 'Backpropagation');
+    mk(db, b.id, 'Chain Rule');
+    mk(db, c.id, 'Chain Rule'); // same name on B and C → ambiguous → no edge
+    createRelationCandidate(db, a.id, {
+      from: 'Backpropagation', to: 'chain rule', kind: 'requires', quote: 'q', page: 1,
+    });
+    const res = computeDeterministicSuggestions(db, a.id);
+    expect(res.created).toBe(0);
+    expect(res.skippedUnresolved).toBe(1);
+    db.close();
+  });
+
+  it('prefers the same-source concept when the name also exists elsewhere', () => {
+    const db = openDb(':memory:');
+    const a = createSource(db, { filename: 'a.pdf', file_path: 'a.pdf' });
+    const b = createSource(db, { filename: 'b.pdf', file_path: 'b.pdf' });
+    const bpA = mk(db, a.id, 'Backpropagation');
+    const crA = mk(db, a.id, 'Chain Rule'); // same source
+    mk(db, b.id, 'Chain Rule');              // also on B
+    createRelationCandidate(db, a.id, {
+      from: 'Backpropagation', to: 'chain rule', kind: 'requires', quote: 'q', page: 1,
+    });
+    const res = computeDeterministicSuggestions(db, a.id);
+    expect(res.created).toBe(1);
+    const [sug] = listPrerequisiteSuggestions(db, a.id);
+    expect(sug.from_id).toBe(crA); // same-source Chain Rule wins over B's
+    expect(sug.to_id).toBe(bpA);
+    db.close();
+  });
+
+  it('lists a cross-source suggestion for BOTH endpoints, scoped to the concept', () => {
+    const db = openDb(':memory:');
+    const a = createSource(db, { filename: 'a.pdf', file_path: 'a.pdf' });
+    const b = createSource(db, { filename: 'b.pdf', file_path: 'b.pdf' });
+    const bp = mk(db, a.id, 'Backpropagation');
+    const cr = mk(db, b.id, 'Chain Rule');
+    createRelationCandidate(db, a.id, {
+      from: 'Backpropagation', to: 'chain rule', kind: 'requires', quote: 'q', page: 1,
+    });
+    computeDeterministicSuggestions(db, a.id);
+    expect(listPrerequisiteSuggestionsForConcept(db, bp).length).toBe(1); // dependent's panel
+    expect(listPrerequisiteSuggestionsForConcept(db, cr).length).toBe(1); // prerequisite's panel
+    // The source-scoped list stays keyed to the originating source.
+    expect(listPrerequisiteSuggestions(db, a.id).length).toBe(1);
+    expect(listPrerequisiteSuggestions(db, b.id).length).toBe(0);
     db.close();
   });
 });

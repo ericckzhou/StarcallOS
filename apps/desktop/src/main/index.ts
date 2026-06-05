@@ -21,6 +21,7 @@ import {
   createChunk, createConcept, updateCentralityScore, createEdge, deleteConceptEdge, createMisconception, createTask,
   getConceptPrerequisites,
   computeDeterministicSuggestions, suggestLlmPrerequisites, listPrerequisiteSuggestions,
+  listPrerequisiteSuggestionsForConcept,
   acceptPrerequisiteSuggestion, rejectPrerequisiteSuggestion,
   upsertMastery, createEvidenceRecord, listRecordsByConcept, deleteEvidenceRecord,
   calculateEligibleXpAward, getStudyProgress,
@@ -864,6 +865,10 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.PREREQ_SUGGESTIONS_LIST, (_e, args: { sourceId: number; status?: 'pending' | 'accepted' | 'dismissed' }) => {
     const a = validateIpc(PrereqSuggestionsListArgsSchema, args, IPC.PREREQ_SUGGESTIONS_LIST);
     return listPrerequisiteSuggestions(db, a.sourceId, a.status ?? 'pending');
+  });
+  ipcMain.handle(IPC.PREREQ_SUGGESTIONS_FOR_CONCEPT, (_e, conceptId: number) => {
+    const id = validateIpc(PositiveIntSchema, conceptId, IPC.PREREQ_SUGGESTIONS_FOR_CONCEPT);
+    return listPrerequisiteSuggestionsForConcept(db, id, 'pending');
   });
   ipcMain.handle(IPC.PREREQ_SUGGESTIONS_COMPUTE, (_e, sourceId: number) => {
     const id = validateIpc(PositiveIntSchema, sourceId, IPC.PREREQ_SUGGESTIONS_COMPUTE);

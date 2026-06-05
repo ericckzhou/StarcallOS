@@ -50,6 +50,7 @@ export const IPC = {
   CONCEPTS_EDGE_CREATE:      'concepts:edgeCreate',
   CONCEPTS_EDGE_DELETE:      'concepts:edgeDelete',
   PREREQ_SUGGESTIONS_LIST:    'prereq:suggestionsList',
+  PREREQ_SUGGESTIONS_FOR_CONCEPT: 'prereq:suggestionsForConcept',
   PREREQ_SUGGESTIONS_COMPUTE: 'prereq:suggestionsCompute',
   PREREQ_SUGGESTIONS_LLM:     'prereq:suggestionsLlm',
   PREREQ_SUGGESTION_ACCEPT:   'prereq:suggestionAccept',
@@ -704,6 +705,9 @@ export interface IpcApi {
   // Prerequisite-edge suggestions (computed; user accepts/rejects → concept_edges).
   prereq: {
     suggestions: (args: { sourceId: number; status?: 'pending' | 'accepted' | 'dismissed' }) => Promise<PrerequisiteSuggestion[]>;
+    // Pending suggestions touching a concept on either endpoint (any source) —
+    // used by the DetailPane so cross-source suggestions appear on both ends.
+    suggestionsForConcept: (conceptId: number) => Promise<PrerequisiteSuggestion[]>;
     compute: (sourceId: number) => Promise<ComputeSuggestionsResult>;
     // Lazy LLM suggester (pay-per-use, user-triggered). Writes pending suggestions only.
     suggestLlm: (sourceId: number) => Promise<ComputeSuggestionsResult>;

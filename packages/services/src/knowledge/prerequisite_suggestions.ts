@@ -141,11 +141,30 @@ export function computeDeterministicSuggestions(
   db: DatabaseSync,
   sourceId: number,
 ): ComputeSuggestionsResult {
-  const concepts = db
+  // Resolve relation terms cross-source, conservatively: a name that matches a
+  // promoted concept ON THIS SOURCE wins (same-source-first); otherwise accept a
+  // match on another source ONLY if it is globally unambiguous (exactly one
+  // promoted concept with that name anywhere). Ambiguous names resolve to
+  // nothing, so a collision never produces a wrong edge.
+  const localByName = new Map<string, number>();
+  for (const c of db
     .prepare('SELECT id, name FROM concepts WHERE source_id = ?')
-    .all(sourceId) as Array<{ id: number | bigint; name: string }>;
+    .all(sourceId) as Array<{ id: number | bigint; name: string }>) {
+    localByName.set(normalizeName(c.name), Number(c.id));
+  }
+  const globalByName = new Map<string, number[]>();
+  for (const c of db
+    .prepare('SELECT id, name FROM concepts')
+    .all() as Array<{ id: number | bigint; name: string }>) {
+    const k = normalizeName(c.name);
+    (globalByName.get(k) ?? globalByName.set(k, []).get(k)!).push(Number(c.id));
+  }
   const conceptIdByName = new Map<string, number>();
-  for (const c of concepts) conceptIdByName.set(normalizeName(c.name), Number(c.id));
+  for (const [name, ids] of globalByName) {
+    if (localByName.has(name)) conceptIdByName.set(name, localByName.get(name)!);
+    else if (ids.length === 1) conceptIdByName.set(name, ids[0]);
+    // else ambiguous across sources → leave unmapped (skip).
+  }
 
   const relations = db
     .prepare('SELECT from_term, to_term, relation_kind, quote FROM relation_candidates WHERE source_id = ?')
@@ -298,6 +317,21 @@ export function listPrerequisiteSuggestions(
   return (db
     .prepare(`${SUGGESTION_SELECT} WHERE s.source_id = ? AND s.status = ? ORDER BY s.confidence DESC, s.id`)
     .all(sourceId, status) as unknown as SuggestionRow[])
+    .map(rowToSuggestion);
+}
+
+// Suggestions touching a specific concept on EITHER endpoint, across any
+// source. Powers the DetailPane panel so a cross-source suggestion surfaces on
+// both the prerequisite's and the dependent's panel, regardless of which source
+// the relation was found in.
+export function listPrerequisiteSuggestionsForConcept(
+  db: DatabaseSync,
+  conceptId: number,
+  status: SuggestionStatus = 'pending',
+): PrerequisiteSuggestion[] {
+  return (db
+    .prepare(`${SUGGESTION_SELECT} WHERE (s.from_id = ? OR s.to_id = ?) AND s.status = ? ORDER BY s.confidence DESC, s.id`)
+    .all(conceptId, conceptId, status) as unknown as SuggestionRow[])
     .map(rowToSuggestion);
 }
 

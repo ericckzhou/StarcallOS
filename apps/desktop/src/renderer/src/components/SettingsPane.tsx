@@ -229,7 +229,7 @@ export default function SettingsPane() {
           <ModelSelect choices={allChoices} value={modelValue} onChange={pickHeavy} />
           <SavedBadge saved={modelSaved} fallback={allChoices[0]} />
           <div style={{ fontSize: 10, color: '#4b5563', marginTop: 10, lineHeight: 1.5 }}>
-            Used for every LLM pass: enrichment, concepts, misconceptions, tasks, grader.
+            Used for every LLM pass: enrichment, concepts, misconceptions, tasks, grader, prerequisite suggestions.
             <br />
             Cheap/structural passes (graph, structure) auto-use <code style={{ color: '#9ca3af' }}>{lightFallback}</code>.
           </div>

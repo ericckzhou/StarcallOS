@@ -50,12 +50,13 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
   const refresh = useCallback(async () => {
     const [prereqs, sugs] = await Promise.all([
       window.api.concepts.prerequisites(conceptId),
-      window.api.prereq.suggestions({ sourceId, status: 'pending' }),
+      // Concept-scoped (either endpoint, any source) so cross-source suggestions
+      // surface on both ends — the server already filters to this concept.
+      window.api.prereq.suggestionsForConcept(conceptId),
     ]);
     setData(prereqs);
-    // Only suggestions that touch THIS concept are relevant to its panel.
-    setSuggestions(sugs.filter(s => s.from_id === conceptId || s.to_id === conceptId));
-  }, [conceptId, sourceId]);
+    setSuggestions(sugs);
+  }, [conceptId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
