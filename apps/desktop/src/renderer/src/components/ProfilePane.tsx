@@ -416,9 +416,12 @@ function ActivityHeatmap({ activity }: { activity: DailyActivity[] }) {
   );
 }
 
+// Categorical palette kept within the app's indigo/violet glass theme: an
+// analogous spread (indigo → violet → periwinkle → lavender) that still
+// distinguishes sources without the old rainbow hues clashing with the UI.
 const SOURCE_PALETTE = [
-  '#60a5fa', '#f472b6', '#34d399', '#fbbf24', '#a78bfa', '#22d3ee',
-  '#fb7185', '#a3e635', '#f59e0b', '#818cf8', '#2dd4bf', '#e879f9',
+  '#818cf8', '#a78bfa', '#c4b5fd', '#6366f1', '#8b5cf6', '#b794f6',
+  '#7c83ff', '#5b50c4', '#d8b4fe', '#9f7aea', '#a5b4fc', '#7e6cf0',
 ];
 
 function SourceChallengeChart({ counts }: { counts: { source_id: number; source_title: string; count: number }[] }) {
@@ -455,7 +458,7 @@ function CalibrationCard({ stats }: { stats: CalibrationStats }) {
   const verdict = stats.mean_gap > 0.05
     ? { text: `You tend to be overconfident by ~${meanPct}%`, color: '#f59e0b' }
     : stats.mean_gap < -0.05
-      ? { text: `You tend to be underconfident by ~${meanPct}%`, color: '#38bdf8' }
+      ? { text: `You tend to be underconfident by ~${meanPct}%`, color: '#818cf8' }
       : { text: 'Your confidence is well calibrated', color: '#22c55e' };
   const total = Math.max(1, stats.sample_count);
   const seg = (n: number) => `${(n / total) * 100}%`;
@@ -471,12 +474,12 @@ function CalibrationCard({ stats }: { stats: CalibrationStats }) {
       <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: 'rgba(31,41,55,0.55)' }}>
         {stats.overconfident > 0 && <div title={`${stats.overconfident} overconfident`} style={{ width: seg(stats.overconfident), background: '#f59e0b' }} />}
         {stats.well_calibrated > 0 && <div title={`${stats.well_calibrated} well calibrated`} style={{ width: seg(stats.well_calibrated), background: '#22c55e' }} />}
-        {stats.underconfident > 0 && <div title={`${stats.underconfident} underconfident`} style={{ width: seg(stats.underconfident), background: '#38bdf8' }} />}
+        {stats.underconfident > 0 && <div title={`${stats.underconfident} underconfident`} style={{ width: seg(stats.underconfident), background: '#818cf8' }} />}
       </div>
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: '#9ca3af' }}>
         <Legend color="#f59e0b" label="Overconfident" n={stats.overconfident} />
         <Legend color="#22c55e" label="Well calibrated" n={stats.well_calibrated} />
-        <Legend color="#38bdf8" label="Underconfident" n={stats.underconfident} />
+        <Legend color="#818cf8" label="Underconfident" n={stats.underconfident} />
       </div>
     </div>
   );

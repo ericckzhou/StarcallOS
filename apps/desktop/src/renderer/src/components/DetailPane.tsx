@@ -2316,7 +2316,8 @@ function ConfidenceSlider({ value, onChange, disabled }: {
         disabled={disabled}
         onChange={e => onChange(Number(e.target.value) / 100)}
         aria-label="Confidence before submitting"
-        style={{ width: '100%', accentColor: '#6366f1', cursor: disabled ? 'default' : 'pointer' }}
+        className="glass-range"
+        style={{ ['--fill']: `${pct}%`, cursor: disabled ? 'default' : 'pointer' } as React.CSSProperties}
       />
     </div>
   );
@@ -2481,7 +2482,7 @@ function StageHeader({ stage, score }: { stage: number; score: EvidenceScore }) 
 // Mirrors the 0.15 tolerance used by the services rollup.
 function calibrationVerdict(gap: number): { label: string; color: string } {
   if (gap > 0.15) return { label: 'overconfident', color: '#f59e0b' };
-  if (gap < -0.15) return { label: 'underconfident', color: '#38bdf8' };
+  if (gap < -0.15) return { label: 'underconfident', color: '#818cf8' };
   return { label: 'well calibrated', color: '#22c55e' };
 }
 
