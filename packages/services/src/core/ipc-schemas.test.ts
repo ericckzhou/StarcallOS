@@ -103,6 +103,17 @@ describe('SubmitEvidenceArgsSchema', () => {
     expect(SubmitEvidenceArgsSchema.safeParse({ taskId: 1, conceptId: 2, userResponse: '' }).success).toBe(false);
     expect(SubmitEvidenceArgsSchema.safeParse({ taskId: 0, conceptId: 2, userResponse: 'x' }).success).toBe(false);
   });
+
+  it('accepts an optional confidenceBefore in 0..1', () => {
+    expect(SubmitEvidenceArgsSchema.safeParse({ taskId: 1, conceptId: 2, userResponse: 'x', confidenceBefore: 0 }).success).toBe(true);
+    expect(SubmitEvidenceArgsSchema.safeParse({ taskId: 1, conceptId: 2, userResponse: 'x', confidenceBefore: 1 }).success).toBe(true);
+    expect(SubmitEvidenceArgsSchema.safeParse({ taskId: 1, conceptId: 2, userResponse: 'x' }).success).toBe(true);
+  });
+
+  it('rejects a confidenceBefore outside 0..1', () => {
+    expect(SubmitEvidenceArgsSchema.safeParse({ taskId: 1, conceptId: 2, userResponse: 'x', confidenceBefore: 1.5 }).success).toBe(false);
+    expect(SubmitEvidenceArgsSchema.safeParse({ taskId: 1, conceptId: 2, userResponse: 'x', confidenceBefore: -0.1 }).success).toBe(false);
+  });
 });
 
 describe('ImportDocsArgsSchema', () => {

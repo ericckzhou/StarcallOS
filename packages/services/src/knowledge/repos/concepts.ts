@@ -978,3 +978,63 @@ export function listRequirementsFor(db: DatabaseSync, conceptId: number): Concep
       .all(conceptId) as unknown as ConceptRow[]
   ).map(rowToConcept);
 }
+
+// ─── Grounding context (for the source-grounded grader) ─────────────────────
+
+export interface GroundingContext {
+  // Compact, deduped, token-bounded source material the grader checks the
+  // learner's claims against. Empty string when hasContext is false.
+  context: string;
+  // True only when enough real source material was found to assess grounding.
+  // When false the grader is told to SKIP grounding (returns a null score) —
+  // a sparse deterministic-mode concept must never be scored as "ungrounded"
+  // just because we had nothing to ground against.
+  hasContext: boolean;
+}
+
+// Below this many non-whitespace chars the context is too thin to judge
+// grounding fairly, so we report hasContext=false.
+const GROUNDING_MIN_CHARS = 80;
+// Hard cap so a richly-evidenced concept can't blow the grader's token budget
+// (Groq free-tier TPM is tight; the grader is a heavy pass).
+const GROUNDING_MAX_CHARS = 4_000;
+
+// Assemble the source context for one concept: its source-derived prose fields
+// (definition/why/what) plus the deduped quotes from its evidence spans (chunks,
+// equations, relations, definitions, highlights — already aggregated by
+// listConceptSourceEvidence). This is the material the grader uses to decide
+// whether the learner's answer is BACKED BY the source rather than merely
+// plausible.
+export function buildGroundingContext(db: DatabaseSync, conceptId: number): GroundingContext {
+  const concept = getConceptById(db, conceptId);
+  if (!concept) return { context: '', hasContext: false };
+
+  const parts: string[] = [];
+  const def = concept.definition_text?.trim();
+  const why = concept.why_exists?.trim();
+  const what = concept.what_breaks?.trim();
+  if (def) parts.push(`Definition (from source): ${def}`);
+  if (why) parts.push(`Why it exists (from source): ${why}`);
+  if (what) parts.push(`What breaks without it (from source): ${what}`);
+
+  // Real source-quote spans. listConceptSourceEvidence seeds evidence_json from
+  // derived sources on first read, so this also covers chunk claims / equations /
+  // relations even before the user has edited evidence.
+  const se = listConceptSourceEvidence(db, conceptId);
+  const seen = new Set<string>();
+  for (const e of se?.evidence ?? []) {
+    const q = e.quote?.trim();
+    if (!q) continue;
+    const key = q.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    parts.push(`Source excerpt (${e.kind}): "${q}"`);
+  }
+
+  let context = parts.join('\n');
+  if (context.length > GROUNDING_MAX_CHARS) {
+    context = `${context.slice(0, GROUNDING_MAX_CHARS)}…`;
+  }
+  const hasContext = context.replace(/\s+/g, '').length >= GROUNDING_MIN_CHARS;
+  return { context: hasContext ? context : '', hasContext };
+}

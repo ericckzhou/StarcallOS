@@ -285,6 +285,27 @@ importance tag.
   "understood" score — framed as the stage-N → N+1 next step (missing
   first-principles compression, missing failure mode, missing sibling-concept
   link), so the learner always has a concrete way to push further.
+- The grader is **source-grounded**: at submit time the main process assembles
+  the concept's source context (`buildGroundingContext` — its definition/why/what
+  fields plus deduped evidence-span quotes, token-bounded) and passes it to the
+  grader, which additionally scores how well the answer is *backed by the source*
+  (`grounding_score` 0–1) and flags `unsupported_claims` — structured
+  `{ claim, reason, severity }` objects for assertions the source does not
+  support (possible hallucinations / imported outside beliefs). These persist on
+  `evidence_records` (`grounding_score`, `grounding_context_used`,
+  `unsupported_claims`, migration 0029) and render in the GradeCard + History.
+  Grounding is assessed ONLY when real source context exists: a sparse concept
+  yields `grounding_score = null` (not "ungrounded") so absence of context is
+  never read as hallucination.
+- **Confidence calibration** (migration 0030, no LLM): before submitting, the
+  learner sets a 0–1 confidence slider ("do I know this, or do I only think I
+  know this?"). `SubmitEvidenceArgs.confidenceBefore` is stored as
+  `confidence_before` and a `calibration_gap = confidence_before − outcome` is
+  derived at grade time (outcome maps the grade to 0–1). Positive gap =
+  overconfident. The Profile "Calibration" card rolls these up across rated
+  answers (mean gap + over/well/under-confident counts within a 0.15 tolerance),
+  and the GradeCard shows a per-attempt verdict. Legacy/unrated records are
+  excluded from all calibration stats.
 - Constellations are now cross-source: the Overview typeahead links a concept
   to any promoted concept across all sources (the suggestion row shows the
   other concept's source filename). Entries are user-curated only — enrich,

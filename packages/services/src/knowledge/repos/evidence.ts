@@ -8,6 +8,7 @@ import type {
   CompressionStage,
   EvidenceRecord,
   EvidenceScore,
+  UnsupportedClaim,
   SemanticChunk,
   BlockType,
 } from '../../core/domain/types';
@@ -284,7 +285,46 @@ interface RecordRow {
   task_kind_snapshot: string | null;
   task_difficulty_snapshot: number | null;
   xp_awarded: number;
+  grounding_score: number | null;
+  grounding_context_used: number | null;
+  unsupported_claims: string | null;
+  confidence_before: number | null;
+  calibration_gap: number | null;
 }
+
+function parseUnsupportedClaims(json: string | null | undefined): UnsupportedClaim[] {
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json);
+    return Array.isArray(arr) ? (arr as UnsupportedClaim[]) : [];
+  } catch { return []; }
+}
+
+// How a grade maps to an actual-performance outcome in 0..1, used to compare
+// against the learner's pre-submit confidence. Kept deliberately coarse and
+// monotonic with the compression ladder.
+const SCORE_OUTCOME: Record<EvidenceScore, number> = {
+  understood: 1.0,
+  recognizes: 0.66,
+  gap: 0.33,
+  misconception: 0.0,
+};
+
+export function scoreOutcome(score: EvidenceScore): number {
+  return SCORE_OUTCOME[score] ?? 0;
+}
+
+// confidence_before - outcome, clamped inputs. Positive = overconfident
+// (claimed more than performance), negative = underconfident. Pure function of
+// the learner's stated confidence and the grade, so it is computed once at grade
+// time and stored; deletion needs no replay.
+export function computeCalibrationGap(confidenceBefore: number, score: EvidenceScore): number {
+  const c = Math.max(0, Math.min(1, confidenceBefore));
+  return c - scoreOutcome(score);
+}
+
+// |gap| at or below this counts as "well calibrated" in the Profile rollup.
+export const CALIBRATION_TOLERANCE = 0.15;
 
 function rowToRecord(row: RecordRow): EvidenceRecord {
   return {
@@ -302,6 +342,11 @@ function rowToRecord(row: RecordRow): EvidenceRecord {
     task_kind_snapshot: row.task_kind_snapshot ?? null,
     task_difficulty_snapshot: row.task_difficulty_snapshot as 1 | 2 | 3 | 4 | 5 | null,
     xp_awarded: row.xp_awarded,
+    grounding_score: row.grounding_score ?? null,
+    grounding_context_used: !!row.grounding_context_used,
+    unsupported_claims: parseUnsupportedClaims(row.unsupported_claims),
+    confidence_before: row.confidence_before ?? null,
+    calibration_gap: row.calibration_gap ?? null,
   };
 }
 
@@ -341,19 +386,39 @@ export function calculateEligibleXpAward(
 
 export function createEvidenceRecord(
   db: DatabaseSync,
-  input: Omit<EvidenceRecord, 'id' | 'created_at' | 'task_difficulty_snapshot' | 'xp_awarded'> &
-    Partial<Pick<EvidenceRecord, 'task_difficulty_snapshot' | 'xp_awarded'>>,
+  input: Omit<
+    EvidenceRecord,
+    'id' | 'created_at' | 'task_difficulty_snapshot' | 'xp_awarded'
+      | 'grounding_score' | 'grounding_context_used' | 'unsupported_claims'
+      | 'confidence_before' | 'calibration_gap'
+  > &
+    Partial<Pick<
+      EvidenceRecord,
+      'task_difficulty_snapshot' | 'xp_awarded'
+        | 'grounding_score' | 'grounding_context_used' | 'unsupported_claims'
+        | 'confidence_before'
+    >>,
 ): EvidenceRecord {
   const difficulty = input.task_difficulty_snapshot ?? 3;
   const xpAwarded = input.xp_awarded ?? calculateXpAward(difficulty, input.score);
+  const groundingScore = input.grounding_score ?? null;
+  const groundingContextUsed = input.grounding_context_used ?? false;
+  const unsupportedClaims: UnsupportedClaim[] = input.unsupported_claims ?? [];
+  // calibration_gap is derived from confidence_before + score (not accepted as
+  // input) so it can never disagree with them. Null confidence ⇒ null gap.
+  const confidenceBefore = input.confidence_before ?? null;
+  const calibrationGap = confidenceBefore == null
+    ? null
+    : computeCalibrationGap(confidenceBefore, input.score);
   const result = db
     .prepare(
       `INSERT INTO evidence_records
          (task_id, concept_id, user_response, score, compression_stage,
           gaps_detected, misconceptions_detected, grader_reasoning,
           task_prompt_snapshot, task_kind_snapshot, task_difficulty_snapshot,
-          xp_awarded)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          xp_awarded, grounding_score, grounding_context_used, unsupported_claims,
+          confidence_before, calibration_gap)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.task_id,
@@ -368,6 +433,11 @@ export function createEvidenceRecord(
       input.task_kind_snapshot ?? null,
       difficulty,
       xpAwarded,
+      groundingScore,
+      groundingContextUsed ? 1 : 0,
+      JSON.stringify(unsupportedClaims),
+      confidenceBefore,
+      calibrationGap,
     );
   const row = db
     .prepare('SELECT * FROM evidence_records WHERE id = ?')
@@ -677,6 +747,21 @@ export interface DailyActivity {
   sources: { source_title: string; count: number }[];
 }
 
+// Confidence-calibration rollup over records that captured a pre-submit
+// confidence (legacy/null-confidence records are excluded). mean_gap > 0 ⇒ the
+// learner is, on average, overconfident.
+export interface CalibrationStats {
+  sample_count: number;
+  mean_gap: number;        // average (confidence_before - outcome), -1..1
+  overconfident: number;   // count with gap >  CALIBRATION_TOLERANCE
+  underconfident: number;  // count with gap < -CALIBRATION_TOLERANCE
+  well_calibrated: number; // count with |gap| <= CALIBRATION_TOLERANCE
+}
+
+export const EMPTY_CALIBRATION: CalibrationStats = {
+  sample_count: 0, mean_gap: 0, overconfident: 0, underconfident: 0, well_calibrated: 0,
+};
+
 export interface StudyProgress {
   total_xp: number;
   level: number;
@@ -687,6 +772,7 @@ export interface StudyProgress {
   difficulty_counts: Record<1 | 2 | 3 | 4 | 5, number>;
   source_counts: SourceChallengeCount[];
   daily_activity: DailyActivity[];
+  calibration: CalibrationStats;
 }
 
 export function progressFromXp(
@@ -695,6 +781,7 @@ export function progressFromXp(
   difficultyCounts: Record<1 | 2 | 3 | 4 | 5, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
   sourceCounts: SourceChallengeCount[] = [],
   dailyActivity: DailyActivity[] = [],
+  calibration: CalibrationStats = EMPTY_CALIBRATION,
 ): StudyProgress {
   const level = Math.floor(Math.sqrt(Math.max(0, totalXp) / 100)) + 1;
   const currentLevelXp = (level - 1) * (level - 1) * 100;
@@ -711,6 +798,7 @@ export function progressFromXp(
     difficulty_counts: difficultyCounts,
     source_counts: sourceCounts,
     daily_activity: dailyActivity,
+    calibration,
   };
 }
 
@@ -779,5 +867,28 @@ export function getStudyProgress(db: DatabaseSync): StudyProgress {
     activityByDay.set(day, rec);
   }
   const dailyActivity: DailyActivity[] = [...activityByDay.values()];
-  return progressFromXp(Number(xpRow?.total_xp ?? 0), Number(challengeRow?.total ?? 0), difficultyCounts, sourceCounts, dailyActivity);
+  const calibRow = db
+    .prepare(
+      `SELECT COUNT(*) AS n,
+              AVG(calibration_gap) AS mean_gap,
+              SUM(CASE WHEN calibration_gap >  ? THEN 1 ELSE 0 END) AS over,
+              SUM(CASE WHEN calibration_gap < -? THEN 1 ELSE 0 END) AS under,
+              SUM(CASE WHEN ABS(calibration_gap) <= ? THEN 1 ELSE 0 END) AS calibrated
+         FROM evidence_records
+        WHERE confidence_before IS NOT NULL AND calibration_gap IS NOT NULL`,
+    )
+    .get(CALIBRATION_TOLERANCE, CALIBRATION_TOLERANCE, CALIBRATION_TOLERANCE) as unknown as
+      | { n: number | bigint; mean_gap: number | null; over: number | bigint | null; under: number | bigint | null; calibrated: number | bigint | null }
+      | undefined;
+  const calibCount = Number(calibRow?.n ?? 0);
+  const calibration: CalibrationStats = calibCount === 0
+    ? EMPTY_CALIBRATION
+    : {
+        sample_count: calibCount,
+        mean_gap: Number(calibRow?.mean_gap ?? 0),
+        overconfident: Number(calibRow?.over ?? 0),
+        underconfident: Number(calibRow?.under ?? 0),
+        well_calibrated: Number(calibRow?.calibrated ?? 0),
+      };
+  return progressFromXp(Number(xpRow?.total_xp ?? 0), Number(challengeRow?.total ?? 0), difficultyCounts, sourceCounts, dailyActivity, calibration);
 }

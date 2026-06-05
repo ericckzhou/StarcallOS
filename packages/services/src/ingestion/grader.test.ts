@@ -203,3 +203,114 @@ describe('gradeResponse', () => {
     expect(result.gaps_detected.length).toBeGreaterThan(0);
   });
 });
+
+// ─── Source grounding (parse-level) ──────────────────────────────────────────
+
+describe('parseGradeResult — grounding gate', () => {
+  const grounded = {
+    score: 'understood', compression_stage: 3,
+    gaps_detected: ['x'], misconceptions_detected: [],
+    grounding_score: 0.7,
+    unsupported_claims: [{ claim: 'PUT is always edge-cached', reason: 'not in source', severity: 'major' }],
+    reasoning: 'ok',
+  };
+
+  it('forces grounding to "not assessed" when no context was given (hasContext=false)', () => {
+    const r = parseGradeResult(grounded, false);
+    expect(r.grounding_score).toBeNull();
+    expect(r.grounding_context_used).toBe(false);
+    expect(r.unsupported_claims).toEqual([]);
+  });
+
+  it('defaults to not-assessed when hasContext omitted entirely', () => {
+    const r = parseGradeResult(grounded);
+    expect(r.grounding_score).toBeNull();
+    expect(r.grounding_context_used).toBe(false);
+  });
+
+  it('parses grounding when context was given (hasContext=true)', () => {
+    const r = parseGradeResult(grounded, true);
+    expect(r.grounding_score).toBe(0.7);
+    expect(r.grounding_context_used).toBe(true);
+    expect(r.unsupported_claims).toEqual([
+      { claim: 'PUT is always edge-cached', reason: 'not in source', severity: 'major' },
+    ]);
+  });
+
+  it('clamps grounding_score into 0..1', () => {
+    expect(parseGradeResult({ grounding_score: 1.8 }, true).grounding_score).toBe(1);
+    expect(parseGradeResult({ grounding_score: -0.5 }, true).grounding_score).toBe(0);
+  });
+
+  it('null grounding_score when context given but model omits/garbles it', () => {
+    expect(parseGradeResult({ score: 'gap' }, true).grounding_score).toBeNull();
+    expect(parseGradeResult({ grounding_score: 'high' }, true).grounding_score).toBeNull();
+  });
+
+  it('drops malformed unsupported claims and defaults severity to minor', () => {
+    const r = parseGradeResult({
+      grounding_score: 0.5,
+      unsupported_claims: [
+        { claim: 'kept', reason: 'r', severity: 'bogus' }, // severity coerced to minor
+        { claim: '', reason: 'dropped — empty claim' },     // dropped
+        { reason: 'no claim field' },                        // dropped
+        'a bare string',                                     // dropped
+        { claim: 'major one', severity: 'major' },           // reason defaults to ''
+      ],
+    }, true);
+    expect(r.unsupported_claims).toEqual([
+      { claim: 'kept', reason: 'r', severity: 'minor' },
+      { claim: 'major one', reason: '', severity: 'major' },
+    ]);
+  });
+
+  it('ignores grounding fields entirely on the conservative empty-object default', () => {
+    const r = parseGradeResult({}, false);
+    expect(r.grounding_score).toBeNull();
+    expect(r.unsupported_claims).toEqual([]);
+  });
+});
+
+// ─── Source grounding (gradeResponse wiring) ─────────────────────────────────
+
+describe('gradeResponse — grounding context wiring', () => {
+  beforeEach(() => { mockChatJSON.mockReset(); });
+
+  const groundedPayload = JSON.stringify({
+    score: 'gap', compression_stage: 1, gaps_detected: ['g'], misconceptions_detected: [],
+    grounding_score: 0.4,
+    unsupported_claims: [{ claim: 'c', reason: 'r', severity: 'minor' }],
+    reasoning: '',
+  });
+  const usage = { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 1, completionTokens: 1, totalTokens: 2, durationMs: 1 } as const;
+
+  it('includes the source context block and assesses grounding when source_context is provided', async () => {
+    mockChatJSON.mockResolvedValue({ content: groundedPayload, usage });
+    const result = await gradeResponse(config, { ...input, source_context: 'Definition (from source): a ring of keys with minimal remap on membership change.' });
+    const [, req] = mockChatJSON.mock.calls[0];
+    const userMsg = req.messages.find((m: { role: string }) => m.role === 'user')?.content ?? '';
+    expect(userMsg).toContain('Source context');
+    expect(userMsg).toContain('ring of keys');
+    expect(result.grounding_context_used).toBe(true);
+    expect(result.grounding_score).toBe(0.4);
+    expect(result.unsupported_claims).toHaveLength(1);
+  });
+
+  it('skips grounding (null) when no source_context is provided', async () => {
+    mockChatJSON.mockResolvedValue({ content: groundedPayload, usage });
+    const result = await gradeResponse(config, input);
+    const [, req] = mockChatJSON.mock.calls[0];
+    const userMsg = req.messages.find((m: { role: string }) => m.role === 'user')?.content ?? '';
+    expect(userMsg).not.toContain('Source context');
+    expect(result.grounding_context_used).toBe(false);
+    expect(result.grounding_score).toBeNull();
+    expect(result.unsupported_claims).toEqual([]);
+  });
+
+  it('treats a whitespace-only source_context as no context', async () => {
+    mockChatJSON.mockResolvedValue({ content: groundedPayload, usage });
+    const result = await gradeResponse(config, { ...input, source_context: '   \n  ' });
+    expect(result.grounding_context_used).toBe(false);
+    expect(result.grounding_score).toBeNull();
+  });
+});

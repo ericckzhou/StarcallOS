@@ -79,6 +79,34 @@ Remember these as the active state of the repo:
   prerequisites (`listReviewQueue` carries `blocked_prerequisites`). IPC:
   `concepts.prerequisites` / `concepts.edgeCreate` / `concepts.edgeDelete` and the
   `prereq.{suggestions,compute,accept,reject}` namespace.
+- The grader is source-grounded (migration 0029). At submit, main assembles the
+  concept's source context via `buildGroundingContext` (definition/why/what +
+  deduped evidence-span quotes, ≥80 non-ws chars to count, capped at 4000) and
+  passes it as `gradeResponse`'s `source_context`. The grader then also returns
+  `grounding_score` (0–1 or `null`) and `unsupported_claims`
+  (`Array<{ claim, reason, severity: 'minor'|'major' }>`), persisted on
+  `evidence_records` alongside `grounding_context_used`. Grounding is assessed
+  ONLY when context exists — `parseGradeResult(raw, hasContext)` forces the
+  not-assessed shape (`null` score, no claims) when `hasContext` is false, so a
+  sparse deterministic-mode concept is never scored "ungrounded". These fields
+  are intrinsic to one attempt (no delete/replay recompute). `UnsupportedClaim`
+  lives in `core/domain/types.ts`; the GradeCard + History rows render a
+  grounded/partially-grounded/unsupported badge + claim list. `CONTRACT_VERSION`
+  1.2.0; contract in `contracts/grader.md`.
+- Confidence calibration is shipped (migration 0030). The ChallengeTab has a
+  pre-submit "How confident are you?" slider (0–1, default 0.5, always captured);
+  `SubmitEvidenceArgs.confidenceBefore` (Zod `0..1` optional) flows to the
+  `EVIDENCE_SUBMIT` handler → `createEvidenceRecord`, which stores
+  `confidence_before` and derives `calibration_gap = confidence_before − outcome`
+  (`scoreOutcome`: understood 1.0 / recognizes 0.66 / gap 0.33 / misconception 0;
+  positive gap = overconfident). Both are intrinsic to the attempt (no
+  delete/replay recompute) and null on legacy records. `getStudyProgress` adds a
+  `calibration` rollup (`CalibrationStats`: sample_count, mean_gap, over/under/
+  well counts, `CALIBRATION_TOLERANCE` 0.15) over records WITH a confidence value;
+  the Profile "Calibration" card renders the verdict + an over/well/under bar, and
+  the GradeCard shows a per-attempt over/under/well badge. No LLM involved — pure
+  compute. (Uncertainty artifacts — ambiguities/conflicts — are deliberately
+  deferred to a future Misconception Detective, NOT built here.)
 - The review queue is SRS-driven (`concept_srs`, migration 0025). `listReviewQueue`
   lists ALL promoted concepts with their due state (each row carries `due_at`),
   ordered by urgency: brand-new first, then by `due_at` ascending (most-overdue →
@@ -126,9 +154,11 @@ Remember these as the active state of the repo:
   create form was removed — creation now lives in the Hubs tab). Hubs render as
   Map nebula clusters. There is a dedicated top-level **Hubs tab**
   (`HubsPane.tsx`) for full management: create (random default color),
-  rename/recolor/describe, remove members, delete. The Map rail lists ALL hubs
-  (dimming ones not on the current source) so a hub whose source was deleted is
-  still deletable. New-hub default color is randomized. **Hub nesting is
+  rename/recolor/describe, remove members, delete. The Map rail lists ONLY hubs
+  with a member on the current source (`railHubs` = `orderedHubs` filtered by
+  `visibleHubIds`); off-source hubs are hidden, not dimmed, since management/
+  deletion lives in the Hubs tab. New-hub default color is randomized. **Hub
+  nesting is
   shipped**: a hub can have a parent via `star_hubs.parent_hub_id` (column
   predates this; `ON DELETE SET NULL` re-roots children when a parent is
   deleted). `createHub`/`updateHub` accept `parentHubId` (tri-state on update:

@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import SettingsPane from './SettingsPane';
-import { saveProfile, xpToNext, type Profile, type StudyProgress, type DailyActivity } from './profile';
+import { saveProfile, xpToNext, type Profile, type StudyProgress, type DailyActivity, type CalibrationStats } from './profile';
 
 interface Props {
   profile: Profile;
@@ -232,6 +232,17 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                   </div>
                   <SourceChallengeChart counts={progress.source_counts} />
                 </section>
+                {progress.calibration && progress.calibration.sample_count > 0 && (
+                  <section style={panel}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                      <div style={eyebrow}>Calibration</div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>
+                        {progress.calibration.sample_count} rated answer{progress.calibration.sample_count === 1 ? '' : 's'}
+                      </div>
+                    </div>
+                    <CalibrationCard stats={progress.calibration} />
+                  </section>
+                )}
               </>
             )}
           </div>
@@ -405,9 +416,12 @@ function ActivityHeatmap({ activity }: { activity: DailyActivity[] }) {
   );
 }
 
+// Categorical palette kept within the app's indigo/violet glass theme: an
+// analogous spread (indigo → violet → periwinkle → lavender) that still
+// distinguishes sources without the old rainbow hues clashing with the UI.
 const SOURCE_PALETTE = [
-  '#60a5fa', '#f472b6', '#34d399', '#fbbf24', '#a78bfa', '#22d3ee',
-  '#fb7185', '#a3e635', '#f59e0b', '#818cf8', '#2dd4bf', '#e879f9',
+  '#818cf8', '#a78bfa', '#c4b5fd', '#6366f1', '#8b5cf6', '#b794f6',
+  '#7c83ff', '#5b50c4', '#d8b4fe', '#9f7aea', '#a5b4fc', '#7e6cf0',
 ];
 
 function SourceChallengeChart({ counts }: { counts: { source_id: number; source_title: string; count: number }[] }) {
@@ -415,23 +429,77 @@ function SourceChallengeChart({ counts }: { counts: { source_id: number; source_
     return <div style={{ marginTop: 14, fontSize: 12, color: '#475569' }}>No challenges completed yet.</div>;
   }
   const max = Math.max(1, ...counts.map(c => c.count));
+  const total = counts.reduce((s, c) => s + c.count, 0) || 1;
   return (
-    <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
       {counts.map((c, i) => {
         const color = SOURCE_PALETTE[i % SOURCE_PALETTE.length];
+        const pct = Math.round((c.count / total) * 100);
         return (
           <div key={c.source_id} className="csbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div title={c.source_title} style={{ width: 150, flexShrink: 0, fontSize: 12, color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 7 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0, boxShadow: `0 0 6px ${color}88` }} />
               {c.source_title}
             </div>
-            <div style={{ flex: 1, minWidth: 0, height: 14, background: 'rgba(31,41,55,0.55)', borderRadius: 4, overflow: 'hidden' }}>
-              <div className="csbar-fill" style={{ width: `${(c.count / max) * 100}%`, height: '100%', background: color, borderRadius: 4, animationDelay: `${i * 90}ms` }} />
+            <div style={{ flex: 1, minWidth: 0, height: 8, background: 'rgba(31,41,55,0.55)', borderRadius: 999, overflow: 'hidden', boxShadow: 'inset 0 0 0 1px rgba(2,6,23,0.4)' }}>
+              <div className="csbar-fill" style={{ width: `${(c.count / max) * 100}%`, height: '100%', background: `linear-gradient(90deg, ${color}, ${color}88)`, borderRadius: 999, animationDelay: `${i * 90}ms` }} />
             </div>
-            <div style={{ width: 28, flexShrink: 0, textAlign: 'right', fontSize: 12, color: '#e2e8f0', fontVariantNumeric: 'tabular-nums' }}>{c.count}</div>
+            <div title={`${pct}% of all challenges`} style={{ minWidth: 30, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#e2e8f0', fontVariantNumeric: 'tabular-nums' }}>{c.count}</div>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Confidence-calibration rollup rendered as a diverging bullet gauge (the
+// "performance vs target" form): a marker sits at the mean gap on a track whose
+// center is perfectly calibrated — left = underconfident (indigo), right =
+// overconfident (amber), with a green tolerance band around center. Answers
+// "do I know this, or do I only think I know this?" across all rated answers.
+function CalibrationCard({ stats }: { stats: CalibrationStats }) {
+  const meanPct = Math.round(Math.abs(stats.mean_gap) * 100);
+  const verdict = stats.mean_gap > 0.05
+    ? { text: `You tend to be overconfident by ~${meanPct}%`, color: '#ef4444' }
+    : stats.mean_gap < -0.05
+      ? { text: `You tend to be underconfident by ~${meanPct}%`, color: '#818cf8' }
+      : { text: 'Your confidence is well calibrated', color: '#22c55e' };
+  // Map mean_gap ∈ [-1,1] to 0..100% (center = 50% = perfect). Clamp off the rim.
+  const markerPos = Math.max(3, Math.min(97, 50 + stats.mean_gap * 50));
+  // Counts in reading order under→well→over, matching the track's left→right.
+  const buckets = [
+    { key: 'under', color: '#818cf8', label: 'Underconfident', n: stats.underconfident },
+    { key: 'well', color: '#22c55e', label: 'Well calibrated', n: stats.well_calibrated },
+    { key: 'over', color: '#ef4444', label: 'Overconfident', n: stats.overconfident },
+  ];
+  return (
+    <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: verdict.color }}>{verdict.text}</div>
+      <div style={{ position: 'relative', height: 18, marginTop: 2 }}>
+        <div style={{
+          position: 'absolute', top: 3, left: 0, right: 0, height: 12, borderRadius: 6, overflow: 'hidden',
+          boxShadow: 'inset 0 0 0 1px rgba(2,6,23,0.45)',
+          background: 'linear-gradient(90deg, rgba(129,140,248,0.32) 0%, rgba(129,140,248,0.12) 40%, rgba(34,197,94,0.34) 50%, rgba(239,68,68,0.12) 60%, rgba(239,68,68,0.32) 100%)',
+        }}>
+          <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'rgba(226,232,240,0.4)' }} />
+        </div>
+        <div
+          className="calib-marker"
+          title={`Average gap ${stats.mean_gap > 0 ? '+' : ''}${Math.round(stats.mean_gap * 100)}%`}
+          style={{ position: 'absolute', top: 0, left: `${markerPos}%`, width: 4, height: 18, borderRadius: 2, background: verdict.color, boxShadow: `0 0 8px ${verdict.color}` }}
+        />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        <span>Underconfident</span><span>Calibrated</span><span>Overconfident</span>
+      </div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, marginTop: 2 }}>
+        {buckets.map(b => (
+          <span key={b.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: b.n > 0 ? '#cbd5e1' : '#4b5563' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: b.color, opacity: b.n > 0 ? 1 : 0.35 }} />
+            {b.label} · {b.n}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

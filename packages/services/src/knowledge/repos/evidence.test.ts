@@ -18,6 +18,9 @@ import {
   countDueConcepts,
   countNewConcepts,
   setConceptSrsDue,
+  computeCalibrationGap,
+  scoreOutcome,
+  getStudyProgress,
 } from './evidence';
 import { listReviewQueue } from './concepts';
 
@@ -279,5 +282,106 @@ describe('concept_srs scheduling', () => {
     setConceptSrsDue(db, conceptId, null);
     expect(countNewConcepts(db)).toBe(1);
     expect(countDueConcepts(db)).toBe(0);
+  });
+});
+
+// ─── Calibration (pure) ───────────────────────────────────────────────────────
+
+describe('scoreOutcome / computeCalibrationGap', () => {
+  it('maps grades to monotonic outcomes', () => {
+    expect(scoreOutcome('understood')).toBe(1.0);
+    expect(scoreOutcome('recognizes')).toBe(0.66);
+    expect(scoreOutcome('gap')).toBe(0.33);
+    expect(scoreOutcome('misconception')).toBe(0.0);
+  });
+
+  it('positive gap = overconfident, negative = underconfident', () => {
+    // Felt 90% sure but only recognized (outcome 0.66) → overconfident.
+    expect(computeCalibrationGap(0.9, 'recognizes')).toBeCloseTo(0.24, 5);
+    // Felt 20% sure but actually understood (outcome 1.0) → underconfident.
+    expect(computeCalibrationGap(0.2, 'understood')).toBeCloseTo(-0.8, 5);
+  });
+
+  it('clamps confidence into 0..1 before differencing', () => {
+    expect(computeCalibrationGap(1.5, 'understood')).toBe(0);
+    expect(computeCalibrationGap(-0.3, 'misconception')).toBe(0);
+  });
+});
+
+// ─── Calibration persistence + rollup ─────────────────────────────────────────
+
+describe('calibration persistence', () => {
+  let db: DB; let conceptId: number;
+  beforeEach(() => { ({ db, conceptId } = setup()); });
+
+  it('stores confidence_before and derives calibration_gap at grade time', () => {
+    const task = makeTask(db, conceptId);
+    const rec = createEvidenceRecord(db, {
+      task_id: task.id, concept_id: conceptId, user_response: 'r',
+      score: 'recognizes', compression_stage: 2 as never,
+      gaps_detected: ['g'], misconceptions_detected: [], grader_reasoning: null,
+      task_prompt_snapshot: 'p', task_kind_snapshot: 'definition' as never, task_difficulty_snapshot: 3 as never,
+      confidence_before: 0.9,
+    });
+    expect(rec.confidence_before).toBe(0.9);
+    expect(rec.calibration_gap).toBeCloseTo(0.24, 5);
+  });
+
+  it('leaves both fields null when no confidence is provided', () => {
+    const task = makeTask(db, conceptId);
+    const rec = makeRecord(db, conceptId, task.id, 2, 'gap');
+    expect(rec.confidence_before).toBeNull();
+    expect(rec.calibration_gap).toBeNull();
+  });
+
+  it('round-trips through listRecordsByConcept', () => {
+    const task = makeTask(db, conceptId);
+    createEvidenceRecord(db, {
+      task_id: task.id, concept_id: conceptId, user_response: 'r',
+      score: 'understood', compression_stage: 3 as never,
+      gaps_detected: ['g'], misconceptions_detected: [], grader_reasoning: null,
+      task_prompt_snapshot: 'p', task_kind_snapshot: 'definition' as never, task_difficulty_snapshot: 3 as never,
+      confidence_before: 0.5,
+    });
+    const [row] = listRecordsByConcept(db, conceptId);
+    expect(row.confidence_before).toBe(0.5);
+    expect(row.calibration_gap).toBeCloseTo(-0.5, 5);
+  });
+});
+
+describe('getStudyProgress — calibration rollup', () => {
+  let db: DB; let conceptId: number;
+  beforeEach(() => { ({ db, conceptId } = setup()); });
+
+  function record(score: 'understood' | 'recognizes' | 'gap', confidence?: number) {
+    const task = makeTask(db, conceptId);
+    return createEvidenceRecord(db, {
+      task_id: task.id, concept_id: conceptId, user_response: 'r',
+      score, compression_stage: 2 as never,
+      gaps_detected: ['g'], misconceptions_detected: [], grader_reasoning: null,
+      task_prompt_snapshot: 'p', task_kind_snapshot: 'definition' as never, task_difficulty_snapshot: 3 as never,
+      ...(confidence != null ? { confidence_before: confidence } : {}),
+    });
+  }
+
+  it('reports an empty rollup when nothing is rated', () => {
+    record('gap'); // no confidence
+    const { calibration } = getStudyProgress(db);
+    expect(calibration.sample_count).toBe(0);
+    expect(calibration.mean_gap).toBe(0);
+  });
+
+  it('excludes null-confidence records and buckets over/under/well', () => {
+    record('recognizes', 0.95); // gap +0.29 → overconfident
+    record('understood', 0.2);  // gap -0.8  → underconfident
+    record('understood', 0.95); // gap -0.05 → well calibrated
+    record('gap');              // excluded (no confidence)
+    const { calibration } = getStudyProgress(db);
+    expect(calibration.sample_count).toBe(3);
+    expect(calibration.overconfident).toBe(1);
+    expect(calibration.underconfident).toBe(1);
+    expect(calibration.well_calibrated).toBe(1);
+    // mean of (0.29, -0.8, -0.05) = -0.1866…
+    expect(calibration.mean_gap).toBeCloseTo(-0.18667, 4);
   });
 });
