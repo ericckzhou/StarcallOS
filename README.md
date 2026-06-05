@@ -18,6 +18,14 @@ Get the latest build from the **[Releases page](https://github.com/ericckzhou/St
 
 > Because the build is unsigned, Windows may show a *"Windows protected your PC"* SmartScreen dialog on first launch. Click **More info → Run anyway**.
 
+**Verify your download (optional).** Each release ships a `SHA256SUMS.txt`. Confirm the `.exe` wasn't corrupted or tampered with in transit:
+
+```powershell
+Get-FileHash StarcallOS-*-portable-x64.exe -Algorithm SHA256
+```
+
+Compare the printed hash against the matching line in `SHA256SUMS.txt` — they should be identical.
+
 Add an LLM key in **Settings** if you want enrichment and grading (or skip — extraction works with zero keys), drop a PDF in, promote a candidate.
 
 Jump to: [Why this, not another notes app](#why-this-not-another-notes-app) · [The loop](#the-loop) · [What's in the box](#whats-in-the-box) · [Build from source](#build-from-source) · [Architecture](ARCHITECTURE.md) · [Philosophy](PHILOSOPHY.md)
