@@ -241,4 +241,10 @@ export interface EvidenceRecord {
   grounding_score: number | null;
   grounding_context_used: boolean;
   unsupported_claims: UnsupportedClaim[];
+  // Confidence calibration (migration 0030). confidence_before is the learner's
+  // pre-submit confidence 0..1 (null on legacy records). calibration_gap is
+  // confidence_before - outcome (positive = overconfident); null exactly when
+  // confidence_before is null.
+  confidence_before: number | null;
+  calibration_gap: number | null;
 }

@@ -92,6 +92,7 @@ export const SubmitEvidenceArgsSchema = z.object({
   taskId:       positiveInt,
   conceptId:    positiveInt,
   userResponse: z.string().min(1).max(10_000),
+  confidenceBefore: z.number().min(0).max(1).optional(),
 });
 
 export const CandidateLlmFilterArgsSchema = z.object({

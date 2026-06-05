@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import SettingsPane from './SettingsPane';
-import { saveProfile, xpToNext, type Profile, type StudyProgress, type DailyActivity } from './profile';
+import { saveProfile, xpToNext, type Profile, type StudyProgress, type DailyActivity, type CalibrationStats } from './profile';
 
 interface Props {
   profile: Profile;
@@ -232,6 +232,17 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                   </div>
                   <SourceChallengeChart counts={progress.source_counts} />
                 </section>
+                {progress.calibration && progress.calibration.sample_count > 0 && (
+                  <section style={panel}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                      <div style={eyebrow}>Calibration</div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>
+                        {progress.calibration.sample_count} rated answer{progress.calibration.sample_count === 1 ? '' : 's'}
+                      </div>
+                    </div>
+                    <CalibrationCard stats={progress.calibration} />
+                  </section>
+                )}
               </>
             )}
           </div>
@@ -432,6 +443,41 @@ function SourceChallengeChart({ counts }: { counts: { source_id: number; source_
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Confidence-calibration rollup: a one-line verdict over the mean gap plus a
+// proportional over/well/under bar. Answers "do I know this, or do I only think
+// I know this?" across all rated answers.
+function CalibrationCard({ stats }: { stats: CalibrationStats }) {
+  const meanPct = Math.round(Math.abs(stats.mean_gap) * 100);
+  const verdict = stats.mean_gap > 0.05
+    ? { text: `You tend to be overconfident by ~${meanPct}%`, color: '#f59e0b' }
+    : stats.mean_gap < -0.05
+      ? { text: `You tend to be underconfident by ~${meanPct}%`, color: '#38bdf8' }
+      : { text: 'Your confidence is well calibrated', color: '#22c55e' };
+  const total = Math.max(1, stats.sample_count);
+  const seg = (n: number) => `${(n / total) * 100}%`;
+  const Legend = ({ color, label, n }: { color: string; label: string; n: number }) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
+      {label} · {n}
+    </span>
+  );
+  return (
+    <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: verdict.color }}>{verdict.text}</div>
+      <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: 'rgba(31,41,55,0.55)' }}>
+        {stats.overconfident > 0 && <div title={`${stats.overconfident} overconfident`} style={{ width: seg(stats.overconfident), background: '#f59e0b' }} />}
+        {stats.well_calibrated > 0 && <div title={`${stats.well_calibrated} well calibrated`} style={{ width: seg(stats.well_calibrated), background: '#22c55e' }} />}
+        {stats.underconfident > 0 && <div title={`${stats.underconfident} underconfident`} style={{ width: seg(stats.underconfident), background: '#38bdf8' }} />}
+      </div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: '#9ca3af' }}>
+        <Legend color="#f59e0b" label="Overconfident" n={stats.overconfident} />
+        <Legend color="#22c55e" label="Well calibrated" n={stats.well_calibrated} />
+        <Legend color="#38bdf8" label="Underconfident" n={stats.underconfident} />
+      </div>
     </div>
   );
 }

@@ -17,6 +17,14 @@ export interface DailyActivity {
   sources: { source_title: string; count: number }[];
 }
 
+export interface CalibrationStats {
+  sample_count: number;
+  mean_gap: number;        // average (confidence - outcome), -1..1; >0 = overconfident
+  overconfident: number;
+  underconfident: number;
+  well_calibrated: number;
+}
+
 export interface StudyProgress {
   total_xp: number;
   level: number;
@@ -27,6 +35,7 @@ export interface StudyProgress {
   difficulty_counts: Record<1 | 2 | 3 | 4 | 5, number>;
   source_counts: SourceChallengeCount[];
   daily_activity: DailyActivity[];
+  calibration?: CalibrationStats;
 }
 
 const PROFILE_KEY = 'starcall.profile';

@@ -297,6 +297,15 @@ importance tag.
   Grounding is assessed ONLY when real source context exists: a sparse concept
   yields `grounding_score = null` (not "ungrounded") so absence of context is
   never read as hallucination.
+- **Confidence calibration** (migration 0030, no LLM): before submitting, the
+  learner sets a 0–1 confidence slider ("do I know this, or do I only think I
+  know this?"). `SubmitEvidenceArgs.confidenceBefore` is stored as
+  `confidence_before` and a `calibration_gap = confidence_before − outcome` is
+  derived at grade time (outcome maps the grade to 0–1). Positive gap =
+  overconfident. The Profile "Calibration" card rolls these up across rated
+  answers (mean gap + over/well/under-confident counts within a 0.15 tolerance),
+  and the GradeCard shows a per-attempt verdict. Legacy/unrated records are
+  excluded from all calibration stats.
 - Constellations are now cross-source: the Overview typeahead links a concept
   to any promoted concept across all sources (the suggestion row shows the
   other concept's source filename). Entries are user-curated only — enrich,

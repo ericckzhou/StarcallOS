@@ -1,0 +1,22 @@
+-- Migration 0030: Confidence calibration on graded evidence records.
+--
+-- Before submitting an answer the learner records how confident they are. We
+-- store that, plus the gap between it and how they actually performed, so the
+-- Profile can surface over/under-confidence — the "do I know this, or do I only
+-- think I know this?" signal that is core to StarcallOS.
+--
+-- Both columns are intrinsic to a single graded attempt (the confidence the
+-- learner felt for THAT answer, and its gap vs THAT grade), so — like the
+-- grounding columns from 0029 — they need NO recompute on delete.
+--
+--   confidence_before  REAL 0..1, NULLABLE. The learner's pre-submit confidence.
+--                      NULL on legacy records (graded before this existed); such
+--                      records are excluded from all calibration statistics.
+--   calibration_gap    REAL, NULLABLE. confidence_before - outcome, where outcome
+--                      maps the grade to 0..1 (understood 1.0, recognizes 0.66,
+--                      gap 0.33, misconception 0.0). Positive = overconfident,
+--                      negative = underconfident. NULL exactly when
+--                      confidence_before is NULL. Stored at grade time (it is a
+--                      pure function of confidence_before + score).
+ALTER TABLE evidence_records ADD COLUMN confidence_before REAL;
+ALTER TABLE evidence_records ADD COLUMN calibration_gap REAL;

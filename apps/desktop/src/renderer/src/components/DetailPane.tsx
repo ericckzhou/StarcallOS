@@ -24,6 +24,8 @@ type Grade = {
   grounding_score?: number | null;
   grounding_context_used?: boolean;
   unsupported_claims?: UnsupportedClaim[];
+  confidence_before?: number | null;
+  calibration_gap?: number | null;
 };
 type HistoryRecord = {
   id: number;
@@ -320,6 +322,9 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   const [tab, setTab] = useState<'overview' | 'paper' | 'annotations' | 'challenge' | 'history'>('overview');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [response, setResponse] = useState('');
+  // Pre-submit confidence for calibration, 0..1. Default 0.5 ("unsure"); always
+  // captured on submit so every new record contributes a calibration sample.
+  const [confidence, setConfidence] = useState(0.5);
   const [grading, setGrading] = useState(false);
   const [grade, setGrade] = useState<Grade | null>(null);
   const [generatingTasks, setGeneratingTasks] = useState(false);
@@ -359,7 +364,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   useEffect(() => {
     if (!concept) return;
     setTasks([]); setMastery(null); setMisconceptions([]); setEquations([]);
-    setHistory([]); setGrade(null); setSelectedTask(null); setResponse('');
+    setHistory([]); setGrade(null); setSelectedTask(null); setResponse(''); setConfidence(0.5);
     setTaskGenError(null); setGeneratingTasks(false);
     setEvidenceKinds([]);
     Promise.all([
@@ -480,7 +485,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
     try {
       const result = await window.api.evidence.submit({
         taskId: selectedTask.id, conceptId: concept.id,
-        userResponse: response,
+        userResponse: response, confidenceBefore: confidence,
       });
       const g = result as Grade;
       setGrade(g);
@@ -542,11 +547,12 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
         <ChallengeTab
           tasks={tasks} selectedTask={selectedTask} onSelectTask={setSelectedTask}
           response={response} onResponseChange={setResponse}
+          confidence={confidence} onConfidenceChange={setConfidence}
           grading={grading} grade={grade}
           generatingTasks={generatingTasks} taskGenError={taskGenError}
           onGenerateTasks={generateTasks}
           onRegenerateTasks={regenerateTasks}
-          onSubmit={handleSubmit} onReset={() => { setGrade(null); setResponse(''); }}
+          onSubmit={handleSubmit} onReset={() => { setGrade(null); setResponse(''); setConfidence(0.5); }}
         />
       )}
       {tab === 'history' && <HistoryTab records={history} onDelete={handleDeleteRecord} />}
@@ -2282,9 +2288,44 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
   );
 }
 
-function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseChange, grading, grade, generatingTasks, taskGenError, onGenerateTasks, onRegenerateTasks, onSubmit, onReset }: {
+// Pre-submit confidence capture for calibration. Maps a 0–100 range input to a
+// 0..1 value with a qualitative label, so the learner answers "do I know this,
+// or do I only think I know this?" before seeing the grade.
+function confidenceLabel(v: number): string {
+  if (v < 0.2) return 'Guessing';
+  if (v < 0.4) return 'Unsure';
+  if (v < 0.6) return 'Somewhat sure';
+  if (v < 0.8) return 'Fairly confident';
+  return 'Certain';
+}
+
+function ConfidenceSlider({ value, onChange, disabled }: {
+  value: number; onChange: (v: number) => void; disabled?: boolean;
+}) {
+  const pct = Math.round(value * 100);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 360 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>How confident are you?</span>
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: '#a5b4fc', fontWeight: 700 }}>
+          {confidenceLabel(value)} · {pct}%
+        </span>
+      </div>
+      <input
+        type="range" min={0} max={100} step={5} value={pct}
+        disabled={disabled}
+        onChange={e => onChange(Number(e.target.value) / 100)}
+        aria-label="Confidence before submitting"
+        style={{ width: '100%', accentColor: '#6366f1', cursor: disabled ? 'default' : 'pointer' }}
+      />
+    </div>
+  );
+}
+
+function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseChange, confidence, onConfidenceChange, grading, grade, generatingTasks, taskGenError, onGenerateTasks, onRegenerateTasks, onSubmit, onReset }: {
   tasks: Task[]; selectedTask: Task | null; onSelectTask: (t: Task) => void;
   response: string; onResponseChange: (v: string) => void;
+  confidence: number; onConfidenceChange: (v: number) => void;
   grading: boolean; grade: Grade | null;
   generatingTasks: boolean; taskGenError: string | null;
   onGenerateTasks: () => void;
@@ -2384,6 +2425,7 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
           fontFamily: 'inherit', width: '100%', boxSizing: 'border-box',
         }}
       />
+      <ConfidenceSlider value={confidence} onChange={onConfidenceChange} disabled={grading} />
       <button onClick={onSubmit} disabled={grading || !response.trim()} style={{
         background: grading ? '#1e1e2e' : '#4f46e5', border: 'none', borderRadius: 6,
         padding: '10px 24px', color: grading ? '#6b7280' : '#fff', fontSize: 13,
@@ -2433,6 +2475,14 @@ function StageHeader({ stage, score }: { stage: number; score: EvidenceScore }) 
       </div>
     </div>
   );
+}
+
+// Per-attempt calibration verdict from the stored gap (confidence - outcome).
+// Mirrors the 0.15 tolerance used by the services rollup.
+function calibrationVerdict(gap: number): { label: string; color: string } {
+  if (gap > 0.15) return { label: 'overconfident', color: '#f59e0b' };
+  if (gap < -0.15) return { label: 'underconfident', color: '#38bdf8' };
+  return { label: 'well calibrated', color: '#22c55e' };
 }
 
 // Map a 0..1 grounding score to a label + color. null/undefined means the
@@ -2551,6 +2601,22 @@ function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task:
         contextUsed={grade.grounding_context_used}
         claims={grade.unsupported_claims}
       />
+      {grade.confidence_before != null && grade.calibration_gap != null && (() => {
+        const v = calibrationVerdict(grade.calibration_gap);
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: '#818cf8', fontWeight: 600 }}>Calibration</span>
+            <span style={{ fontSize: 11, color: '#9ca3af' }}>
+              {Math.round(grade.confidence_before * 100)}% confident →
+            </span>
+            <span style={{
+              fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+              color: v.color, background: v.color + '22', border: `1px solid ${v.color}55`,
+              padding: '2px 8px', borderRadius: 10,
+            }}>{v.label}</span>
+          </div>
+        );
+      })()}
       <button onClick={onReset} style={{
         background: '#1e1e2e', border: '1px solid #374151', borderRadius: 6,
         padding: '8px 16px', color: '#818cf8', fontSize: 13, cursor: 'pointer', alignSelf: 'flex-start',

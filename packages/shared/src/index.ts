@@ -208,6 +208,10 @@ export interface SubmitEvidenceArgs {
   taskId: number;
   conceptId: number;
   userResponse: string;
+  // Learner's pre-submit confidence, 0..1 (calibration). Optional so legacy
+  // callers/records stay valid; when present it is stored and a calibration_gap
+  // is derived against the grade.
+  confidenceBefore?: number;
 }
 
 // ─── Auxiliary types used by IpcApi ──────────────────────────────────────────

@@ -93,6 +93,20 @@ Remember these as the active state of the repo:
   lives in `core/domain/types.ts`; the GradeCard + History rows render a
   grounded/partially-grounded/unsupported badge + claim list. `CONTRACT_VERSION`
   1.2.0; contract in `contracts/grader.md`.
+- Confidence calibration is shipped (migration 0030). The ChallengeTab has a
+  pre-submit "How confident are you?" slider (0–1, default 0.5, always captured);
+  `SubmitEvidenceArgs.confidenceBefore` (Zod `0..1` optional) flows to the
+  `EVIDENCE_SUBMIT` handler → `createEvidenceRecord`, which stores
+  `confidence_before` and derives `calibration_gap = confidence_before − outcome`
+  (`scoreOutcome`: understood 1.0 / recognizes 0.66 / gap 0.33 / misconception 0;
+  positive gap = overconfident). Both are intrinsic to the attempt (no
+  delete/replay recompute) and null on legacy records. `getStudyProgress` adds a
+  `calibration` rollup (`CalibrationStats`: sample_count, mean_gap, over/under/
+  well counts, `CALIBRATION_TOLERANCE` 0.15) over records WITH a confidence value;
+  the Profile "Calibration" card renders the verdict + an over/well/under bar, and
+  the GradeCard shows a per-attempt over/under/well badge. No LLM involved — pure
+  compute. (Uncertainty artifacts — ambiguities/conflicts — are deliberately
+  deferred to a future Misconception Detective, NOT built here.)
 - The review queue is SRS-driven (`concept_srs`, migration 0025). `listReviewQueue`
   lists ALL promoted concepts with their due state (each row carries `due_at`),
   ordered by urgency: brand-new first, then by `due_at` ascending (most-overdue →

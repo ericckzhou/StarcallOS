@@ -1381,7 +1381,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   });
 
   ipcMain.handle(IPC.EVIDENCE_SUBMIT, async (_e, args: SubmitEvidenceArgs) => {
-    const { taskId, conceptId, userResponse } = validateIpc(SubmitEvidenceArgsSchema, args, IPC.EVIDENCE_SUBMIT);
+    const { taskId, conceptId, userResponse, confidenceBefore } = validateIpc(SubmitEvidenceArgsSchema, args, IPC.EVIDENCE_SUBMIT);
     const concept = getConceptById(db, conceptId);
     const task = listTasksByConcept(db, conceptId).find(t => t.id === taskId);
     if (!task || !concept) throw new Error('Task or concept not found');
@@ -1416,6 +1416,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       grounding_score: grade.grounding_score,
       grounding_context_used: grade.grounding_context_used,
       unsupported_claims: grade.unsupported_claims,
+      confidence_before: confidenceBefore ?? null,
     });
 
     upsertMastery(db, conceptId, grade.compression_stage);
