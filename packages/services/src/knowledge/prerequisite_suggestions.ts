@@ -17,6 +17,7 @@
 import type { DatabaseSync } from '../core/infra/sqlite';
 import { createEdge } from './repos/concepts';
 import { emitEvent } from '../core/events';
+import { chatJSON, type ProviderConfig } from '../core/llm';
 
 export type SuggestionEdgeType = 'requires' | 'enables';
 export type SuggestionBasis = 'deterministic' | 'llm';
@@ -178,6 +179,105 @@ export function computeDeterministicSuggestions(
       0.6, // deterministic relation match: moderate, fixed confidence
       derived.reason,
     );
+    if (Number(res.changes) > 0) created += 1;
+  }
+
+  return { created, skippedExistingEdge, skippedUnresolved };
+}
+
+// Contract: ../../../../contracts/prereq_suggest.md (CONTRACT_VERSION). Lazy,
+// user-triggered, pay-per-use (like enrich/lazy_tasks) — NOT part of the $0
+// default path. Proposes prerequisite edges among a source's promoted concepts
+// from their definitions; output is still only SUGGESTIONS the user must accept.
+const PREREQ_SUGGEST_SYSTEM = `You map prerequisite structure between concepts a learner is studying.
+You are given a numbered list of concepts (name + short definition) from ONE source.
+Identify which concepts must be understood BEFORE others — true learning prerequisites,
+not mere relatedness. A prerequisite edge means: to understand the "dependent", the
+learner should first understand the "prerequisite".
+
+Rules:
+- Use ONLY the provided concepts; refer to them by their exact names.
+- Prefer a small number of high-confidence, foundational → advanced edges.
+- Do NOT output an edge between a concept and itself.
+- Do NOT invent relationships that are merely topical; require a genuine
+  "you need A to grasp B" dependency.
+
+Respond ONLY with JSON:
+{ "edges": [ { "prerequisite": "<exact concept name>", "dependent": "<exact concept name>" } ] }`;
+
+// Cap how many concepts we send so the prompt stays within low Groq TPM tiers.
+const PREREQ_SUGGEST_MAX_CONCEPTS = 60;
+
+interface LlmEdge { prerequisite?: string; dependent?: string }
+
+// Lazy LLM prerequisite suggester. Reads the source's promoted concepts, asks
+// the configured provider to propose prerequisite edges, and writes them as
+// pending suggestions (basis 'llm'). Never writes a real edge — the user still
+// accepts each one. Returns the same shape as the deterministic computer.
+export async function suggestLlmPrerequisites(
+  config: ProviderConfig,
+  db: DatabaseSync,
+  sourceId: number,
+): Promise<ComputeSuggestionsResult> {
+  const concepts = db
+    .prepare(
+      `SELECT id, name, definition_text
+         FROM concepts
+        WHERE source_id = ?
+        ORDER BY centrality_score DESC, importance, name
+        LIMIT ?`,
+    )
+    .all(sourceId, PREREQ_SUGGEST_MAX_CONCEPTS) as Array<{ id: number | bigint; name: string; definition_text: string }>;
+
+  let created = 0;
+  let skippedExistingEdge = 0;
+  let skippedUnresolved = 0;
+  if (concepts.length < 2) return { created, skippedExistingEdge, skippedUnresolved };
+
+  const conceptIdByName = new Map<string, number>();
+  for (const c of concepts) conceptIdByName.set(normalizeName(c.name), Number(c.id));
+
+  const list = concepts
+    .map((c, i) => {
+      const def = (c.definition_text || '').trim().replace(/\s+/g, ' ').slice(0, 160);
+      return `${i + 1}. ${c.name}${def ? ` — ${def}` : ''}`;
+    })
+    .join('\n');
+
+  const { content } = await chatJSON(
+    config,
+    {
+      messages: [
+        { role: 'system', content: PREREQ_SUGGEST_SYSTEM },
+        { role: 'user', content: `Concepts:\n${list}` },
+      ],
+      responseFormat: 'json',
+      temperature: 0.2,
+      maxTokens: 1024,
+    },
+    'prereq_suggest',
+  );
+
+  let edges: LlmEdge[] = [];
+  try {
+    const parsed = JSON.parse(content || '{"edges":[]}') as { edges?: LlmEdge[] };
+    edges = Array.isArray(parsed.edges) ? parsed.edges : [];
+  } catch {
+    return { created, skippedExistingEdge, skippedUnresolved };
+  }
+
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO prerequisite_suggestions
+       (source_id, from_id, to_id, edge_type, basis, confidence, reason, status)
+     VALUES (?, ?, ?, 'requires', 'llm', 0.5, ?, 'pending')`,
+  );
+
+  for (const e of edges) {
+    const prereqId = e.prerequisite ? conceptIdByName.get(normalizeName(e.prerequisite)) : undefined;
+    const dependentId = e.dependent ? conceptIdByName.get(normalizeName(e.dependent)) : undefined;
+    if (prereqId == null || dependentId == null || prereqId === dependentId) { skippedUnresolved += 1; continue; }
+    if (edgeExists(db, prereqId, dependentId, 'requires')) { skippedExistingEdge += 1; continue; }
+    const res = insert.run(sourceId, prereqId, dependentId, `Suggested prerequisite of ${e.dependent}`);
     if (Number(res.changes) > 0) created += 1;
   }
 

@@ -15,13 +15,14 @@ export type PassName =
   | 'misconceptions'
   | 'tasks'
   | 'lazy_tasks'
+  | 'prereq_suggest'
   | 'grader';
 
 // Each pass falls into a "weight class". heavy = quality matters (enrich,
 // concepts, misconceptions, grader). light = mechanical/cheap (structure,
 // graph). The setting picks one model per class per provider.
 const HEAVY_PASSES: PassName[] = [
-  'enrich', 'chunker', 'concepts', 'misconceptions', 'tasks', 'lazy_tasks', 'grader',
+  'enrich', 'chunker', 'concepts', 'misconceptions', 'tasks', 'lazy_tasks', 'prereq_suggest', 'grader',
 ];
 
 export type ExtractionMode = 'deterministic' | 'candidate_gated' | 'full';

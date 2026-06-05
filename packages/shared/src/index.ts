@@ -51,6 +51,7 @@ export const IPC = {
   CONCEPTS_EDGE_DELETE:      'concepts:edgeDelete',
   PREREQ_SUGGESTIONS_LIST:    'prereq:suggestionsList',
   PREREQ_SUGGESTIONS_COMPUTE: 'prereq:suggestionsCompute',
+  PREREQ_SUGGESTIONS_LLM:     'prereq:suggestionsLlm',
   PREREQ_SUGGESTION_ACCEPT:   'prereq:suggestionAccept',
   PREREQ_SUGGESTION_REJECT:   'prereq:suggestionReject',
   CONCEPTS_GET:             'concepts:get',
@@ -704,6 +705,8 @@ export interface IpcApi {
   prereq: {
     suggestions: (args: { sourceId: number; status?: 'pending' | 'accepted' | 'dismissed' }) => Promise<PrerequisiteSuggestion[]>;
     compute: (sourceId: number) => Promise<ComputeSuggestionsResult>;
+    // Lazy LLM suggester (pay-per-use, user-triggered). Writes pending suggestions only.
+    suggestLlm: (sourceId: number) => Promise<ComputeSuggestionsResult>;
     accept: (suggestionId: number) => Promise<PrerequisiteSuggestion | null>;
     reject: (suggestionId: number) => Promise<PrerequisiteSuggestion | null>;
   };

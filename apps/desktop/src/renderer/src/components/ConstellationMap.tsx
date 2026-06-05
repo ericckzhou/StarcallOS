@@ -715,6 +715,25 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
   const onHoverEnter = useCallback((id: number) => setHoverNode(id), []);
   const onHoverLeave = useCallback((id: number) => setHoverNode(h => (h === id ? null : h)), []);
 
+  // Prerequisite sub-DAG focus: when a concept is selected, dim everything not
+  // in its learn-first / unlocks closure so the dependency path stands out.
+  // null = no focus (a leaf concept with no prereq edges, or nothing selected).
+  // Recomputed when the graph changes (e.g. a prerequisite edge is accepted).
+  const [prereqFocus, setPrereqFocus] = useState<Set<number> | null>(null);
+  const selectedId = selected?.id ?? null;
+  useEffect(() => {
+    if (selectedId == null) { setPrereqFocus(null); return; }
+    let cancelled = false;
+    window.api.concepts.prerequisites(selectedId)
+      .then(p => {
+        if (cancelled) return;
+        const ids = new Set<number>([selectedId, ...p.learnFirst.map(n => n.id), ...p.unlocks.map(n => n.id)]);
+        setPrereqFocus(ids.size > 1 ? ids : null);
+      })
+      .catch(() => { if (!cancelled) setPrereqFocus(null); });
+    return () => { cancelled = true; };
+  }, [selectedId, graph]);
+
   async function saveHubEdit() {
     if (!editHub || !editHub.name.trim()) return;
     await window.api.hubs.update({ id: editHub.id, name: editHub.name.trim(), color: editHub.color, description: editHub.description.trim() });
@@ -986,7 +1005,8 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
                   const a = posById.get(e.a), b = posById.get(e.b);
                   if (!a || !b) return null;
                   const active = (neighbors == null || (neighbors.has(e.a) && neighbors.has(e.b)))
-                    && (focusSet == null || (focusSet.has(e.a) && focusSet.has(e.b)));
+                    && (focusSet == null || (focusSet.has(e.a) && focusSet.has(e.b)))
+                    && (prereqFocus == null || (prereqFocus.has(e.a) && prereqFocus.has(e.b)));
                   const bidir = e.directed === false;
                   const crossSource = a.source_id !== b.source_id;
                   const tip = `${bidir ? 'mutual ↔' : 'one-way →'}${crossSource ? ' · cross-source' : ''}${e.label ? ' · ' + e.label : ''}`;
@@ -1010,7 +1030,7 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
                       stage={stage} sourceId={node.source_id}
                       sourceColor={sourceColor.get(node.source_id) ?? '#94a3b8'}
                       sourceName={sourceName.get(node.source_id) ?? ''}
-                      dim={(neighbors != null && !neighbors.has(node.id)) || (focusSet != null && !focusSet.has(node.id))}
+                      dim={(neighbors != null && !neighbors.has(node.id)) || (focusSet != null && !focusSet.has(node.id)) || (prereqFocus != null && !prereqFocus.has(node.id))}
                       isHover={hoverNode === node.id}
                       isSel={selected?.id === node.id}
                       reducedMotion={reducedMotion}

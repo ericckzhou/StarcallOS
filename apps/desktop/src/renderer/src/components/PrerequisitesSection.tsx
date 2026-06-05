@@ -34,6 +34,7 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
   const [data, setData] = useState<ConceptPrerequisites>(EMPTY);
   const [suggestions, setSuggestions] = useState<PrerequisiteSuggestion[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // Typeahead state for "add a prerequisite".
@@ -114,6 +115,14 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
       await window.api.prereq.compute(sourceId);
       await refresh();
     } finally { setScanning(false); }
+  }
+
+  async function suggestWithAi() {
+    setSuggesting(true);
+    try {
+      await window.api.prereq.suggestLlm(sourceId);
+      await refresh();
+    } finally { setSuggesting(false); }
   }
 
   async function acceptSuggestion(id: number) {
@@ -211,9 +220,15 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <Label inline>Suggested ({suggestions.length})</Label>
-          <button onClick={scan} disabled={scanning}
+          <button onClick={scan} disabled={scanning || suggesting}
+            title="Derive prerequisites from the source text (free, deterministic)"
             style={{ background: 'transparent', border: '1px dashed #374151', borderRadius: 4, padding: '3px 9px', color: '#a5b4fc', fontSize: 10, fontWeight: 700, cursor: scanning ? 'wait' : 'pointer' }}>
             {scanning ? 'Scanning…' : 'Scan source'}
+          </button>
+          <button onClick={suggestWithAi} disabled={scanning || suggesting}
+            title="Ask the configured LLM provider to propose prerequisites (uses your API quota)"
+            style={{ background: 'transparent', border: '1px dashed #4338ca', borderRadius: 4, padding: '3px 9px', color: '#c7d2fe', fontSize: 10, fontWeight: 700, cursor: suggesting ? 'wait' : 'pointer' }}>
+            {suggesting ? 'Asking…' : 'Suggest with AI'}
           </button>
         </div>
         {suggestions.length === 0 ? (

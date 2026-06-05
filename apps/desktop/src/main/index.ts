@@ -20,7 +20,7 @@ import {
   listPdfAnnotationsBySource, createPdfAnnotation, updatePdfAnnotation, softDeletePdfAnnotation, restorePdfAnnotation,
   createChunk, createConcept, updateCentralityScore, createEdge, deleteConceptEdge, createMisconception, createTask,
   getConceptPrerequisites,
-  computeDeterministicSuggestions, listPrerequisiteSuggestions,
+  computeDeterministicSuggestions, suggestLlmPrerequisites, listPrerequisiteSuggestions,
   acceptPrerequisiteSuggestion, rejectPrerequisiteSuggestion,
   upsertMastery, createEvidenceRecord, listRecordsByConcept, deleteEvidenceRecord,
   calculateEligibleXpAward, getStudyProgress,
@@ -868,6 +868,10 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.PREREQ_SUGGESTIONS_COMPUTE, (_e, sourceId: number) => {
     const id = validateIpc(PositiveIntSchema, sourceId, IPC.PREREQ_SUGGESTIONS_COMPUTE);
     return computeDeterministicSuggestions(db, id);
+  });
+  ipcMain.handle(IPC.PREREQ_SUGGESTIONS_LLM, async (_e, sourceId: number) => {
+    const id = validateIpc(PositiveIntSchema, sourceId, IPC.PREREQ_SUGGESTIONS_LLM);
+    return suggestLlmPrerequisites(cfgFor('prereq_suggest'), db, id);
   });
   ipcMain.handle(IPC.PREREQ_SUGGESTION_ACCEPT, (_e, suggestionId: number) => {
     const id = validateIpc(PositiveIntSchema, suggestionId, IPC.PREREQ_SUGGESTION_ACCEPT);
