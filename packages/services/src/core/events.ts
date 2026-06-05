@@ -19,7 +19,10 @@ export type EventType =
   | 'pdf_annotation.created'
   | 'pdf_annotation.updated'
   | 'pdf_annotation.deleted'
-  | 'pdf_annotation.restored';
+  | 'pdf_annotation.restored'
+  | 'concept_edge.created'
+  | 'concept_edge.deleted'
+  | 'prerequisite.suggestion_accepted';
 
 export interface AppEvent {
   id: number;

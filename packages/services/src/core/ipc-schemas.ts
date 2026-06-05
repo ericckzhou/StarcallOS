@@ -220,6 +220,25 @@ export const MisconceptionCandidateUpdateArgsSchema = z.object({ id: positiveInt
 export const EquationCandidateCreateArgsSchema = z.object({ sourceId: positiveInt, latex: longStr(5_000), page: z.number().optional(), variables: z.array(shortStr(200)).max(500).optional(), section_path: sectionPath.optional(), attached_term: shortStr(500).nullable().optional() });
 export const EquationCandidateUpdateArgsSchema = z.object({ id: positiveInt, latex: longStr(5_000), page: z.number().optional(), variables: z.array(shortStr(200)).max(500).optional(), section_path: sectionPath.optional(), attached_term: shortStr(500).nullable().optional() });
 
+// ─── Prerequisite engine (migration 0028) ─────────────────────────────────────
+// Only the two dependency-bearing edge kinds are user-curatable as prerequisites.
+const prereqEdgeType = z.enum(['requires', 'enables']);
+const suggestionStatus = z.enum(['pending', 'accepted', 'dismissed']);
+
+// Manual edge create/delete. The self-edge ban is enforced here at the IPC
+// boundary (in addition to the DB CHECK and the createEdge repo guard).
+export const ConceptEdgeArgsSchema = z
+  .object({ fromId: positiveInt, toId: positiveInt, edgeType: prereqEdgeType })
+  .refine(a => a.fromId !== a.toId, {
+    message: 'fromId and toId must differ (a concept cannot require/enable itself)',
+    path: ['toId'],
+  });
+
+export const PrereqSuggestionsListArgsSchema = z.object({
+  sourceId: positiveInt,
+  status:   suggestionStatus.optional(),
+});
+
 // ─── Validation helper ────────────────────────────────────────────────────────
 
 export function validateIpc<T>(schema: z.ZodType<T>, value: unknown, channel: string): T {

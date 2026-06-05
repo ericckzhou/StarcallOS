@@ -54,6 +54,11 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('concepts:searchByPrefix', args),
     allTags: () => ipcRenderer.invoke('concepts:allTags'),
     graph: () => ipcRenderer.invoke('concepts:graph'),
+    prerequisites: (conceptId: number) => ipcRenderer.invoke('concepts:prerequisites', conceptId),
+    edgeCreate: (args: { fromId: number; toId: number; edgeType: 'requires' | 'enables' }) =>
+      ipcRenderer.invoke('concepts:edgeCreate', args),
+    edgeDelete: (args: { fromId: number; toId: number; edgeType: 'requires' | 'enables' }) =>
+      ipcRenderer.invoke('concepts:edgeDelete', args),
     get: (conceptId: number) => ipcRenderer.invoke('concepts:get', conceptId),
     rename: (args: { conceptId: number; name: string }) =>
       ipcRenderer.invoke('concepts:rename', args),
@@ -127,6 +132,13 @@ contextBridge.exposeInMainWorld('api', {
   },
   parseRuns: {
     bySource: (sourceId: number, limit?: number) => ipcRenderer.invoke('parseRuns:bySource', sourceId, limit),
+  },
+  prereq: {
+    suggestions: (args: { sourceId: number; status?: 'pending' | 'accepted' | 'dismissed' }) =>
+      ipcRenderer.invoke('prereq:suggestionsList', args),
+    compute: (sourceId: number) => ipcRenderer.invoke('prereq:suggestionsCompute', sourceId),
+    accept: (suggestionId: number) => ipcRenderer.invoke('prereq:suggestionAccept', suggestionId),
+    reject: (suggestionId: number) => ipcRenderer.invoke('prereq:suggestionReject', suggestionId),
   },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),

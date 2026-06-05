@@ -18,7 +18,10 @@ import {
   listTasksByConcept, getMastery, listMisconceptionsByConcept,
   listNotesByConcept, createNote, updateNote, deleteNote, reorderNotes,
   listPdfAnnotationsBySource, createPdfAnnotation, updatePdfAnnotation, softDeletePdfAnnotation, restorePdfAnnotation,
-  createChunk, createConcept, updateCentralityScore, createEdge, createMisconception, createTask,
+  createChunk, createConcept, updateCentralityScore, createEdge, deleteConceptEdge, createMisconception, createTask,
+  getConceptPrerequisites,
+  computeDeterministicSuggestions, listPrerequisiteSuggestions,
+  acceptPrerequisiteSuggestion, rejectPrerequisiteSuggestion,
   upsertMastery, createEvidenceRecord, listRecordsByConcept, deleteEvidenceRecord,
   calculateEligibleXpAward, getStudyProgress,
   recordSrsReview, countDueConcepts, countNewConcepts, setConceptSrsDue, getConceptSrs,
@@ -54,6 +57,7 @@ import {
   LlmFilterSetArgsSchema,
   HubCreateArgsSchema, HubUpdateArgsSchema, HubAddMembersArgsSchema, HubMemberArgsSchema, HubSetMemberRoleArgsSchema,
   HubEdgeCreateArgsSchema, HubEdgeUpdateArgsSchema,
+  ConceptEdgeArgsSchema, PrereqSuggestionsListArgsSchema,
   RelationCandidateCreateArgsSchema, RelationCandidateUpdateArgsSchema,
   MisconceptionCandidateCreateArgsSchema, MisconceptionCandidateUpdateArgsSchema,
   EquationCandidateCreateArgsSchema, EquationCandidateUpdateArgsSchema,
@@ -840,6 +844,39 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   });
   ipcMain.handle(IPC.CONCEPTS_ALL_TAGS, () => listAllConceptTags(db));
   ipcMain.handle(IPC.CONCEPTS_GRAPH, () => buildConstellationGraph(db));
+  // ── Prerequisite engine (migration 0028) ──────────────────────────────────
+  ipcMain.handle(IPC.CONCEPTS_PREREQUISITES, (_e, conceptId: number) => {
+    const id = validateIpc(PositiveIntSchema, conceptId, IPC.CONCEPTS_PREREQUISITES);
+    return getConceptPrerequisites(db, id);
+  });
+  ipcMain.handle(IPC.CONCEPTS_EDGE_CREATE, (_e, args: { fromId: number; toId: number; edgeType: 'requires' | 'enables' }) => {
+    const a = validateIpc(ConceptEdgeArgsSchema, args, IPC.CONCEPTS_EDGE_CREATE);
+    const edge = createEdge(db, a.fromId, a.toId, a.edgeType);
+    emitEvent(db, 'concept_edge.created', { fromId: a.fromId, toId: a.toId, edgeType: a.edgeType }, { entityType: 'concept', entityId: a.toId });
+    return { ok: edge != null };
+  });
+  ipcMain.handle(IPC.CONCEPTS_EDGE_DELETE, (_e, args: { fromId: number; toId: number; edgeType: 'requires' | 'enables' }) => {
+    const a = validateIpc(ConceptEdgeArgsSchema, args, IPC.CONCEPTS_EDGE_DELETE);
+    deleteConceptEdge(db, a.fromId, a.toId, a.edgeType);
+    emitEvent(db, 'concept_edge.deleted', { fromId: a.fromId, toId: a.toId, edgeType: a.edgeType }, { entityType: 'concept', entityId: a.toId });
+    return { ok: true as const };
+  });
+  ipcMain.handle(IPC.PREREQ_SUGGESTIONS_LIST, (_e, args: { sourceId: number; status?: 'pending' | 'accepted' | 'dismissed' }) => {
+    const a = validateIpc(PrereqSuggestionsListArgsSchema, args, IPC.PREREQ_SUGGESTIONS_LIST);
+    return listPrerequisiteSuggestions(db, a.sourceId, a.status ?? 'pending');
+  });
+  ipcMain.handle(IPC.PREREQ_SUGGESTIONS_COMPUTE, (_e, sourceId: number) => {
+    const id = validateIpc(PositiveIntSchema, sourceId, IPC.PREREQ_SUGGESTIONS_COMPUTE);
+    return computeDeterministicSuggestions(db, id);
+  });
+  ipcMain.handle(IPC.PREREQ_SUGGESTION_ACCEPT, (_e, suggestionId: number) => {
+    const id = validateIpc(PositiveIntSchema, suggestionId, IPC.PREREQ_SUGGESTION_ACCEPT);
+    return acceptPrerequisiteSuggestion(db, id);
+  });
+  ipcMain.handle(IPC.PREREQ_SUGGESTION_REJECT, (_e, suggestionId: number) => {
+    const id = validateIpc(PositiveIntSchema, suggestionId, IPC.PREREQ_SUGGESTION_REJECT);
+    return rejectPrerequisiteSuggestion(db, id);
+  });
   ipcMain.handle(IPC.HUBS_LIST, () => listHubs(db));
   ipcMain.handle(IPC.HUBS_CREATE, (_e, args: { name: string; color?: string; description?: string; conceptIds?: number[]; parentHubId?: number | null }) => {
     validateIpc(HubCreateArgsSchema, args, IPC.HUBS_CREATE);

@@ -46,6 +46,13 @@ export const IPC = {
   CONCEPTS_SEARCH_BY_PREFIX: 'concepts:searchByPrefix',
   CONCEPTS_ALL_TAGS:        'concepts:allTags',
   CONCEPTS_GRAPH:            'concepts:graph',
+  CONCEPTS_PREREQUISITES:    'concepts:prerequisites',
+  CONCEPTS_EDGE_CREATE:      'concepts:edgeCreate',
+  CONCEPTS_EDGE_DELETE:      'concepts:edgeDelete',
+  PREREQ_SUGGESTIONS_LIST:    'prereq:suggestionsList',
+  PREREQ_SUGGESTIONS_COMPUTE: 'prereq:suggestionsCompute',
+  PREREQ_SUGGESTION_ACCEPT:   'prereq:suggestionAccept',
+  PREREQ_SUGGESTION_REJECT:   'prereq:suggestionReject',
   CONCEPTS_GET:             'concepts:get',
   CONCEPTS_RENAME:           'concepts:rename',
   CONCEPTS_DELETE:         'concepts:delete',
@@ -418,6 +425,9 @@ export interface ReviewQueueItemPayload {
   // due now); interval_days is the current spacing in days (0 for a fresh card).
   due_at: string | null;
   interval_days: number;
+  // Dependency-failure signal (migration 0028): direct prerequisites not yet at
+  // the "ready" mastery stage. Non-empty => "learn these first".
+  blocked_prerequisites: string[];
 }
 
 export interface LlmFilterSetArgs {
@@ -481,6 +491,54 @@ export interface ConstellationGraph {
     unresolvedRelations: number;
     duplicateEdges: number;
   }>;
+}
+
+// ─── Prerequisite engine (migration 0028) ─────────────────────────────────────
+
+export type PrerequisiteEdgeType = 'requires' | 'enables';
+
+export interface PrerequisiteNode {
+  id: number;
+  name: string;
+  slug: string;
+  source_id: number;
+  importance: string;
+  mastery_stage: number;
+}
+
+export interface ConceptPrerequisites {
+  direct: PrerequisiteNode[];
+  learnFirst: PrerequisiteNode[];
+  unlocks: PrerequisiteNode[];
+  blocked: PrerequisiteNode[];
+  hasCycle: boolean;
+}
+
+export interface PrerequisiteSuggestion {
+  id: number;
+  source_id: number;
+  from_id: number; // prerequisite
+  to_id: number;   // dependent
+  from_name: string;
+  to_name: string;
+  edge_type: PrerequisiteEdgeType;
+  basis: 'deterministic' | 'llm';
+  confidence: number;
+  reason: string;
+  status: 'pending' | 'accepted' | 'dismissed';
+  created_at: string;
+}
+
+export interface ComputeSuggestionsResult {
+  created: number;
+  skippedExistingEdge: number;
+  skippedUnresolved: number;
+}
+
+export interface ConceptEdgeArgs {
+  fromId: number;
+  toId: number;
+  edgeType: PrerequisiteEdgeType;
 }
 
 export interface SourceChallengeCount {
@@ -560,6 +618,11 @@ export interface IpcApi {
     searchByPrefix: (args: { conceptId: number; prefix: string; limit?: number }) => Promise<Array<{ id: number; name: string; importance: string }>>;
     allTags: () => Promise<string[]>;
     graph: () => Promise<ConstellationGraph>;
+    // Prerequisite/dependency traversal over user-curated concept_edges.
+    prerequisites: (conceptId: number) => Promise<ConceptPrerequisites>;
+    // Manual edge curation (user-authored). Self-edges are rejected.
+    edgeCreate: (args: ConceptEdgeArgs) => Promise<{ ok: boolean }>;
+    edgeDelete: (args: ConceptEdgeArgs) => Promise<{ ok: true }>;
     get: (conceptId: number) => Promise<Concept | null>;
     rename: (args: { conceptId: number; name: string }) => Promise<Concept | null>;
     notes: {
@@ -636,5 +699,12 @@ export interface IpcApi {
   };
   parseRuns: {
     bySource: (sourceId: number, limit?: number) => Promise<ParseRunRecord[]>;
+  };
+  // Prerequisite-edge suggestions (computed; user accepts/rejects → concept_edges).
+  prereq: {
+    suggestions: (args: { sourceId: number; status?: 'pending' | 'accepted' | 'dismissed' }) => Promise<PrerequisiteSuggestion[]>;
+    compute: (sourceId: number) => Promise<ComputeSuggestionsResult>;
+    accept: (suggestionId: number) => Promise<PrerequisiteSuggestion | null>;
+    reject: (suggestionId: number) => Promise<PrerequisiteSuggestion | null>;
   };
 }
