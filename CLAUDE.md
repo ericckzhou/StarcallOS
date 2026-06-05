@@ -53,6 +53,32 @@ Remember these as the active state of the repo:
   extraction never write them (the full-extraction persist forces `[]`);
   migration 0020 cleared legacy LLM-generated links. Links store `{ name, reason }`
   (legacy bare strings still load); the reason is required on add.
+- The prerequisite/dependency engine is shipped. `concept_edges` rows of kind
+  `requires`/`enables` ARE the prerequisite DAG, with the convention `from_id` =
+  prerequisite, `to_id` = dependent (matches `listRequirementsFor`). Traversal is
+  pure TS in `packages/services/src/knowledge/prerequisites.ts`
+  (`getConceptPrerequisites` → `learnFirst` topo-ordered deepest-first, `unlocks`
+  reverse-reachable, `blocked` = direct prereqs below mastery stage 2
+  (`PREREQUISITE_READY_STAGE`); Kahn sort, cycle-safe with `hasCycle`, node-bounded).
+  Edges stay user-curated: a derived **suggestion** layer
+  (`prerequisite_suggestions`, migration 0028 — derived, wiped by
+  `clearDerivedDataForSource`, accepted edges survive on preserved concepts)
+  proposes directed edges from deterministic `requires`/`enables`
+  relation_candidates via `computeDeterministicSuggestions`. Direction:
+  "A requires B" ⇒ B is prerequisite of A (FLIP to `from_id=B,to_id=A`);
+  "A enables B" ⇒ A is prerequisite of B (no flip). Suggestions NEVER auto-write
+  an edge — only user accept (`acceptPrerequisiteSuggestion`) writes
+  `concept_edges`. No self-edges anywhere: DB `CHECK (from_id <> to_id)`, the
+  `createEdge` repo guard, and the `ConceptEdgeArgsSchema` IPC refine. UI: the
+  DetailPane Overview "Prerequisites" section (`PrerequisitesSection.tsx`) shows
+  learn-first/unlocks, manual add/remove edges, and suggestion accept/reject +
+  "Scan source"; the Constellation Map already draws accepted `requires`/`enables`
+  edges as directed arrows via the existing relation-edge path (a selection-scoped
+  sub-DAG highlight is a deliberate follow-up). The review queue shows a
+  "learn first" dependency-failure badge for due concepts with unmastered direct
+  prerequisites (`listReviewQueue` carries `blocked_prerequisites`). IPC:
+  `concepts.prerequisites` / `concepts.edgeCreate` / `concepts.edgeDelete` and the
+  `prereq.{suggestions,compute,accept,reject}` namespace.
 - The review queue is SRS-driven (`concept_srs`, migration 0025). `listReviewQueue`
   lists ALL promoted concepts with their due state (each row carries `due_at`),
   ordered by urgency: brand-new first, then by `due_at` ascending (most-overdue →

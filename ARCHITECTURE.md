@@ -357,6 +357,26 @@ sources); per-source node color, mastery ring, directional (one-way →) vs mutu
 (↔) arrows, same-source solid vs cross-source dashed edges; reduced-motion aware;
 node click opens DetailPane beside the graph.
 
+**Shipped — prerequisite / dependency engine:** the prerequisite edges ARE the
+constellation lines made traversable. `concept_edges` of kind `requires`/`enables`
+form a directed DAG with the convention `from_id` = prerequisite, `to_id` =
+dependent. `prerequisites.ts` (`getConceptPrerequisites`) returns `learnFirst`
+(transitive prerequisites, topologically ordered deepest-first), `unlocks`
+(transitive dependents), and `blocked` (direct prerequisites below mastery
+stage 2) — cycle-safe (Kahn + `hasCycle`) and node-bounded. Edges remain
+**user-curated**: a derived suggestion layer (`prerequisite_suggestions`,
+migration 0028) turns the deterministic `requires`/`enables` relation candidates
+into directed edge proposals (`computeDeterministicSuggestions`) that NEVER
+auto-write — only user accept writes a real `concept_edges` row, preserving the
+"no LLM/parser silently writes edges" invariant. Direction: "A requires B" ⇒ B is
+B's prerequisite of A (flipped); "A enables B" ⇒ A is the prerequisite of B. No
+self-edges anywhere (DB CHECK + `createEdge` guard + IPC refine). Surfaced in the
+DetailPane Overview "Prerequisites" section (learn-first/unlocks, manual
+add/remove, suggestion accept/reject, "Scan source"), as directed arrows on the
+Map, and as a "learn first" dependency-failure badge in the review queue
+(`listReviewQueue.blocked_prerequisites`). This realizes the previously-planned
+"Dependency failure" study signal.
+
 **Shipped — Star Hubs:** named, color-coded groups of concepts (cross-source).
 Tables `star_hubs` + `star_hub_members` (migration 0019; `parent_hub_id`
 reserved for future nesting). Members are added via Select-mode multi-select in

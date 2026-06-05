@@ -5,6 +5,7 @@ import LatexMath from './LatexMath';
 import { RichTextArea, renderMarkdown, applyMarkdownShortcut } from './RichText';
 import PdfViewer from './PdfViewer';
 import WhereItReappearsEditor, { type ConstellationLink } from './WhereItReappearsEditor';
+import PrerequisitesSection from './PrerequisitesSection';
 import type { Profile } from './profile';
 
 type Task = { id: number; kind: string; prompt: string; difficulty: number };
@@ -1776,6 +1777,11 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
           }}
         />
       </Section>
+      {concept.source_id != null && (
+        <Section title="Prerequisites">
+          <PrerequisitesSection conceptId={concept.id} sourceId={concept.source_id} conceptName={concept.name} />
+        </Section>
+      )}
       <Section title={`Equations (${equations.length})`}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

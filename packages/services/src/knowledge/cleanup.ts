@@ -17,6 +17,7 @@ export interface CleanupCounts {
   equation_candidates: number;
   misconception_candidates: number;
   semantic_chunks: number;
+  prerequisite_suggestions: number; // derived from relation_candidates; safe to wipe
   concepts_deleted: number;     // cascade-deletes concept_edges, evidence_tasks, misconceptions, mastery, evidence_records
   concepts_preserved: number;   // concepts with study history (evidence_records present) — left untouched
 }
@@ -58,6 +59,10 @@ export function clearDerivedDataForSource(
   const equation_candidates      = countAndDelete(db, 'equation_candidates',      'source_id = ?', sourceId);
   const misconception_candidates = countAndDelete(db, 'misconception_candidates', 'source_id = ?', sourceId);
   const semantic_chunks          = countAndDelete(db, 'semantic_chunks',          'source_id = ?', sourceId);
+  // Prerequisite suggestions are derived from relation_candidates. Wipe them
+  // here so a re-extract recomputes them; accepted edges survive separately as
+  // user-curated concept_edges rows on the preserved promoted concepts.
+  const prerequisite_suggestions = countAndDelete(db, 'prerequisite_suggestions', 'source_id = ?', sourceId);
 
   // Concepts: split by whether the user has studied them.
   // "Studied" = at least one row in evidence_records for that concept_id.
@@ -115,6 +120,7 @@ export function clearDerivedDataForSource(
     equation_candidates,
     misconception_candidates,
     semantic_chunks,
+    prerequisite_suggestions,
     concepts_deleted,
     concepts_preserved,
   };

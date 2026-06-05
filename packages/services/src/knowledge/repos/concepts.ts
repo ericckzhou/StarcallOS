@@ -331,6 +331,10 @@ export function createEdge(
   toId: number,
   edgeType: EdgeType,
 ): ConceptEdge | null {
+  // No self-edges: a concept can never require/enable itself. Guarded here so
+  // every caller (manual edge creation, suggestion accept, full-extraction
+  // persist) is covered, regardless of upstream validation.
+  if (fromId === toId) return null;
   try {
     const result = db
       .prepare('INSERT INTO concept_edges (from_id, to_id, edge_type) VALUES (?, ?, ?)')
@@ -350,6 +354,18 @@ export function listEdgesForConcept(db: DatabaseSync, conceptId: number): Concep
       .prepare('SELECT * FROM concept_edges WHERE from_id = ? OR to_id = ?')
       .all(conceptId, conceptId) as unknown as EdgeRow[]
   ).map(rowToEdge);
+}
+
+// Remove one user-curated edge by its endpoints + type. Idempotent (a no-op if
+// the edge does not exist). Used by manual edge curation in the DetailPane.
+export function deleteConceptEdge(
+  db: DatabaseSync,
+  fromId: number,
+  toId: number,
+  edgeType: EdgeType,
+): void {
+  db.prepare('DELETE FROM concept_edges WHERE from_id = ? AND to_id = ? AND edge_type = ?')
+    .run(fromId, toId, edgeType);
 }
 
 // ─── Constellation graph ──────────────────────────────────────────────────────
@@ -604,6 +620,9 @@ export interface ReviewQueueItem {
   // interval_days is the current spacing, 0 for a fresh card.
   due_at: string | null;
   interval_days: number;
+  // Names of direct prerequisites the learner has not yet reached the "ready"
+  // mastery stage on (the dependency-failure signal: "learn these first").
+  blocked_prerequisites: string[];
 }
 
 interface ReviewQueueRow {
@@ -678,6 +697,32 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
     )
     .all(limit) as unknown as ReviewQueueRow[];
 
+  // Dependency-failure signal: for the concepts in this queue, find each one's
+  // direct prerequisites (incoming requires/enables edges) whose mastery is
+  // still below the "ready" stage (2 = can explain). One query for the whole
+  // queue, grouped by dependent concept id.
+  const blockedByConcept = new Map<number, string[]>();
+  const ids = rows.map(r => Number(r.id));
+  if (ids.length > 0) {
+    const placeholders = ids.map(() => '?').join(',');
+    const blockedRows = db
+      .prepare(
+        `SELECT e.to_id AS cid, c2.name AS prereq_name
+           FROM concept_edges e
+           JOIN concepts c2 ON c2.id = e.from_id
+           LEFT JOIN mastery m ON m.concept_id = e.from_id
+          WHERE e.edge_type IN ('requires','enables')
+            AND e.to_id IN (${placeholders})
+            AND COALESCE(m.compression_stage, 0) < 2
+          ORDER BY c2.name`,
+      )
+      .all(...ids) as Array<{ cid: number | bigint; prereq_name: string }>;
+    for (const b of blockedRows) {
+      const cid = Number(b.cid);
+      (blockedByConcept.get(cid) ?? blockedByConcept.set(cid, []).get(cid)!).push(b.prereq_name);
+    }
+  }
+
   return rows.map(row => ({
     concept: rowToConcept(row),
     source_id: Number(row.source_id),
@@ -688,6 +733,7 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
     attempts: row.attempts ?? 0,
     due_at: row.due_at,
     interval_days: row.interval_days ?? 0,
+    blocked_prerequisites: blockedByConcept.get(Number(row.id)) ?? [],
   }));
 }
 

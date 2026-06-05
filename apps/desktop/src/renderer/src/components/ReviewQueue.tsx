@@ -18,6 +18,7 @@ interface QueueItem {
   attempts: number;
   due_at: string | null;
   interval_days: number;
+  blocked_prerequisites?: string[];
 }
 
 // Human-readable due state for an SRS card. due_at null = never scheduled.
@@ -688,6 +689,20 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                       <span style={{ marginLeft: 'auto', whiteSpace: 'nowrap' }}>{it.attempts} {it.attempts === 1 ? 'try' : 'tries'}</span>
                     )}
                   </div>
+                  {it.blocked_prerequisites != null && it.blocked_prerequisites.length > 0 && (
+                    <div
+                      title={`Master these prerequisites first: ${it.blocked_prerequisites.join(', ')}`}
+                      style={{
+                        paddingRight: 32, marginTop: 5, display: 'flex', alignItems: 'center', gap: 5,
+                        fontSize: 10, color: '#fbbf24',
+                      }}
+                    >
+                      <span aria-hidden="true">⚠</span>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        learn first: {it.blocked_prerequisites.join(', ')}
+                      </span>
+                    </div>
+                  )}
                 </div>
               );
             })}

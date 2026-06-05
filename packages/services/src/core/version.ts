@@ -14,7 +14,7 @@ export const LAYOUT_VERSION  = '0.5.2';  // layout.ts: strip Markdown markers fr
 // behavior: parse_runs stamps it so any extraction can be traced to the contract
 // the model was held to. The string is shared by every pass; if passes diverge
 // enough to need independent versions, split this into a per-pass map.
-export const CONTRACT_VERSION = '1.0.0';  // contracts/*.md: initial formalization of enrich, grader, lazy_tasks, topic_filter, concept_enrichment
+export const CONTRACT_VERSION = '1.1.0';  // contracts/prereq_suggest.md: add lazy LLM prerequisite suggester pass
 
 export interface ParserVersions {
   parser_version: string;

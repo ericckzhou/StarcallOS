@@ -24,6 +24,8 @@ export * from './knowledge/repos/parse_runs';
 export * from './knowledge/srs';
 export * from './knowledge/promotion';
 export * from './knowledge/cleanup';
+export * from './knowledge/prerequisites';
+export * from './knowledge/prerequisite_suggestions';
 
 // Ingestion pipeline
 export * from './ingestion/pdf';

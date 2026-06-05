@@ -15,6 +15,8 @@ import {
   RelationCandidateCreateArgsSchema,
   LlmFilterSetArgsSchema,
   RenameConceptArgsSchema,
+  ConceptEdgeArgsSchema,
+  PrereqSuggestionsListArgsSchema,
 } from './ipc-schemas';
 
 describe('validateIpc', () => {
@@ -194,5 +196,32 @@ describe('RenameConceptArgsSchema', () => {
   it('requires a positive conceptId and a name', () => {
     expect(RenameConceptArgsSchema.safeParse({ conceptId: 1, name: 'New name' }).success).toBe(true);
     expect(RenameConceptArgsSchema.safeParse({ conceptId: 1 }).success).toBe(false);
+  });
+});
+
+describe('ConceptEdgeArgsSchema', () => {
+  it('accepts a distinct prerequisite edge', () => {
+    expect(ConceptEdgeArgsSchema.safeParse({ fromId: 1, toId: 2, edgeType: 'requires' }).success).toBe(true);
+    expect(ConceptEdgeArgsSchema.safeParse({ fromId: 3, toId: 2, edgeType: 'enables' }).success).toBe(true);
+  });
+
+  it('rejects a self-edge (fromId === toId)', () => {
+    expect(ConceptEdgeArgsSchema.safeParse({ fromId: 5, toId: 5, edgeType: 'requires' }).success).toBe(false);
+  });
+
+  it('rejects a non-prerequisite edge kind and non-positive ids', () => {
+    expect(ConceptEdgeArgsSchema.safeParse({ fromId: 1, toId: 2, edgeType: 'related' }).success).toBe(false);
+    expect(ConceptEdgeArgsSchema.safeParse({ fromId: 0, toId: 2, edgeType: 'requires' }).success).toBe(false);
+  });
+});
+
+describe('PrereqSuggestionsListArgsSchema', () => {
+  it('accepts a sourceId with optional status, defaults handled by caller', () => {
+    expect(PrereqSuggestionsListArgsSchema.safeParse({ sourceId: 1 }).success).toBe(true);
+    expect(PrereqSuggestionsListArgsSchema.safeParse({ sourceId: 1, status: 'accepted' }).success).toBe(true);
+  });
+
+  it('rejects an unknown status', () => {
+    expect(PrereqSuggestionsListArgsSchema.safeParse({ sourceId: 1, status: 'bogus' }).success).toBe(false);
   });
 });
