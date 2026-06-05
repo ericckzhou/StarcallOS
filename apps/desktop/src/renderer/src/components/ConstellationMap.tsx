@@ -859,6 +859,10 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
     }
   };
   walkHubs(null, 0);
+  // Only list hubs that actually have a member on the current source. A hub with
+  // no concept on this map isn't actionable here (management/deletion lives in
+  // the Hubs tab), so showing it dimmed was just noise.
+  const railHubs = orderedHubs.filter(({ hub }) => visibleHubIds.has(hub.id));
 
   return (
     <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative', zIndex: Z.graph }}>
@@ -867,15 +871,12 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
           <div style={{ padding: '10px 10px 8px', borderBottom: '1px solid #1f2937' }}>
             <SourceSelect sources={sources} selectedSource={selectedSource} color={sourceColor.get(selectedSource ?? -1) ?? '#94a3b8'} onChange={setSelectedSource} />
           </div>
-          {hubs.length > 0 && (
+          {railHubs.length > 0 && (
             <div style={{ borderBottom: '1px solid #1f2937', padding: 8, maxHeight: '42%', overflowY: 'auto', flexShrink: 0 }}>
               <div style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Hubs</div>
-              {orderedHubs.map(({ hub: h, depth }) => {
-                // Show ALL hubs (not just ones on this source) so hubs whose
-                // source was deleted are still editable/deletable. Dim off-view.
-                const onView = visibleHubIds.has(h.id);
+              {railHubs.map(({ hub: h, depth }) => {
                 return (
-                <div key={h.id} className="cm-hub-chip" title={onView ? undefined : `${h.name} — not on this source`} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 4px', marginLeft: depth * 12, borderLeft: depth > 0 ? '1px solid rgba(99,102,241,0.3)' : undefined, paddingLeft: depth > 0 ? 6 : 4, borderRadius: 6, opacity: onView ? 1 : 0.55, background: focusedHub === h.id ? 'rgba(129,140,248,0.14)' : 'transparent' }}>
+                <div key={h.id} className="cm-hub-chip" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 4px', marginLeft: depth * 12, borderLeft: depth > 0 ? '1px solid rgba(99,102,241,0.3)' : undefined, paddingLeft: depth > 0 ? 6 : 4, borderRadius: 6, background: focusedHub === h.id ? 'rgba(129,140,248,0.14)' : 'transparent' }}>
                   <button onClick={() => setFocusedHub(f => (f === h.id ? null : h.id))} title={`Focus ${h.name} · ${h.member_count} concept${h.member_count === 1 ? '' : 's'}`}
                     style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', cursor: 'pointer', color: focusedHub === h.id ? '#e2e8f0' : '#cbd5e1', fontSize: 11, padding: 0, textAlign: 'left' }}>
                     <span style={{ width: 9, height: 9, borderRadius: '50%', background: h.color, flexShrink: 0 }} />

@@ -154,9 +154,11 @@ Remember these as the active state of the repo:
   create form was removed — creation now lives in the Hubs tab). Hubs render as
   Map nebula clusters. There is a dedicated top-level **Hubs tab**
   (`HubsPane.tsx`) for full management: create (random default color),
-  rename/recolor/describe, remove members, delete. The Map rail lists ALL hubs
-  (dimming ones not on the current source) so a hub whose source was deleted is
-  still deletable. New-hub default color is randomized. **Hub nesting is
+  rename/recolor/describe, remove members, delete. The Map rail lists ONLY hubs
+  with a member on the current source (`railHubs` = `orderedHubs` filtered by
+  `visibleHubIds`); off-source hubs are hidden, not dimmed, since management/
+  deletion lives in the Hubs tab. New-hub default color is randomized. **Hub
+  nesting is
   shipped**: a hub can have a parent via `star_hubs.parent_hub_id` (column
   predates this; `ON DELETE SET NULL` re-roots children when a parent is
   deleted). `createHub`/`updateHub` accept `parentHubId` (tri-state on update:
