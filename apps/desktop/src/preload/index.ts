@@ -136,6 +136,7 @@ contextBridge.exposeInMainWorld('api', {
   prereq: {
     suggestions: (args: { sourceId: number; status?: 'pending' | 'accepted' | 'dismissed' }) =>
       ipcRenderer.invoke('prereq:suggestionsList', args),
+    suggestionsForConcept: (conceptId: number) => ipcRenderer.invoke('prereq:suggestionsForConcept', conceptId),
     compute: (sourceId: number) => ipcRenderer.invoke('prereq:suggestionsCompute', sourceId),
     suggestLlm: (sourceId: number) => ipcRenderer.invoke('prereq:suggestionsLlm', sourceId),
     accept: (suggestionId: number) => ipcRenderer.invoke('prereq:suggestionAccept', suggestionId),
