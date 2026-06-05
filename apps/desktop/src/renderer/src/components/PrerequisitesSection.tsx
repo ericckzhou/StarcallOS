@@ -36,6 +36,9 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
   const [scanning, setScanning] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Transient outcome line for scan / AI-suggest so a 0-result or an error
+  // (e.g. no API key) is visible instead of the button silently resetting.
+  const [status, setStatus] = useState<string | null>(null);
 
   // Typeahead state for "add a prerequisite".
   const [input, setInput] = useState('');
@@ -109,19 +112,31 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
     } finally { setBusy(false); }
   }
 
+  function resultMessage(r: { created: number; skippedExistingEdge: number; skippedUnresolved: number }): string {
+    if (r.created > 0) return `Found ${r.created} new suggestion${r.created === 1 ? '' : 's'}.`;
+    if (r.skippedExistingEdge > 0) return 'No new suggestions — matches are already linked.';
+    return 'No prerequisites found between the promoted concepts on this source.';
+  }
+
   async function scan() {
-    setScanning(true);
+    setScanning(true); setStatus(null);
     try {
-      await window.api.prereq.compute(sourceId);
+      const r = await window.api.prereq.compute(sourceId);
       await refresh();
+      setStatus(resultMessage(r));
+    } catch (e) {
+      setStatus(`Scan failed: ${(e as Error)?.message ?? 'unknown error'}`);
     } finally { setScanning(false); }
   }
 
   async function suggestWithAi() {
-    setSuggesting(true);
+    setSuggesting(true); setStatus(null);
     try {
-      await window.api.prereq.suggestLlm(sourceId);
+      const r = await window.api.prereq.suggestLlm(sourceId);
       await refresh();
+      setStatus(resultMessage(r));
+    } catch (e) {
+      setStatus(`AI suggest failed: ${(e as Error)?.message ?? 'unknown error'}. Check that a provider API key is set in Settings.`);
     } finally { setSuggesting(false); }
   }
 
@@ -231,6 +246,11 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
             {suggesting ? 'Asking…' : 'Suggest with AI'}
           </button>
         </div>
+        {status && (
+          <div style={{ marginBottom: 6, fontSize: 10, color: status.includes('failed') ? '#fca5a5' : '#64748b' }}>
+            {status}
+          </div>
+        )}
         {suggestions.length === 0 ? (
           <Empty>No pending suggestions. "Scan source" derives them from the text.</Empty>
         ) : (
