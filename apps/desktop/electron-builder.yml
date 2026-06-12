@@ -53,6 +53,11 @@ linux:
   icon: build/icon.png
   category: Education
   maintainer: Eric Zhou <ericckzhou@gmail.com>
+  # Override the binary name explicitly: electron-builder derives it from the
+  # package name (@starcall/desktop -> @starcalldesktop), and electron-builder 26
+  # rejects the "@" as an unsafe path char. The user-facing AppImage filename
+  # still comes from artifactName (productName) below.
+  executableName: starcallos
   target:
     - target: AppImage
       arch:
