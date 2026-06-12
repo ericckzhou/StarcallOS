@@ -14,14 +14,30 @@ clinical guidelines, language grammars, internal docs.
 
 ## Download
 
-Get the latest build from the **[Releases page](https://github.com/ericckzhou/StarcallOS/releases/latest)** — a single portable `.exe` (Windows x64) that runs without installation.
+Get the latest build from the **[Releases page](https://github.com/ericckzhou/StarcallOS/releases/latest)** — a portable download for each platform that runs without installation:
 
-> Because the build is unsigned, Windows may show a *"Windows protected your PC"* SmartScreen dialog on first launch. Click **More info → Run anyway**.
+| Platform | File | Notes |
+| --- | --- | --- |
+| **Windows** (x64) | `StarcallOS-*-portable-x64.exe` | self-extracting portable `.exe` |
+| **macOS** (Apple Silicon / Intel) | `StarcallOS-*-arm64.dmg` / `StarcallOS-*-x64.dmg` | also a `.zip` of the `.app` if you prefer no disk image |
+| **Linux** (x64) | `StarcallOS-*-x64.AppImage` | `chmod +x` and run |
 
-**Verify your download (optional).** Each release ships a `SHA256SUMS.txt`. Confirm the `.exe` wasn't corrupted or tampered with in transit:
+> **Windows** — because the build is unsigned, Windows may show a *"Windows protected your PC"* SmartScreen dialog on first launch. Click **More info → Run anyway**.
+
+> **macOS** — the app is unsigned and un-notarized, so Gatekeeper blocks it on first launch (*"StarcallOS can't be opened"*). Right-click the app → **Open** → **Open**, or clear the quarantine flag: `xattr -dr com.apple.quarantine /Applications/StarcallOS.app`.
+
+> **Linux** — make the AppImage executable (`chmod +x StarcallOS-*-x64.AppImage`) then run it. If it won't start, your distro may lack FUSE; extract and run with `./StarcallOS-*-x64.AppImage --appimage-extract-and-run`.
+
+**Verify your download (optional).** Each release ships a `SHA256SUMS.txt` covering every platform's binaries. Confirm your download wasn't corrupted or tampered with in transit:
 
 ```powershell
+# Windows (PowerShell)
 Get-FileHash StarcallOS-*-portable-x64.exe -Algorithm SHA256
+```
+
+```sh
+# macOS / Linux
+shasum -a 256 -c SHA256SUMS.txt   # checks every file listed
 ```
 
 Compare the printed hash against the matching line in `SHA256SUMS.txt` — they should be identical.
@@ -216,7 +232,7 @@ Each layer has a single responsibility and a single direction of dependency. See
 
 ## Build from source
 
-If you don't want to download the prebuilt `.exe`, you can run the dev shell or
+If you don't want to download a prebuilt binary, you can run the dev shell or
 produce your own portable build:
 
 ```sh
@@ -225,14 +241,20 @@ pnpm install
 pnpm -C packages/shared build && pnpm -C packages/services build
 pnpm -C apps/desktop dev          # hot-reload dev shell
 # or
-pnpm -C apps/desktop dist         # produces apps/desktop/dist/StarcallOS-*-portable-x64.exe
+pnpm -C apps/desktop dist         # packages for your current OS into apps/desktop/dist/
 ```
+
+`dist` builds for whichever OS you run it on: a portable `.exe` on Windows, a
+`.dmg` + `.zip` on macOS, an `.AppImage` on Linux. (There are no native
+dependencies — the app uses `node:sqlite` — so packaging is just bundling the
+matching Electron binary; no per-platform native rebuild.)
 
 Requirements: Node **22.5+**, pnpm 11+. The app uses the built-in `node:sqlite`
 module (no native bindings), which is experimental and only available on Node
 22.5 or newer — older Node versions cannot run it. On Windows, packaging a portable `.exe`
 locally needs either an elevated shell or Developer Mode enabled (electron-builder
-unpacks signing tooling with symlinks). Otherwise let CI build it for you on tag push.
+unpacks signing tooling with symlinks). The tagged-release CI builds all three
+platforms on their native runners and publishes them to one GitHub Release.
 
 ## Contributing
 
