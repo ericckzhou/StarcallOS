@@ -28,5 +28,37 @@ win:
         - x64
   artifactName: ${productName}-${version}-portable-${arch}.${ext}
 
-# v0.1 ships unsigned — the SmartScreen warning is documented in the README.
-# To sign later, set CSC_LINK + CSC_KEY_PASSWORD env vars at build time.
+# macOS: ship a .dmg (drag-to-install) and a .zip (true portable .app) for both
+# Intel (x64) and Apple Silicon (arm64). No native deps means electron-builder
+# can cross-pack both arches from a single arm64 runner. Unsigned/un-notarized —
+# Gatekeeper workaround is documented in the README. icon.png (512x512+) is
+# auto-converted to .icns.
+mac:
+  icon: build/icon.png
+  category: public.app-category.education
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# Linux: AppImage is the single-file portable analog of the Windows portable
+# .exe — chmod +x and run, no install. x64 only for now.
+linux:
+  icon: build/icon.png
+  category: Education
+  maintainer: Eric Zhou <ericckzhou@gmail.com>
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# v0.1 ships unsigned on all platforms — the SmartScreen (Windows) and Gatekeeper
+# (macOS) warnings are documented in the README. To sign later, set
+# CSC_LINK + CSC_KEY_PASSWORD (and Apple notarization creds) at build time.
