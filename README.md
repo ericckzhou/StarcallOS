@@ -20,13 +20,13 @@ Get the latest build from the **[Releases page](https://github.com/ericckzhou/St
 | --- | --- | --- |
 | **Windows** (x64) | `StarcallOS-*-portable-x64.exe` | self-extracting portable `.exe` |
 | **macOS** (Apple Silicon / Intel) | `StarcallOS-*-arm64.dmg` / `StarcallOS-*-x64.dmg` | also a `.zip` of the `.app` if you prefer no disk image |
-| **Linux** (x64) | `StarcallOS-*-x64.AppImage` | `chmod +x` and run |
+| **Linux** (x64) | `StarcallOS-*-x86_64.AppImage` | `chmod +x` and run |
 
 > **Windows** — because the build is unsigned, Windows may show a *"Windows protected your PC"* SmartScreen dialog on first launch. Click **More info → Run anyway**.
 
 > **macOS** — the app is unsigned and un-notarized, so Gatekeeper blocks it on first launch (*"StarcallOS can't be opened"*). Right-click the app → **Open** → **Open**, or clear the quarantine flag: `xattr -dr com.apple.quarantine /Applications/StarcallOS.app`.
 
-> **Linux** — make the AppImage executable (`chmod +x StarcallOS-*-x64.AppImage`) then run it. If it won't start, your distro may lack FUSE; extract and run with `./StarcallOS-*-x64.AppImage --appimage-extract-and-run`.
+> **Linux** — make the AppImage executable (`chmod +x StarcallOS-*-x86_64.AppImage`) then run it. If it won't start, your distro may lack FUSE; extract and run with `./StarcallOS-*-x86_64.AppImage --appimage-extract-and-run`.
 
 **Verify your download (optional).** Each release ships a `SHA256SUMS.txt` covering every platform's binaries. Confirm your download wasn't corrupted or tampered with in transit:
 
