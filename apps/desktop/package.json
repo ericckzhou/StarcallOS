@@ -22,13 +22,13 @@
     "pdf-parse": "2.4.5"
   },
   "devDependencies": {
-    "@playwright/test": "^1.49.0",
+    "@playwright/test": "^1.61.0",
     "@types/katex": "^0.16.8",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
-    "electron": "^42.4.0",
-    "electron-builder": "^26.15.2",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "pdfjs-dist": "^6.0.227",
     "react": "^18.3.0",
