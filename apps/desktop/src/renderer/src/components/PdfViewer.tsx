@@ -1828,20 +1828,51 @@ function AnnotationPopover({
   const [label, setLabel] = useState(annotation.label);
   const [noteBody, setNoteBody] = useState(annotation.note_body);
   const [color, setColor] = useState(annotation.color);
+  // The popover is draggable so it never strands the Save button below the
+  // viewport and can be moved off the text being read. Position is local UI
+  // state seeded from the click anchor (clamped on-screen) and re-seeded when a
+  // different annotation is opened.
+  const clampToView = (x: number, y: number): { x: number; y: number } => ({
+    x: Math.max(8, Math.min(x, window.innerWidth - 296)),
+    y: Math.max(8, Math.min(y, window.innerHeight - 80)),
+  });
+  const [pos, setPos] = useState(() => clampToView(anchor.x, anchor.y));
+  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
 
   useEffect(() => {
     setLabel(annotation.label);
     setNoteBody(annotation.note_body);
     setColor(annotation.color);
+    setPos(clampToView(anchor.x, anchor.y));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [annotation.id, annotation.label, annotation.note_body, annotation.color]);
+
+  function startDrag(e: React.MouseEvent): void {
+    if ((e.target as HTMLElement).closest('button')) return; // let the × button work
+    e.preventDefault();
+    dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+    const onMove = (ev: MouseEvent): void => {
+      if (!dragRef.current) return;
+      setPos(clampToView(ev.clientX - dragRef.current.dx, ev.clientY - dragRef.current.dy));
+    };
+    const onUp = (): void => {
+      dragRef.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
 
   return (
     <div
       style={{
         position: 'fixed',
-        left: Math.min(anchor.x, window.innerWidth - 300),
-        top: Math.min(anchor.y, window.innerHeight - 250),
+        left: pos.x,
+        top: pos.y,
         width: 280,
+        maxHeight: 'calc(100vh - 16px)',
+        overflowY: 'auto',
         zIndex: 55,
         background: 'rgba(13,13,22,0.72)',
         backdropFilter: 'blur(14px)',
@@ -1852,7 +1883,10 @@ function AnnotationPopover({
         padding: 12,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+      <div
+        onMouseDown={startDrag}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, cursor: 'move', userSelect: 'none' }}
+      >
         <div style={{ fontSize: 12, fontWeight: 800, color: '#e2e8f0' }}>
           {annotation.type === 'note' ? 'Sticky note' : 'Highlight'}
         </div>
