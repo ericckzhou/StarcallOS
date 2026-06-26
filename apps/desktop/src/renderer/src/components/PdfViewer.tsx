@@ -1583,7 +1583,12 @@ function PdfPage({
           textLayerEl.innerHTML = '';
           textLayerEl.style.width  = `${vp.width}px`;
           textLayerEl.style.height = `${vp.height}px`;
+          // pdfjs v6 sizes text spans via `--total-scale-factor` (= --scale-factor ×
+          // --user-unit), and only auto-derives it on `.pdfViewer .page`. Our text
+          // layer is standalone, so we must set it directly or the spans collapse to
+          // font-size 0 and selection/highlight geometry lands in the wrong place.
           textLayerEl.style.setProperty('--scale-factor', String(vp.scale));
+          textLayerEl.style.setProperty('--total-scale-factor', String(vp.scale));
           const textContent = await p.getTextContent();
           if (cancelled) return;
           // renderTextLayer signature varies slightly across pdfjs versions;
