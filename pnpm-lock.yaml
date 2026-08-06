@@ -79,8 +79,8 @@ importers:
         specifier: ^0.8.3
         version: 0.8.3
       groq-sdk:
-        specifier: ^1.4.0
-        version: 1.4.0
+        specifier: ^1.5.0
+        version: 1.5.0
       linkedom:
         specifier: ^0.18.13
         version: 0.18.13
@@ -1565,8 +1565,8 @@ packages:
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
 
-  groq-sdk@1.4.0:
-    resolution: {integrity: sha512-4EAmBWlt5SNVyhKWqVPns9marmWYbtYO4kkE0u34NW3+GlVQ5d/JJ0sJRg/rOsqmVispCD3bK/EykH3zC1AeUQ==}
+  groq-sdk@1.5.0:
+    resolution: {integrity: sha512-aa5yaMVd8kehBacU3Pp7roObOuPksZNau+nPW+GDDB7OV/8jybVzeeOv54lZj8owNNIc3a7Tu2eYI7/kIwtMNw==}
     hasBin: true
 
   has-flag@4.0.0:
@@ -3804,7 +3804,7 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
-  groq-sdk@1.4.0: {}
+  groq-sdk@1.5.0: {}
 
   has-flag@4.0.0: {}
 
