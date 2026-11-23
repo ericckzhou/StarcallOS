@@ -94,6 +94,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   candidates: {
     bySource: (sourceId: number) => ipcRenderer.invoke('candidates:bySource', sourceId),
+    nearDuplicates: (sourceId: number) => ipcRenderer.invoke('candidates:nearDuplicates', sourceId),
     promote:  (candidateId: number) => ipcRenderer.invoke('candidates:promote', candidateId),
     promoteBulk: (candidateIds: number[]) => ipcRenderer.invoke('candidates:promoteBulk', candidateIds),
     reject:   (candidateId: number) => ipcRenderer.invoke('candidates:reject', candidateId),
@@ -145,5 +146,14 @@ contextBridge.exposeInMainWorld('api', {
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (input: unknown) => ipcRenderer.invoke('settings:set', input),
+  },
+  llm: {
+    traceSummary: (days?: number) => ipcRenderer.invoke('llm:traceSummary', days),
+    listLocalModels: (baseUrl: string) => ipcRenderer.invoke('llm:listLocalModels', baseUrl),
+  },
+  embeddings: {
+    status: () => ipcRenderer.invoke('embeddings:status'),
+    indexLibrary: () => ipcRenderer.invoke('embeddings:indexLibrary'),
+    related: (conceptId: number) => ipcRenderer.invoke('concepts:related', conceptId),
   },
 });

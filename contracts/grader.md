@@ -1,6 +1,6 @@
 # Contract: `grader`
 
-- **Contract version:** 1.2.0 (see `CONTRACT_VERSION`)
+- **Contract version:** 1.3.0 (see `CONTRACT_VERSION`)
 - **Pass name:** `grader` (heavy)
 - **Implemented in:** `packages/services/src/ingestion/grader.ts`
 - **Runs in:** user submits a response to a Challenge task.
@@ -92,13 +92,36 @@ the source contradicts/never makes, `"minor"` for a peripheral aside.
 
 ## Failure behavior
 
-- On unparseable output, default to the conservative shape: `score: "gap"`,
-  `compression_stage: 0`, empty detail arrays, empty reasoning, `grounding_score`
-  null, empty `unsupported_claims`. Never default to `understood`.
+- Output is validated against `GraderOutputSchema` (Zod): `score` must be one of
+  the four labels and `compression_stage` an integer 0–5. Anthropic enforces the
+  schema natively (forced tool); other providers use JSON mode.
+- On invalid or unparseable output, ONE repair call is made showing the model
+  its output and the validation errors. If that also fails, grading throws
+  `LlmParseError` and **nothing is recorded** — the learner keeps their answer
+  and can resubmit. (Before 1.3.0 unparseable output silently became a real
+  `gap` grade in the learner's history; never reintroduce a default grade.)
+- Self-consistency (optional, Settings → Grading): when the first grade is
+  borderline (`isBorderlineGrade`: score/stage disagree with the rubric, or
+  `grounding_score` in [0.35, 0.65]), up to two extra samples are drawn at
+  temperature 0.7 and aggregated by `aggregateGrades`: majority score (ties →
+  the more conservative score), lower-median stage, median grounding score, and
+  the text fields of the sample closest to that consensus. A failed extra sample
+  is dropped, never fails the grade.
+- Each record stores its audit trail (migration 0032): validated output(s),
+  `grader_prompt_hash`, `grader_model`, `grader_contract`, `grade_samples`.
 - A grade is one append-only evidence record; it never mutates prior records.
   (Downstream, deleting a record re-awards XP and recomputes mastery — the
   grounding fields are intrinsic to the attempt and need no recompute. The
   grader itself stays pure.)
+
+## Calibration examples (1.3.0)
+
+The system prompt anchors each stage with worked examples for one concept
+(opportunity cost): verbatim → recognizes/1, own words → recognizes/2,
+unprompted connection → understood/3, minimal compression → understood/4,
+named limit → understood/5, sunk-cost confusion → misconception/1, vague
+recognition → gap/1. Changing these changes grading: rerun
+`pnpm eval -- --pass grader` against the baseline before and after.
 
 ## Example
 

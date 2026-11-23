@@ -86,6 +86,12 @@ export const IPC = {
   REVIEW_GET_SRS:          'review:getSrs',
   SETTINGS_GET:            'settings:get',
   SETTINGS_SET:            'settings:set',
+  LLM_TRACE_SUMMARY:       'llm:traceSummary',
+  LLM_LIST_LOCAL_MODELS:   'llm:listLocalModels',
+  EMBEDDINGS_STATUS:       'embeddings:status',
+  EMBEDDINGS_INDEX_LIBRARY: 'embeddings:indexLibrary',
+  CONCEPTS_RELATED:        'concepts:related',
+  CANDIDATES_NEAR_DUPLICATES: 'candidates:nearDuplicates',
   SOURCES_BYTES:           'sources:bytes',
   SOURCES_LLM_FILTER_GET:  'sources:llmFilterGet',
   SOURCES_LLM_FILTER_SET:  'sources:llmFilterSet',
@@ -216,7 +222,7 @@ export interface SubmitEvidenceArgs {
 
 // ─── Auxiliary types used by IpcApi ──────────────────────────────────────────
 
-export type ProviderId      = 'groq' | 'anthropic';
+export type ProviderId      = 'groq' | 'anthropic' | 'local';
 export type ExtractionMode  = 'deterministic' | 'candidate_gated' | 'full';
 export type ParseRunStatus  = 'success' | 'failed' | 'interrupted';
 
@@ -229,9 +235,72 @@ export interface SettingsSnapshot {
   heavyModel: string;
   lightModel: string;
   modelChoices: Record<ProviderId, { heavy: string[]; light: string[] }>;
+  // Effective value (explicit choice, else provider default).
+  gradeSelfConsistency: boolean;
+  // provider === 'local'. Empty string = use the default.
+  localBaseUrl: string;
+  localModel: string;
+  defaultLocalBaseUrl: string;
+  embeddingsEnabled: boolean;
+  embeddingModel: string;   // '' = default
+  defaultEmbeddingModel: string;
+  srsScheduler: 'sm2' | 'fsrs';
+}
+
+export interface EmbeddingsStatus {
+  enabled: boolean;
+  model: string;
+  concepts: number;
+  spans: number;
+  sources: number;
+  totalSources: number;
+}
+
+export type EmbeddingsIndexResult =
+  | { ok: true; sources: number; embedded: number }
+  | { ok: false; error: string };
+
+// candidateId → its most similar other candidate (embeddings; hint only).
+export type CandidateNearDuplicates = Record<number, { id: number; term: string; similarity: number }>;
+
+export interface RelatedConceptSuggestion {
+  id: number;
+  name: string;
+  source_id: number;
+  source_title: string;
+  similarity: number;
+}
+
+export type LocalModelsResult = { ok: true; models: string[] } | { ok: false; error: string };
+
+// Persisted LLM call trace aggregates (llm_calls, migration 0031).
+export interface LlmPassSummary {
+  pass: string;
+  calls: number;
+  errors: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_tokens: number;
+  avg_duration_ms: number;
+  p95_duration_ms: number;
+  retries: number;
+}
+
+export interface LlmTraceSummary {
+  days: number;
+  total_calls: number;
+  total_errors: number;
+  total_tokens: number;
+  by_pass: LlmPassSummary[];
 }
 
 export interface SettingsPatch {
+  gradeSelfConsistency?: boolean;
+  localBaseUrl?: string;
+  localModel?: string;
+  embeddingsEnabled?: boolean;
+  embeddingModel?: string;
+  srsScheduler?: 'sm2' | 'fsrs';
   provider?: ProviderId;
   groqApiKey?: string;
   anthropicApiKey?: string;
@@ -665,8 +734,24 @@ export interface IpcApi {
     get: () => Promise<SettingsSnapshot>;
     set: (input: SettingsPatch) => Promise<{ ok: true }>;
   };
+  llm: {
+    traceSummary: (days?: number) => Promise<LlmTraceSummary>;
+    // Probe an OpenAI-compatible server (GET {baseUrl}/models). Never throws.
+    listLocalModels: (baseUrl: string) => Promise<LocalModelsResult>;
+  };
+  embeddings: {
+    status: () => Promise<EmbeddingsStatus>;
+    // Index every source (incremental). Never throws.
+    indexLibrary: () => Promise<EmbeddingsIndexResult>;
+    // Similar concepts across sources; [] when embeddings are off/unavailable.
+    // Suggestions only — the renderer must route a pick through the normal
+    // constellation add flow (user supplies the reason).
+    related: (conceptId: number) => Promise<RelatedConceptSuggestion[]>;
+  };
   candidates: {
     bySource: (sourceId: number) => Promise<CandidatesBundle>;
+    // {} when embeddings are off/unreachable. Hints only — never auto-merge.
+    nearDuplicates: (sourceId: number) => Promise<CandidateNearDuplicates>;
     promote: (candidateId: number) => Promise<Concept>;
     promoteBulk: (candidateIds: number[]) => Promise<PromoteBulkResult>;
     reject: (candidateId: number) => Promise<{ ok: true }>;

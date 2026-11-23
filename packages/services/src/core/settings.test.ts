@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { loadSettings, saveSettings, migrateSecretsAtRest, sanitizeSettingsInput, type LLMSettings, type SecretCodec } from './settings';
+import { loadSettings, saveSettings, migrateSecretsAtRest, sanitizeSettingsInput, resolveProviderConfig, mergeSettingsPatch, type LLMSettings, type SecretCodec } from './settings';
 
 // Reversible stand-in for Electron safeStorage (which is unavailable in tests).
 const fakeCodec: SecretCodec = {
@@ -118,5 +118,44 @@ describe('sanitizeSettingsInput', () => {
   it('does not touch model fields (resolveProviderConfig handles bad models at read)', () => {
     const out = sanitizeSettingsInput({ heavyModel: 'not-a-real-model' }, current);
     expect(out.heavyModel).toBe('not-a-real-model');
+  });
+});
+
+describe('local provider settings', () => {
+  it('resolves one local model for every pass without an API key', () => {
+    const s = { provider: 'local' as const, groqApiKey: '', anthropicApiKey: '', localBaseUrl: 'http://10.0.0.5:8080/v1/', localModel: 'qwen2.5:14b' };
+    expect(resolveProviderConfig(s, 'grader')).toEqual({ provider: 'local', apiKey: '', model: 'qwen2.5:14b', baseUrl: 'http://10.0.0.5:8080/v1' });
+    expect(resolveProviderConfig({ ...s, localBaseUrl: undefined, localModel: '' }, 'structure')).toMatchObject({ model: 'llama3.1:8b', baseUrl: 'http://127.0.0.1:11434/v1' });
+  });
+
+  it('sanitizes the base URL, keeping the saved one when invalid', () => {
+    const current = { provider: 'local' as const, groqApiKey: '', anthropicApiKey: '', localBaseUrl: 'http://127.0.0.1:11434/v1' };
+    expect(sanitizeSettingsInput({ localBaseUrl: 'javascript:alert(1)' }, current).localBaseUrl).toBe('http://127.0.0.1:11434/v1');
+    expect(sanitizeSettingsInput({ localBaseUrl: 'http://box:1234/v1/' }, current).localBaseUrl).toBe('http://box:1234/v1');
+    expect(sanitizeSettingsInput({ provider: 'local' }, { ...current, provider: 'groq' }).provider).toBe('local');
+  });
+});
+
+describe('mergeSettingsPatch', () => {
+  const current: LLMSettings = {
+    provider: 'groq', groqApiKey: 'gk', anthropicApiKey: 'ak', modelOverrides: {}, extractionMode: 'deterministic',
+    heavyModel: 'h', embeddingsEnabled: false, srsScheduler: 'sm2',
+  };
+  it('persists every patched field, including ones added after the original merge', () => {
+    const next = mergeSettingsPatch(current, {
+      gradeSelfConsistency: true, localBaseUrl: 'http://box:1/v1', localModel: 'm',
+      embeddingsEnabled: true, embeddingModel: 'e', srsScheduler: 'fsrs',
+    });
+    expect(next).toMatchObject({
+      gradeSelfConsistency: true, localBaseUrl: 'http://box:1/v1', localModel: 'm',
+      embeddingsEnabled: true, embeddingModel: 'e', srsScheduler: 'fsrs',
+    });
+  });
+  it('keeps saved values (incl. API keys) for absent or undefined fields', () => {
+    const next = mergeSettingsPatch(current, { provider: 'anthropic', groqApiKey: undefined });
+    expect(next).toMatchObject({ provider: 'anthropic', groqApiKey: 'gk', anthropicApiKey: 'ak', heavyModel: 'h', srsScheduler: 'sm2' });
+  });
+  it('lets an explicit empty key clear a stored key', () => {
+    expect(mergeSettingsPatch(current, { groqApiKey: '' }).groqApiKey).toBe('');
   });
 });

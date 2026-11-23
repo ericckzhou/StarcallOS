@@ -10,7 +10,7 @@ import { getConceptById } from '../knowledge/repos/concepts';
 import { enrichConceptDefinition } from './enrich_concept';
 
 const mockChat = vi.mocked(chatJSON);
-const fakeUsage = { pass: 'enrich_concept', provider: 'groq' as const, model: 'm', promptTokens: 10, completionTokens: 20, totalTokens: 30, durationMs: 50 };
+const fakeUsage = { pass: 'enrich_concept', provider: 'groq' as const, model: 'm', promptTokens: 10, completionTokens: 20, totalTokens: 30, durationMs: 50, retries: 0, cacheReadTokens: 0 };
 const cfg = { provider: 'groq' as const, apiKey: 'k', model: 'm' };
 
 type DB = ReturnType<typeof openDb>;

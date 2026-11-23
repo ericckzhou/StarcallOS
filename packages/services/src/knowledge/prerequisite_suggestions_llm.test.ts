@@ -12,7 +12,7 @@ const mockChat = vi.mocked(chatJSON);
 const config: ProviderConfig = { provider: 'groq', apiKey: 'k', model: 'm' };
 const usage: UsageStats = {
   pass: 'prereq_suggest', provider: 'groq', model: 'm',
-  promptTokens: 0, completionTokens: 0, totalTokens: 0, durationMs: 0,
+  promptTokens: 0, completionTokens: 0, totalTokens: 0, durationMs: 0, retries: 0, cacheReadTokens: 0,
 };
 
 type DB = ReturnType<typeof openDb>;

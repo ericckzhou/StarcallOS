@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import type { EmbeddingsStatus, LlmTraceSummary } from '@starcall/shared';
 
-type ProviderId = 'groq' | 'anthropic';
+type ProviderId = 'groq' | 'anthropic' | 'local';
 type ExtractionMode = 'deterministic' | 'candidate_gated' | 'full';
 
 interface Snapshot {
@@ -12,6 +13,14 @@ interface Snapshot {
   heavyModel: string;
   lightModel: string;
   modelChoices: Record<ProviderId, { heavy: string[]; light: string[] }>;
+  gradeSelfConsistency: boolean;
+  localBaseUrl: string;
+  localModel: string;
+  defaultLocalBaseUrl: string;
+  embeddingsEnabled: boolean;
+  embeddingModel: string;
+  defaultEmbeddingModel: string;
+  srsScheduler: 'sm2' | 'fsrs';
 }
 
 const PROVIDER_INFO: Record<ProviderId, { label: string; tagline: string }> = {
@@ -22,6 +31,10 @@ const PROVIDER_INFO: Record<ProviderId, { label: string; tagline: string }> = {
   anthropic: {
     label: 'Anthropic',
     tagline: 'Paid. Tier 1: 50 RPM / 40K ITPM. No daily cap. Better quality on extraction.',
+  },
+  local: {
+    label: 'Local model',
+    tagline: 'Free and offline. Any OpenAI-compatible server on your machine or network (Ollama, llama.cpp, LM Studio). Quality depends on the model — check it with the eval harness.',
   },
 };
 
@@ -80,7 +93,7 @@ export default function SettingsPane() {
   // Auto-save non-secret settings the moment they change. Keys still need the
   // explicit "Save API Keys" button below (blank input means "keep current",
   // so we don't want auto-save wiping a stored key on first focus).
-  async function autoSave(patch: { provider?: ProviderId; extractionMode?: ExtractionMode; heavyModel?: string; lightModel?: string }): Promise<void> {
+  async function autoSave(patch: { provider?: ProviderId; extractionMode?: ExtractionMode; heavyModel?: string; lightModel?: string; gradeSelfConsistency?: boolean; localBaseUrl?: string; localModel?: string; embeddingsEnabled?: boolean; embeddingModel?: string; srsScheduler?: 'sm2' | 'fsrs' }): Promise<void> {
     try {
       await window.api.settings.set(patch);
       const fresh = await window.api.settings.get();
@@ -185,9 +198,11 @@ export default function SettingsPane() {
           Only matters for lazy task generation and grading in <em>deterministic</em> mode. All passes use it in the other modes.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
-          {(['groq', 'anthropic'] as const).map(p => {
+          {(['groq', 'anthropic', 'local'] as const).map(p => {
             const info = PROVIDER_INFO[p];
-            const configured = p === 'groq' ? snap.groqApiKeyConfigured : snap.anthropicApiKeyConfigured;
+            const configured = p === 'groq' ? snap.groqApiKeyConfigured
+              : p === 'anthropic' ? snap.anthropicApiKeyConfigured
+              : true;
             const selected = provider === p;
             return (
               <label key={p} style={{
@@ -209,7 +224,7 @@ export default function SettingsPane() {
                     background: configured ? '#14532d' : '#3f1515',
                     color:      configured ? '#bbf7d0' : '#fca5a5',
                   }}>
-                    {configured ? 'key set' : 'no key'}
+                    {p === 'local' ? 'no key needed' : configured ? 'key set' : 'no key'}
                   </span>
                 </div>
                 <div style={{ fontSize: 11, color: '#9ca3af', marginLeft: 22, lineHeight: 1.5 }}>{info.tagline}</div>
@@ -226,13 +241,25 @@ export default function SettingsPane() {
           <div style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
             Model — {provider}
           </div>
-          <ModelSelect choices={allChoices} value={modelValue} onChange={pickHeavy} />
-          <SavedBadge saved={modelSaved} fallback={allChoices[0]} />
-          <div style={{ fontSize: 10, color: '#4b5563', marginTop: 10, lineHeight: 1.5 }}>
-            Used for every LLM pass: enrichment, concepts, misconceptions, tasks, grader, prerequisite suggestions.
-            <br />
-            Cheap/structural passes (graph, structure) auto-use <code style={{ color: '#9ca3af' }}>{lightFallback}</code>.
-          </div>
+          {provider === 'local' ? (
+            <LocalProviderFields
+              key={`${snap.localBaseUrl}|${snap.localModel}`}
+              baseUrl={snap.localBaseUrl}
+              model={snap.localModel}
+              defaultBaseUrl={snap.defaultLocalBaseUrl}
+              onSave={patch => void autoSave(patch)}
+            />
+          ) : (
+            <>
+              <ModelSelect choices={allChoices} value={modelValue} onChange={pickHeavy} />
+              <SavedBadge saved={modelSaved} fallback={allChoices[0]} />
+              <div style={{ fontSize: 10, color: '#4b5563', marginTop: 10, lineHeight: 1.5 }}>
+                Used for every LLM pass: enrichment, concepts, misconceptions, tasks, grader, prerequisite suggestions.
+                <br />
+                Cheap/structural passes (graph, structure) auto-use <code style={{ color: '#9ca3af' }}>{lightFallback}</code>.
+              </div>
+            </>
+          )}
         </div>
 
         <h2 style={{ fontSize: 13, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0, marginBottom: 12 }}>
@@ -281,6 +308,58 @@ export default function SettingsPane() {
         )}
 
         <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
+          Grading
+        </h1>
+        <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', marginTop: 8 }}>
+          <input
+            type="checkbox"
+            checked={snap.gradeSelfConsistency}
+            onChange={e => void autoSave({ gradeSelfConsistency: e.target.checked })}
+            style={{ marginTop: 3, accentColor: '#818cf8' }}
+          />
+          <span>
+            <span style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600 }}>Double-check borderline grades</span>
+            <span style={{ display: 'block', fontSize: 11, color: '#9ca3af', lineHeight: 1.5, marginTop: 2 }}>
+              When a grade looks borderline, grade the answer up to two more times and take the majority.
+              More consistent, but up to 3× the grading calls on those answers. On by default for Anthropic, off for Groq.
+            </span>
+          </span>
+        </label>
+
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600, marginBottom: 6 }}>Review scheduler</div>
+          {([
+            ['sm2', 'SM-2', 'The classic algorithm. Predictable fixed growth of intervals.'],
+            ['fsrs', 'FSRS', 'Models how fast you forget each concept; usually needs fewer reviews for the same retention. Existing cards convert on their next review.'],
+          ] as const).map(([id, label, desc]) => (
+            <label key={id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', marginBottom: 6 }}>
+              <input
+                type="radio" name="srsScheduler" checked={snap.srsScheduler === id}
+                onChange={() => void autoSave({ srsScheduler: id })}
+                style={{ marginTop: 3, accentColor: '#818cf8' }}
+              />
+              <span>
+                <span style={{ fontSize: 12, color: '#e2e8f0' }}>{label}</span>
+                <span style={{ display: 'block', fontSize: 11, color: '#9ca3af', lineHeight: 1.5 }}>{desc}</span>
+              </span>
+            </label>
+          ))}
+          <div style={{ fontSize: 10, color: '#4b5563', lineHeight: 1.5 }}>
+            Either way, an answer you were over-confident about (and didn't fully get) comes back sooner.
+          </div>
+        </div>
+
+        <EmbeddingsSection
+          enabled={snap.embeddingsEnabled}
+          model={snap.embeddingModel}
+          defaultModel={snap.defaultEmbeddingModel}
+          baseUrl={snap.localBaseUrl || snap.defaultLocalBaseUrl}
+          onSave={patch => autoSave(patch)}
+        />
+
+        <LlmUsageSection />
+
+        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
           Export
         </h1>
         <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 16 }}>
@@ -304,6 +383,246 @@ export default function SettingsPane() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Base URL + model id for the local provider. Saved on blur/Enter (not per
+// keystroke); "Test connection" lists the server's models as pickable chips.
+function LocalProviderFields({ baseUrl, model, defaultBaseUrl, onSave }: {
+  baseUrl: string; model: string; defaultBaseUrl: string;
+  onSave: (patch: { localBaseUrl?: string; localModel?: string }) => void;
+}) {
+  const [url, setUrl] = useState(baseUrl);
+  const [mdl, setMdl] = useState(model);
+  const [probe, setProbe] = useState<{ state: 'idle' | 'testing' } | { state: 'ok'; models: string[] } | { state: 'error'; error: string }>({ state: 'idle' });
+
+  async function test(): Promise<void> {
+    setProbe({ state: 'testing' });
+    const res = await window.api.llm.listLocalModels(url.trim() || defaultBaseUrl);
+    setProbe(res.ok ? { state: 'ok', models: res.models } : { state: 'error', error: res.error });
+  }
+
+  const input: React.CSSProperties = {
+    width: '100%', boxSizing: 'border-box', background: 'rgba(13,13,22,0.35)',
+    border: '1px solid rgba(55,65,81,0.8)', borderRadius: 5, padding: '7px 10px',
+    color: '#e2e8f0', fontSize: 12, fontFamily: 'ui-monospace, monospace',
+  };
+  const label: React.CSSProperties = { display: 'block', fontSize: 11, color: '#9ca3af', marginBottom: 4, marginTop: 8 };
+  const commit = (patch: { localBaseUrl?: string; localModel?: string }) => onSave(patch);
+
+  return (
+    <div>
+      <label style={label}>Server base URL</label>
+      <input
+        style={input} value={url} placeholder={defaultBaseUrl}
+        onChange={e => setUrl(e.target.value)}
+        onBlur={() => { if (url !== baseUrl) commit({ localBaseUrl: url }); }}
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      />
+      <label style={label}>Model</label>
+      <input
+        style={input} value={mdl} placeholder="llama3.1:8b"
+        onChange={e => setMdl(e.target.value)}
+        onBlur={() => { if (mdl !== model) commit({ localModel: mdl }); }}
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+        <button onClick={() => void test()} disabled={probe.state === 'testing'}
+          style={{
+            background: 'transparent', border: '1px solid rgba(99,102,241,0.5)', borderRadius: 5,
+            padding: '5px 12px', color: '#c7d2fe', fontSize: 12, cursor: probe.state === 'testing' ? 'wait' : 'pointer',
+          }}>
+          {probe.state === 'testing' ? 'Testing…' : 'Test connection'}
+        </button>
+        {probe.state === 'error' && <span style={{ fontSize: 11, color: '#fca5a5' }}>{probe.error}</span>}
+        {probe.state === 'ok' && probe.models.length === 0 && (
+          <span style={{ fontSize: 11, color: '#fcd34d' }}>Connected, but the server lists no models.</span>
+        )}
+      </div>
+      {probe.state === 'ok' && probe.models.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+          {probe.models.map(m => (
+            <button key={m} onClick={() => { setMdl(m); commit({ localModel: m }); }}
+              title="Use this model"
+              style={{
+                background: m === mdl ? 'rgba(99,102,241,0.3)' : 'rgba(75,85,99,0.2)',
+                border: '1px solid rgba(99,102,241,0.35)', borderRadius: 999, padding: '2px 10px',
+                color: '#e0e7ff', fontSize: 11, fontFamily: 'ui-monospace, monospace', cursor: 'pointer',
+              }}>
+              {m}
+            </button>
+          ))}
+        </div>
+      )}
+      <div style={{ fontSize: 10, color: '#4b5563', marginTop: 10, lineHeight: 1.5 }}>
+        One model is used for every LLM pass. Nothing leaves this machine unless the URL points elsewhere.
+      </div>
+    </div>
+  );
+}
+
+// Opt-in local embeddings: related-concept suggestions + wider grounding.
+function EmbeddingsSection({ enabled, model, defaultModel, baseUrl, onSave }: {
+  enabled: boolean; model: string; defaultModel: string; baseUrl: string;
+  onSave: (patch: { embeddingsEnabled?: boolean; embeddingModel?: string }) => Promise<void>;
+}) {
+  const [mdl, setMdl] = useState(model);
+  const [status, setStatus] = useState<EmbeddingsStatus | null>(null);
+  const [job, setJob] = useState<{ state: 'idle' | 'running' } | { state: 'done'; msg: string } | { state: 'error'; msg: string }>({ state: 'idle' });
+
+  const refresh = () => { window.api.embeddings.status().then(setStatus).catch(() => setStatus(null)); };
+  useEffect(refresh, [enabled, model]);
+
+  async function indexNow(): Promise<void> {
+    setJob({ state: 'running' });
+    const r = await window.api.embeddings.indexLibrary();
+    setJob(r.ok
+      ? { state: 'done', msg: r.embedded > 0 ? `Indexed ${r.embedded} new item${r.embedded === 1 ? '' : 's'} across ${r.sources} sources.` : 'Already up to date.' }
+      : { state: 'error', msg: r.error });
+    refresh();
+  }
+
+  async function toggle(on: boolean): Promise<void> {
+    await onSave({ embeddingsEnabled: on });
+    if (on) void indexNow();
+  }
+
+  return (
+    <>
+      <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
+        Embeddings
+      </h1>
+      <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', marginTop: 8 }}>
+        <input type="checkbox" checked={enabled} onChange={e => void toggle(e.target.checked)} style={{ marginTop: 3, accentColor: '#818cf8' }} />
+        <span>
+          <span style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600 }}>Use local embeddings</span>
+          <span style={{ display: 'block', fontSize: 11, color: '#9ca3af', lineHeight: 1.5, marginTop: 2 }}>
+            Suggests related concepts across sources when linking constellations, and gives the grader related
+            excerpts from the same source. Uses the embeddings endpoint of the local server at{' '}
+            <code style={{ color: '#c7d2fe' }}>{baseUrl}</code> (e.g. <code style={{ color: '#c7d2fe' }}>ollama pull {defaultModel}</code>).
+            Nothing is sent anywhere else.
+          </span>
+        </span>
+      </label>
+      {enabled && (
+        <div style={{ marginLeft: 24, marginTop: 10 }}>
+          <label style={{ display: 'block', fontSize: 11, color: '#9ca3af', marginBottom: 4 }}>Embedding model</label>
+          <input
+            value={mdl} placeholder={defaultModel}
+            onChange={e => setMdl(e.target.value)}
+            onBlur={() => { if (mdl !== model) void onSave({ embeddingModel: mdl }); }}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            style={{
+              width: 260, background: 'rgba(13,13,22,0.35)', border: '1px solid rgba(55,65,81,0.8)', borderRadius: 5,
+              padding: '6px 10px', color: '#e2e8f0', fontSize: 12, fontFamily: 'ui-monospace, monospace',
+            }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+            <button onClick={() => void indexNow()} disabled={job.state === 'running'}
+              style={{
+                background: 'transparent', border: '1px solid rgba(99,102,241,0.5)', borderRadius: 5,
+                padding: '5px 12px', color: '#c7d2fe', fontSize: 12, cursor: job.state === 'running' ? 'wait' : 'pointer',
+              }}>
+              {job.state === 'running' ? 'Indexing…' : 'Index library now'}
+            </button>
+            {status && (
+              <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                {status.concepts} concepts · {status.spans} excerpts · {status.sources}/{status.totalSources} sources indexed
+              </span>
+            )}
+          </div>
+          {job.state === 'done' && <div style={{ fontSize: 11, color: '#86efac', marginTop: 6 }}>{job.msg}</div>}
+          {job.state === 'error' && <div style={{ fontSize: 11, color: '#fca5a5', marginTop: 6 }}>{job.msg}</div>}
+        </div>
+      )}
+    </>
+  );
+}
+
+const USAGE_WINDOWS = [7, 30, 90] as const;
+
+function fmtTokens(n: number): string {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
+}
+
+// Read-only view over the persisted llm_calls trace: per-pass volume, errors,
+// retries, latency, and cache reads, so slow/failing passes are visible.
+function LlmUsageSection() {
+  const [days, setDays] = useState<number>(30);
+  const [summary, setSummary] = useState<LlmTraceSummary | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    setFailed(false);
+    window.api.llm.traceSummary(days)
+      .then(s => { if (live) setSummary(s); })
+      .catch(() => { if (live) setFailed(true); });
+    return () => { live = false; };
+  }, [days]);
+
+  const th: React.CSSProperties = { textAlign: 'right', padding: '4px 8px', color: '#6b7280', fontWeight: 600, fontSize: 11 };
+  const td: React.CSSProperties = { textAlign: 'right', padding: '4px 8px', color: '#cbd5e1', fontSize: 12, fontVariantNumeric: 'tabular-nums' };
+
+  return (
+    <>
+      <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
+        LLM usage
+      </h1>
+      <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 12 }}>
+        Every call to the configured LLM provider, by pass. Only metadata is stored — never prompt or answer text.
+      </p>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+        {USAGE_WINDOWS.map(d => (
+          <button key={d} onClick={() => setDays(d)}
+            style={{
+              background: d === days ? 'rgba(99,102,241,0.25)' : 'transparent',
+              border: '1px solid rgba(99,102,241,0.4)', borderRadius: 999, padding: '3px 10px',
+              color: d === days ? '#e0e7ff' : '#9ca3af', fontSize: 11, cursor: 'pointer',
+            }}>
+            {d}d
+          </button>
+        ))}
+      </div>
+      {failed && <div style={{ fontSize: 12, color: '#fca5a5' }}>Could not load usage.</div>}
+      {!failed && summary && summary.total_calls === 0 && (
+        <div style={{ fontSize: 12, color: '#6b7280' }}>No LLM calls in the last {summary.days} days.</div>
+      )}
+      {!failed && summary && summary.total_calls > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 6 }}>
+            {summary.total_calls} calls · {fmtTokens(summary.total_tokens)} tokens
+            {summary.total_errors > 0 && <span style={{ color: '#fca5a5' }}> · {summary.total_errors} failed</span>}
+          </div>
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <thead>
+              <tr>
+                <th style={{ ...th, textAlign: 'left' }}>Pass</th>
+                <th style={th}>Calls</th>
+                <th style={th}>Errors</th>
+                <th style={th}>Retries</th>
+                <th style={th}>Tokens in/out</th>
+                <th style={th}>Cache read</th>
+                <th style={th}>Avg / p95</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.by_pass.map(p => (
+                <tr key={p.pass} style={{ borderTop: '1px solid rgba(148,163,184,0.12)' }}>
+                  <td style={{ ...td, textAlign: 'left', fontFamily: 'ui-monospace, monospace' }}>{p.pass}</td>
+                  <td style={td}>{p.calls}</td>
+                  <td style={{ ...td, color: p.errors > 0 ? '#fca5a5' : td.color }}>{p.errors}</td>
+                  <td style={{ ...td, color: p.retries > 0 ? '#fcd34d' : td.color }}>{p.retries}</td>
+                  <td style={td}>{fmtTokens(p.prompt_tokens)} / {fmtTokens(p.completion_tokens)}</td>
+                  <td style={td}>{p.cache_read_tokens > 0 ? fmtTokens(p.cache_read_tokens) : '—'}</td>
+                  <td style={td}>{(p.avg_duration_ms / 1000).toFixed(1)}s / {(p.p95_duration_ms / 1000).toFixed(1)}s</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }
 

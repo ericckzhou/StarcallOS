@@ -92,7 +92,17 @@ Remember these as the active state of the repo:
   are intrinsic to one attempt (no delete/replay recompute). `UnsupportedClaim`
   lives in `core/domain/types.ts`; the GradeCard + History rows render a
   grounded/partially-grounded/unsupported badge + claim list. `CONTRACT_VERSION`
-  1.2.0; contract in `contracts/grader.md`.
+  1.3.0; contract in `contracts/grader.md`. 1.3.0 adds per-stage calibration
+  examples to `GRADER_SYSTEM`, optional self-consistency (Settings → Grading,
+  `effectiveSelfConsistency`: default on for Anthropic, off for Groq) that
+  re-grades `isBorderlineGrade` answers twice at T=0.7 and merges via
+  `aggregateGrades` (majority score, ties → conservative; lower-median stage),
+  and an audit trail on `evidence_records` (migration 0032: `grader_output`,
+  `grader_prompt_hash`, `grader_model`, `grader_contract`, `grade_samples`;
+  kept OFF the DTO, read via `getEvidenceAudit`). The grader's stable prefix
+  (system + concept/source block) is marked `cache: true` for Anthropic
+  prompt caching (`toAnthropicPayload`). Offline evals: `pnpm eval`
+  (`evals/`, golden sets labeled `proposed` until human-reviewed).
 - Confidence calibration is shipped (migration 0030). The ChallengeTab has a
   pre-submit "How confident are you?" slider (0–1, default 0.5, always captured);
   `SubmitEvidenceArgs.confidenceBefore` (Zod `0..1` optional) flows to the
@@ -128,7 +138,18 @@ Remember these as the active state of the repo:
   ease/reps untouched, `null` = due now). Deleting an evidence record replays the
   survivors (`recomputeSrsForConcept`, beside `recomputeMasteryForConcept` in
   `deleteEvidenceRecord`). The pure SM-2 scheduler lives in
-  `packages/services/src/knowledge/srs.ts`. The queue defaults to expanding only
+  `packages/services/src/knowledge/srs.ts`; FSRS-5 (default weights) in
+  `knowledge/fsrs.ts`. Settings → Grading → Review scheduler picks SM-2
+  (default) or FSRS; main calls `setSrsScheduler` at startup and on save, and
+  every record/replay path goes through `scheduleReview`. FSRS state is
+  `concept_srs.stability/difficulty` (migration 0034); SM-2 cards convert
+  lazily on their next review (stability seeded from the SM-2 interval — no
+  replay, which would drop `✓ Done` reviews). Overconfident non-`understood`
+  attempts (`calibration_gap` > 0.15) get a 0.7× interval under either
+  scheduler (also applied on replay). `listReviewQueue` sinks concepts with
+  unmastered direct prerequisites below unblocked ones within the same urgency
+  bucket (`orderBlockedLast`). Settings persist via `mergeSettingsPatch`
+  (never list fields one by one in main — that silently dropped new settings). The queue defaults to expanding only
   the most recently previewed source's group.
 - Concepts export to **Markdown** (`.md`) or **Anki** (`.txt`, tab-separated
   import — NOT `.apkg`) via the DetailPane header `ExportButton` (beside
@@ -225,6 +246,37 @@ Remember these as the active state of the repo:
   source (`starcall.layout.lastSource`, set on Sources-tab select), falling back
   to the largest source. The footer stats scope to the selected source via
   `graph.statsBySource`. The mastery ring ramps orange→yellow→green by stage.
+- Every `chatJSON` call (success or failure) emits an `LlmTraceEvent` to an
+  optional sink (`setLlmTraceSink`); main installs `createLlmCallSink(db)`,
+  appending metadata only (pass/provider/model/tokens/cache reads/latency/
+  retries/`prompt_hash` = sha256 of system prompt, never prompt text) to the
+  append-only `llm_calls` table (migration 0031). A throwing sink never breaks
+  a call. Settings shows an "LLM usage" table via `llm.traceSummary(days)`.
+- Structured LLM passes go through `chatStructured` (`core/structured.ts`):
+  a Zod wire schema per pass (`GraderOutputSchema`, `LazyTasksOutputSchema`,
+  `EnrichOutputSchema`, `PrereqSuggestOutputSchema`). Anthropic enforces it
+  natively as a single forced tool (`ChatRequest.jsonSchema`); Groq stays on
+  `json_object`. Invalid output gets ONE repair call (traced as
+  `<pass>:repair`), then throws `LlmParseError`. Never substitute a default
+  result for bad output — the grader previously recorded unparseable output
+  as a real `gap` grade. The topic filter keeps its lenient parser (it also
+  parses pasted ChatGPT output) and is traced as `topic_filter`.
+- Local embeddings are opt-in (Settings → Embeddings, `embeddingsEnabled`,
+  default model `nomic-embed-text`) via an OpenAI-compatible `/embeddings`
+  endpoint at `localBaseUrl` (`core/embeddings.ts`; pure fetch, no native/ONNX
+  module). Vectors live in the derived `embeddings` table (migration 0033,
+  wiped by `clearDerivedDataForSource`), indexed incrementally by text hash
+  (`indexSourceEmbeddings`): `concept` rows (name + definition) and `span` rows
+  (evidence quotes ≥40 chars). Consumers: grading adds top similar quotes from
+  OTHER concepts in the same source to `buildGroundingContext(db, id, extra)`
+  (only when the concept has its own material; 8s soft timeout); the
+  constellation editor shows "Similar concepts" chips (`embeddings.related`)
+  that only START the normal add flow — never auto-link. Candidate Review shows
+  a "≈ term" near-duplicate chip (`candidates.nearDuplicates` →
+  `findCandidateNearDuplicates`, term-only, `clustering:` prefix for nomic
+  models, threshold 0.93 calibrated on nomic; not persisted — main memoizes via
+  `createCachingEmbedder`); hints only, never auto-merge. Every consumer must
+  degrade silently when embeddings are off/unreachable.
 - User-facing provider text should say "configured LLM provider" unless a
   feature is truly Groq-specific.
 - `.claude/agents/ipc-contract-reviewer.md` is a project review agent that
@@ -392,6 +444,15 @@ Candidate rows and parse runs stamp these versions for auditability.
   any promoted concept across all sources (suggestion rows show the other
   source's filename). The list is user-curated only — enrich, the ChatGPT
   paste flow, and the generated prompt never write it.
+- Regenerate RETIRES graded tasks (`evidence_tasks.retired_at`, migration 0035;
+  `retireTasksForConcept`) and hard-deletes only unattempted ones.
+  `evidence_records.task_id` is `ON DELETE CASCADE` with FKs enforced, so the
+  old hard delete wiped the concept's graded history — never call
+  `deleteTasksForConcept` for a "replace tasks" flow. `listTasksByConcept`
+  hides retired tasks. Task generation is adaptive (contract 1.4.0): once a
+  concept has graded attempts, `buildLearnerHistoryBlock` appends last/best
+  stage, recent gaps, misconceptions, and calibration so the 5 tasks target
+  them.
 - Regenerating Challenge tasks excludes every already-seen prompt (live tasks
   + every `task_prompt_snapshot`), sends them as an AVOID list with a twist
   instruction, and post-filters exact normalized duplicates. The Regenerate
@@ -448,7 +509,15 @@ Candidate rows and parse runs stamp these versions for auditability.
 All provider calls go through `chatJSON(config, request, passName)` in
 `packages/services/src/core/llm.ts`.
 
-- Providers: `groq` and `anthropic`
+- Providers: `groq`, `anthropic`, and `local` (any OpenAI-compatible server —
+  Ollama/llama.cpp/LM Studio — via `fetch` to `{localBaseUrl}/chat/completions`,
+  default `http://127.0.0.1:11434/v1`; free-text `localModel`, one model for
+  every pass, no API key; `MODEL_CHOICES.local` is empty). Local calls send
+  `reasoning_effort: "none"` (thinking models otherwise burn max_tokens on
+  hidden reasoning and return truncated JSON), retrying once without it on a
+  400. Settings → "Test connection" lists models via `llm.listLocalModels`.
+  The local provider is unrelated to the URL importer's SSRF guard
+  (`net_guard` still blocks loopback for `+ URL`).
 - Settings: provider, API keys, `heavyModel`, `lightModel`, `extractionMode`
 - Heavy passes: `enrich`, `chunker`, `concepts`, `misconceptions`, `tasks`,
   `lazy_tasks`, `grader`
