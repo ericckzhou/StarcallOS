@@ -69,7 +69,7 @@ import {
   runMisconceptionExtractor, runTaskGenerator, computeCentrality,
   gradeResponse,
   resetUsageStats, getUsageStats, setLlmTraceSink, effectiveSelfConsistency, listLocalModels, DEFAULT_LOCAL_BASE_URL,
-  setSrsScheduler, mergeSettingsPatch, createOpenAICompatEmbedder, createCachingEmbedder, findCandidateNearDuplicates, DEFAULT_EMBEDDING_MODEL, indexSourceEmbeddings, retrieveSourceExcerpts, relatedConcepts, embeddingStats,
+  setSrsScheduler, mergeSettingsPatch, persistGradedAttempt, normalizeLocalBaseUrl, createOpenAICompatEmbedder, createCachingEmbedder, findCandidateNearDuplicates, DEFAULT_EMBEDDING_MODEL, indexSourceEmbeddings, retrieveSourceExcerpts, relatedConcepts, embeddingStats,
   type Embedder, buildCandidateLlmFilterPrompt, parseCandidateLlmFilterResponse, createLlmCallSink, summarizeLlmCalls,
 } from '@starcall/services';
 import { IPC } from '@starcall/shared';
@@ -86,6 +86,10 @@ import type {
   ProcessSourceArgs,
   SubmitEvidenceArgs,
   UpdatePdfAnnotationArgs,
+  SettingsSnapshot,
+  LlmTraceSummary,
+  EmbeddingsStatus,
+  CandidateNearDuplicates,
 } from '@starcall/shared';
 
 const CONCEPT_IMPORTANCE_VALUES = new Set(['foundational', 'core', 'supporting', 'peripheral', 'reference_only']);
@@ -251,9 +255,19 @@ function secretCodec(): SecretCodec {
   };
 }
 
+// Saved settings as stored (no env fallbacks).
+function loadRawSettings(): LLMSettings {
+  return loadSettings(app.getPath('userData'), secretCodec());
+}
+
+// Saved settings with env-var API key fallbacks applied — what LLM calls use.
+function loadEffectiveSettings(): LLMSettings {
+  return applyEnvFallbacks(loadRawSettings(), envFallbacks());
+}
+
 // Embedder for the opt-in local embedding index, or null when disabled.
 function getEmbedder(): Embedder | null {
-  const s = loadSettings(app.getPath('userData'), secretCodec());
+  const s = loadRawSettings();
   if (!s.embeddingsEnabled) return null;
   return createOpenAICompatEmbedder(s.localBaseUrl, s.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL);
 }
@@ -275,9 +289,7 @@ async function softTimeout<T>(p: Promise<T>, ms: number, fallback: T, label: str
 }
 
 function cfgFor(pass: PassName): ReturnType<typeof resolveProviderConfig> {
-  const dir = app.getPath('userData');
-  const s = applyEnvFallbacks(loadSettings(dir, secretCodec()), envFallbacks());
-  return resolveProviderConfig(s, pass);
+  return resolveProviderConfig(loadEffectiveSettings(), pass);
 }
 
 // Max candidates evaluated per LLM topic-fit call. The term-only payload +
@@ -455,7 +467,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       // deterministic = no LLM. Candidates are the product.
       // candidate_gated = LLM enriches only blocks near top-N candidate pages.
       // full = legacy / benchmark.
-      const settingsForBudget = applyEnvFallbacks(loadSettings(app.getPath('userData'), secretCodec()), envFallbacks());
+      const settingsForBudget = loadEffectiveSettings();
       mode = settingsForBudget.extractionMode ?? 'deterministic';
 
       if (mode === 'deterministic') {
@@ -1082,15 +1094,15 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     return new Uint8Array(buf).buffer;
   });
 
-  ipcMain.handle(IPC.LLM_TRACE_SUMMARY, (_e, rawDays: unknown) => {
+  ipcMain.handle(IPC.LLM_TRACE_SUMMARY, (_e, rawDays: unknown): LlmTraceSummary => {
     const days = typeof rawDays === 'number' && Number.isFinite(rawDays)
       ? Math.min(365, Math.max(1, Math.floor(rawDays)))
       : 30;
     return summarizeLlmCalls(db, days);
   });
 
-  ipcMain.handle(IPC.EMBEDDINGS_STATUS, () => {
-    const s = loadSettings(app.getPath('userData'), secretCodec());
+  ipcMain.handle(IPC.EMBEDDINGS_STATUS, (): EmbeddingsStatus => {
+    const s = loadRawSettings();
     const model = s.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
     return {
       enabled: !!s.embeddingsEnabled,
@@ -1126,12 +1138,15 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   // Memoized per model: candidate terms are derived and not persisted, so the
   // in-memory cache is what keeps re-opening Candidate Review cheap.
   const cachedEmbedders = new Map<string, Embedder>();
-  ipcMain.handle(IPC.CANDIDATES_NEAR_DUPLICATES, async (_e, rawId: unknown) => {
+  ipcMain.handle(IPC.CANDIDATES_NEAR_DUPLICATES, async (_e, rawId: unknown): Promise<CandidateNearDuplicates> => {
     const sourceId = validateIpc(PositiveIntSchema, rawId, IPC.CANDIDATES_NEAR_DUPLICATES);
     const base = getEmbedder();
     if (!base) return {};
-    const embedder = cachedEmbedders.get(base.model) ?? createCachingEmbedder(base);
-    cachedEmbedders.set(base.model, embedder);
+    // Keyed by server AND model: changing the base URL must not keep hitting
+    // the old server through a stale cached wrapper.
+    const cacheKey = `${base.baseUrl ?? ''}|${base.model}`;
+    const embedder = cachedEmbedders.get(cacheKey) ?? createCachingEmbedder(base);
+    cachedEmbedders.set(cacheKey, embedder);
     const candidates = listConceptCandidatesBySource(db, sourceId).map(c => ({
       id: c.id, term: c.term, normalized: c.normalized,
     }));
@@ -1163,10 +1178,8 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     }
   });
 
-  ipcMain.handle(IPC.SETTINGS_GET, () => {
-    const dir = app.getPath('userData');
-    const fb  = envFallbacks();
-    const s   = applyEnvFallbacks(loadSettings(dir, secretCodec()), fb);
+  ipcMain.handle(IPC.SETTINGS_GET, (): SettingsSnapshot => {
+    const s = loadEffectiveSettings();
     return {
       provider: s.provider,
       groqApiKeyConfigured:      !!s.groqApiKey,
@@ -1192,6 +1205,11 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const current = loadSettings(dir, codec);
     // Validate structure first, then clamp enum values via sanitizeSettingsInput.
     const validated = validateIpc(SettingsPatchSchema, rawInput, IPC.SETTINGS_SET);
+    // A non-empty base URL that isn't a usable http(s) URL is an error the user
+    // must see (sanitize would otherwise silently keep the old one).
+    if (validated.localBaseUrl && validated.localBaseUrl.trim() && !normalizeLocalBaseUrl(validated.localBaseUrl)) {
+      throw new Error('Server base URL must be an http:// or https:// URL, e.g. http://127.0.0.1:11434/v1');
+    }
     const input = sanitizeSettingsInput(validated, current);
     const next = mergeSettingsPatch(current, input);
     saveSettings(dir, next, codec);
@@ -1446,7 +1464,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         })(), 8_000, [] as string[], 'grounding retrieval')
       : [];
     const grounding = buildGroundingContext(db, conceptId, extraExcerpts);
-    const gradeSettings = applyEnvFallbacks(loadSettings(app.getPath('userData'), secretCodec()), envFallbacks());
+    const gradeSettings = loadEffectiveSettings();
     const grade = await gradeResponse(cfgFor('grader'), {
       concept_name: concept.name, concept_definition: concept.definition_text,
       task_kind: task.kind, task_prompt: task.prompt, user_response: userResponse,
@@ -1460,7 +1478,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       console.log(`[LLM TOTALS] grade concept=${conceptId} task=${taskId} ${passes} total=${s.total} calls=${s.calls}`);
     }
 
-    const record = createEvidenceRecord(db, {
+    // Record + mastery + SRS land atomically (persistGradedAttempt), so a failure
+    // here never leaves a saved attempt behind the renderer's "nothing recorded".
+    const record = persistGradedAttempt(db, {
       task_id: taskId, concept_id: conceptId, user_response: userResponse,
       score: grade.score, compression_stage: grade.compression_stage,
       gaps_detected: grade.gaps_detected, misconceptions_detected: grade.misconceptions_detected,
@@ -1474,11 +1494,6 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       unsupported_claims: grade.unsupported_claims,
       confidence_before: confidenceBefore ?? null,
     }, grade.audit);
-
-    upsertMastery(db, conceptId, grade.compression_stage);
-    // Advance the spaced-repetition card from the graded score so the concept's
-    // next due date reflects this attempt (mirrors the mastery upsert).
-    recordSrsReview(db, conceptId, grade.score, new Date(), record.calibration_gap);
     emitEvent(db, 'evidence_record.graded', { recordId: record.id, score: grade.score }, { entityType: 'concept', entityId: conceptId });
     return record;
   });
@@ -1555,7 +1570,7 @@ app.whenReady().then(() => {
   const db = openDb(DB_PATH);
   // Persist every chatJSON call's metadata (never prompt text) to llm_calls.
   setLlmTraceSink(createLlmCallSink(db));
-  setSrsScheduler(loadSettings(app.getPath('userData'), secretCodec()).srsScheduler ?? 'sm2');
+  setSrsScheduler(loadRawSettings().srsScheduler ?? 'sm2');
 
   // Recovery scan: anything still 'processing' was killed mid-run. Mark
   // failed so the user can retry deliberately.

@@ -484,25 +484,33 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
     if (!selectedTask || !concept || !response.trim()) return;
     setGrading(true);
     setGradeError(null);
+    let result: unknown;
     try {
-      const result = await window.api.evidence.submit({
+      result = await window.api.evidence.submit({
         taskId: selectedTask.id, conceptId: concept.id,
         userResponse: response, confidenceBefore: confidence,
       });
-      const g = result as Grade;
-      setGrade(g);
-      setMastery({ compression_stage: g.compression_stage });
-      setHistory(prev => [result as HistoryRecord, ...prev]);
-      setProgress(await window.api.evidence.progress() as StudyProgress);
-      window.dispatchEvent(new Event('starcall:progressChanged'));
-      window.dispatchEvent(new Event('starcall:review-queue-stale'));
     } catch (e) {
-      // Nothing was recorded (grading fails before any write) and the typed
-      // answer is kept, so the learner can simply resubmit.
+      // Submit failed atomically (main persists record + mastery + SRS in one
+      // transaction, after grading), so nothing was recorded and the typed
+      // answer is kept for a resubmit.
       const msg = e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e);
       setGradeError(msg);
-    } finally {
       setGrading(false);
+      return;
+    }
+    setGrading(false);
+    const g = result as Grade;
+    setGrade(g);
+    setMastery({ compression_stage: g.compression_stage });
+    setHistory(prev => [result as HistoryRecord, ...prev]);
+    window.dispatchEvent(new Event('starcall:progressChanged'));
+    window.dispatchEvent(new Event('starcall:review-queue-stale'));
+    // A failed refresh only leaves the XP header stale; the attempt is saved.
+    try {
+      setProgress(await window.api.evidence.progress() as StudyProgress);
+    } catch (e) {
+      console.warn('[challenge] progress refresh failed after a saved attempt', e);
     }
   }
 

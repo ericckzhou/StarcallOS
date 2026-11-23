@@ -1,27 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import type { EmbeddingsStatus, LlmTraceSummary } from '@starcall/shared';
+import type { EmbeddingsStatus, ExtractionMode, LlmTraceSummary, ProviderId, SettingsSnapshot } from '@starcall/shared';
 
-type ProviderId = 'groq' | 'anthropic' | 'local';
-type ExtractionMode = 'deterministic' | 'candidate_gated' | 'full';
-
-interface Snapshot {
-  provider: ProviderId;
-  groqApiKeyConfigured: boolean;
-  anthropicApiKeyConfigured: boolean;
-  modelOverrides: Record<string, string>;
-  extractionMode: ExtractionMode;
-  heavyModel: string;
-  lightModel: string;
-  modelChoices: Record<ProviderId, { heavy: string[]; light: string[] }>;
-  gradeSelfConsistency: boolean;
-  localBaseUrl: string;
-  localModel: string;
-  defaultLocalBaseUrl: string;
-  embeddingsEnabled: boolean;
-  embeddingModel: string;
-  defaultEmbeddingModel: string;
-  srsScheduler: 'sm2' | 'fsrs';
-}
+type Snapshot = SettingsSnapshot;
 
 const PROVIDER_INFO: Record<ProviderId, { label: string; tagline: string }> = {
   groq: {

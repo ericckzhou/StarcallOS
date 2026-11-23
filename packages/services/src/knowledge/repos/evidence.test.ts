@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openDb } from '../../core/infra/db';
 import { createSource } from './sources';
 import { createConcept } from './concepts';
@@ -22,7 +22,9 @@ import {
   scoreOutcome,
   getStudyProgress,
   getEvidenceAudit,
+  persistGradedAttempt,
 } from './evidence';
+import { setSrsScheduler } from '../srs';
 import { listReviewQueue } from './concepts';
 
 function setup() {
@@ -414,5 +416,84 @@ describe('grader audit (0032)', () => {
 
     const legacy = createEvidenceRecord(db, base);
     expect(getEvidenceAudit(db, legacy.id)).toMatchObject({ grader_output: null, grade_samples: null });
+  });
+});
+
+describe('persistGradedAttempt (EVIDENCE_SUBMIT persistence)', () => {
+  const mk = () => {
+    const db = openDb(':memory:');
+    const src = createSource(db, { filename: 'p.pdf', file_path: '/tmp/p.pdf' });
+    const c = createConcept(db, {
+      source_id: src.id, name: 'P', slug: 'p', importance: 'core', definition_text: '', why_exists: '',
+      what_breaks: '', where_reappears: [], chunk_ids: [], section_path: [], exam_value: 0.5,
+      misconception_risk: 0.5, centrality_score: 0.5,
+    });
+    const t = createTask(db, { concept_id: c.id, kind: 'definition', prompt: 'p', difficulty: 3 });
+    const input = (over: Record<string, unknown> = {}) => ({
+      task_id: t.id, concept_id: c.id, user_response: 'r', score: 'recognizes' as const, compression_stage: 2 as const,
+      gaps_detected: ['g'], misconceptions_detected: [], grader_reasoning: '',
+      task_prompt_snapshot: 'p', task_kind_snapshot: 'definition', ...over,
+    });
+    return { db, c, input };
+  };
+  const audit = { outputs: [{ score: 'recognizes' }], prompt_hash: 'h', model: 'groq/m', contract: '1.4.0', samples: 1 };
+
+  afterEach(() => setSrsScheduler('sm2'));
+
+  it('writes record, mastery, SRS and audit together, feeding calibration_gap into the schedule', () => {
+    const { db, c, input } = mk();
+    // Build a card with a long interval so the overconfidence penalty is visible.
+    const t0 = new Date('2026-05-01T00:00:00Z');
+    persistGradedAttempt(db, input({ score: 'understood', compression_stage: 3 }), audit, t0);
+    persistGradedAttempt(db, input({ score: 'understood', compression_stage: 3 }), audit, new Date('2026-05-02T00:00:00Z'));
+    const before = getConceptSrs(db, c.id)!;
+    const calm = persistGradedAttempt(db, input({ confidence_before: 0.5 }), audit, new Date('2026-05-08T00:00:00Z'));
+    const calmInterval = getConceptSrs(db, c.id)!.interval_days;
+
+    const { db: db2, c: c2, input: input2 } = mk();
+    persistGradedAttempt(db2, input2({ score: 'understood', compression_stage: 3 }), audit, t0);
+    persistGradedAttempt(db2, input2({ score: 'understood', compression_stage: 3 }), audit, new Date('2026-05-02T00:00:00Z'));
+    const over = persistGradedAttempt(db2, input2({ confidence_before: 0.95 }), audit, new Date('2026-05-08T00:00:00Z'));
+
+    expect(before.interval_days).toBe(6);
+    expect(calm.calibration_gap).toBeCloseTo(-0.16, 2);
+    expect(over.calibration_gap).toBeGreaterThan(0.15);
+    expect(getConceptSrs(db2, c2.id)!.interval_days).toBe(Math.max(1, Math.round(calmInterval * 0.7)));
+    expect(getMastery(db, c.id)?.compression_stage).toBe(2); // latest attempt's stage (upsertMastery)
+    expect(getEvidenceAudit(db, calm.id)?.grader_model).toBe('groq/m');
+  });
+
+  it('rolls back everything if a later write fails', () => {
+    const { db, c, input } = mk();
+    db.exec('DROP TABLE concept_srs');
+    expect(() => persistGradedAttempt(db, input(), audit)).toThrow();
+    expect(listRecordsByConcept(db, c.id)).toHaveLength(0);
+    expect(getMastery(db, c.id)).toBeNull();
+  });
+
+  it('persists FSRS memory and replays it identically after a delete', () => {
+    setSrsScheduler('fsrs');
+    const { db, c, input } = mk();
+    const r1 = persistGradedAttempt(db, input({ score: 'understood', compression_stage: 3 }), undefined, new Date('2026-05-01T00:00:00Z'));
+    persistGradedAttempt(db, input({ score: 'understood', compression_stage: 3 }), undefined, new Date('2026-05-05T00:00:00Z'));
+    const card = getConceptSrs(db, c.id)!;
+    expect(card.stability).not.toBeNull();
+    expect(card.difficulty).not.toBeNull();
+    expect(card.stability!).toBeGreaterThan(3.173);
+
+    // Records were created "now" (created_at), so replay after deleting one
+    // must still yield a stored FSRS card rather than an SM-2 one.
+    deleteEvidenceRecord(db, r1.id);
+    expect(getConceptSrs(db, c.id)!.stability).not.toBeNull();
+  });
+
+  it('converts an SM-2 card lazily on its first FSRS review', () => {
+    const { db, c, input } = mk();
+    persistGradedAttempt(db, input({ score: 'understood', compression_stage: 3 }), undefined, new Date('2026-05-01T00:00:00Z'));
+    persistGradedAttempt(db, input({ score: 'understood', compression_stage: 3 }), undefined, new Date('2026-05-02T00:00:00Z'));
+    expect(getConceptSrs(db, c.id)!.stability).toBeNull();
+    setSrsScheduler('fsrs');
+    persistGradedAttempt(db, input({ score: 'understood', compression_stage: 3 }), undefined, new Date('2026-05-08T00:00:00Z'));
+    expect(getConceptSrs(db, c.id)!.stability!).toBeGreaterThan(6);
   });
 });

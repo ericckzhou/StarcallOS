@@ -104,7 +104,9 @@ export function hashPrompt(text: string): string {
   return createHash('sha256').update(text).digest('hex').slice(0, 16);
 }
 
-function emitTrace(event: LlmTraceEvent): void {
+// Exported for chatStructured, which records validation failures that
+// chatJSON (HTTP-level) cannot see.
+export function emitTrace(event: LlmTraceEvent): void {
   if (!traceSink) return;
   try { traceSink(event); } catch (e) {
     console.warn('[LLM] trace sink failed:', (e as Error).message);
@@ -264,15 +266,17 @@ export async function chatJSON(
         }),
         signal: AbortSignal.timeout(LOCAL_TIMEOUT_MS),
       });
-      let res: Response;
-      try {
-        res = await post(true);
-        if (res.status === 400) {
-          const detail = await res.clone().text().catch(() => '');
-          if (/reasoning/i.test(detail)) { retries += 1; res = await post(false); }
+      // Only network/timeout failures are "unreachable"; anything after a
+      // response arrives is reported as what it is.
+      const reach = async (disableReasoning: boolean) => {
+        try { return await post(disableReasoning); } catch (e) {
+          throw Object.assign(localUnreachable(baseUrl, e), { passName, provider: 'local', llmModel: config.model });
         }
-      } catch (e) {
-        throw Object.assign(localUnreachable(baseUrl, e), { passName, provider: 'local', llmModel: config.model });
+      };
+      let res = await reach(true);
+      if (res.status === 400) {
+        const detail = await res.clone().text().catch(() => '');
+        if (/reasoning/i.test(detail)) { retries += 1; res = await reach(false); }
       }
       if (!res.ok) {
         const detail = (await res.text().catch(() => '')).slice(0, 300);
@@ -282,18 +286,29 @@ export async function chatJSON(
         );
       }
       const body = await res.json() as {
-        choices?: Array<{ message?: { content?: string } }>;
+        choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
         usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
       };
       promptTokens = body.usage?.prompt_tokens ?? 0;
       completionTokens = body.usage?.completion_tokens ?? 0;
       totalTokens = body.usage?.total_tokens ?? promptTokens + completionTokens;
       content = body.choices?.[0]?.message?.content ?? '';
+      const finish = body.choices?.[0]?.finish_reason;
+      if (!content.trim() || finish === 'length') {
+        throw Object.assign(
+          new Error(
+            `Local model "${config.model}" returned ${content.trim() ? 'output cut off at the token limit' : 'an empty response'}` +
+            (finish ? ` (finish_reason=${finish})` : '') +
+            '. Thinking models can spend the whole budget on hidden reasoning; try a non-thinking model or a larger context.',
+          ),
+          { passName, provider: 'local', llmModel: config.model },
+        );
+      }
       if (req.responseFormat === 'json') content = stripJsonFences(content);
     } else if (config.provider === 'groq') {
       // Free-tier Groq TPM includes the max_tokens reservation. Hard cap at 4096
-      // so requests stay under the 6K TPM cap on llama-3.1-8b-instant. Heavier
-      // tiers can override per-pass via req.maxTokens, capped here at 8192.
+      // so requests stay under the 6K TPM cap on llama-3.1-8b-instant;
+      // req.maxTokens can lower it but never raise it above 4096.
       const groqMaxTokensCap = 4096;
       const cappedMaxTokens = Math.min(req.maxTokens ?? groqMaxTokensCap, groqMaxTokensCap);
       const client = new Groq({ apiKey: config.apiKey });

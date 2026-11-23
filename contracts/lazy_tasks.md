@@ -82,7 +82,8 @@ misconception_resistance, compression`.
 
 - On unparseable output, generate no tasks for the concept (leave the Challenge
   empty) rather than persisting malformed/partial tasks.
-- Tasks with an invalid `kind` or out-of-range `difficulty` are dropped.
+- Tasks with an unknown `kind` or an empty prompt are dropped; exact repeats of
+  avoided prompts are dropped; `difficulty` is clamped to 1–5 (missing → 3).
 - Generation never deletes existing answered tasks except through the explicit
   Regenerate path.
 

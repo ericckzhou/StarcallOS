@@ -211,13 +211,9 @@ export function listTasksByConcept(db: DatabaseSync, conceptId: number): Evidenc
   ).map(rowToTask);
 }
 
-// WARNING: hard delete. evidence_records.task_id is ON DELETE CASCADE, so this
-// also deletes every graded attempt on these tasks. Use retireTasksForConcept
-// for "replace the live tasks" flows (Regenerate).
-export function deleteTasksForConcept(db: DatabaseSync, conceptId: number): void {
-  db.prepare('DELETE FROM evidence_tasks WHERE concept_id = ?').run(conceptId);
-}
-
+// NOTE: there is deliberately no "delete a concept's tasks" helper.
+// evidence_records.task_id is ON DELETE CASCADE, so hard-deleting tasks wipes
+// graded history. Replace live tasks with retireTasksForConcept.
 // Clear a concept's live task set while keeping graded history: tasks with
 // attempts are retired (hidden from listTasksByConcept, rows kept so their
 // evidence_records survive the CASCADE FK); untouched tasks are deleted.
@@ -670,6 +666,29 @@ function upsertConceptSrs(
     state.difficulty ?? null,
   );
   return getConceptSrs(db, conceptId)!;
+}
+
+// Persist one graded attempt atomically: the evidence record, the mastery
+// upsert, and the SRS advance (fed the record's own calibration_gap). Either
+// all three land or none do, so a failure can never leave a saved attempt with
+// stale mastery/schedule (and the UI can truthfully say "nothing recorded").
+export function persistGradedAttempt(
+  db: DatabaseSync,
+  input: Parameters<typeof createEvidenceRecord>[1],
+  audit?: EvidenceGraderAudit,
+  now: Date = new Date(),
+): EvidenceRecord {
+  db.exec('BEGIN');
+  try {
+    const record = createEvidenceRecord(db, input, audit);
+    upsertMastery(db, input.concept_id, input.compression_stage);
+    recordSrsReview(db, input.concept_id, input.score, now, record.calibration_gap);
+    db.exec('COMMIT');
+    return record;
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
 }
 
 // Advance a concept's SRS card after a graded review. Mirrors how main calls

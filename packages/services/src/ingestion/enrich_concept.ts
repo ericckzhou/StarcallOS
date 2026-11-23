@@ -121,9 +121,13 @@ export async function enrichConceptDefinition(
 
   // Constellations (where_reappears) are user-curated only — never written by
   // enrichment. Leave the existing value untouched.
+  // An empty field means "the model had nothing" — keep whatever the concept
+  // already has (possibly user-edited text) instead of blanking it.
   db.prepare(
     `UPDATE concepts
-     SET definition_text = ?, why_exists = ?, what_breaks = ?
+     SET definition_text = COALESCE(NULLIF(?, ''), definition_text),
+         why_exists      = COALESCE(NULLIF(?, ''), why_exists),
+         what_breaks     = COALESCE(NULLIF(?, ''), what_breaks)
      WHERE id = ?`,
   ).run(
     definition_text,
@@ -141,7 +145,12 @@ export const EnrichOutputSchema = z.object({
   definition_text: z.string().optional().default(''),
   why_exists: z.string().optional().default(''),
   what_breaks: z.string().optional().default(''),
-});
+}).refine(
+  v => [v.definition_text, v.why_exists, v.what_breaks].some(f => f.trim() !== ''),
+  // `{}` or wrongly named keys would otherwise validate as "all empty" and
+  // never trigger the repair call.
+  { message: 'at least one of definition_text, why_exists, what_breaks must be non-empty (check the key names)' },
+);
 
 // Pulls up to 5 distinct evidence quotes anchoring the concept to its actual
 // domain. Falls through tiers in priority order so an unbackfilled concept

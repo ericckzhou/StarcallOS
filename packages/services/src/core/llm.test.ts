@@ -309,3 +309,24 @@ describe('chatJSON — local OpenAI-compatible provider', () => {
     } finally { fetchSpy.mockRestore(); }
   });
 });
+
+describe('chatJSON — local provider output checks', () => {
+  const cfg: ProviderConfig = { provider: 'local', apiKey: '', model: 'qwen3.5:4b', baseUrl: 'http://127.0.0.1:11434/v1' };
+  it.each([
+    [{ choices: [{ message: { content: '' }, finish_reason: 'stop' }] }, /empty response/],
+    [{ choices: [{ message: { content: '{"a":' }, finish_reason: 'length' }] }, /cut off at the token limit.*finish_reason=length/],
+  ])('reports a truncated/empty answer instead of returning it (%#)', async (body, re) => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify(body)));
+    try {
+      await expect(chatJSON(cfg, { messages: [{ role: 'user', content: 'x' }] }, 'grader')).rejects.toThrow(re);
+    } finally { spy.mockRestore(); }
+  });
+
+  it('does not call a responding-but-broken server "unreachable"', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('not json at all', { status: 200 }));
+    try {
+      const err = (await chatJSON(cfg, { messages: [{ role: 'user', content: 'x' }] }, 'grader').catch(e => e)) as Error;
+      expect(err.message).not.toMatch(/could not be reached/);
+    } finally { spy.mockRestore(); }
+  });
+});

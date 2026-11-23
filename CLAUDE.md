@@ -92,11 +92,14 @@ Remember these as the active state of the repo:
   are intrinsic to one attempt (no delete/replay recompute). `UnsupportedClaim`
   lives in `core/domain/types.ts`; the GradeCard + History rows render a
   grounded/partially-grounded/unsupported badge + claim list. `CONTRACT_VERSION`
-  1.3.0; contract in `contracts/grader.md`. 1.3.0 adds per-stage calibration
+  is 1.4.0 (shared counter; 1.4.0 = adaptive lazy tasks); grader contract in
+  `contracts/grader.md`. Grader 1.3.0 adds per-stage calibration
   examples to `GRADER_SYSTEM`, optional self-consistency (Settings → Grading,
   `effectiveSelfConsistency`: default on for Anthropic, off for Groq) that
   re-grades `isBorderlineGrade` answers twice at T=0.7 and merges via
-  `aggregateGrades` (majority score, ties → conservative; lower-median stage),
+  `aggregateGrades` (majority score, ties → conservative; lower-median stage).
+  Graded attempts persist via `persistGradedAttempt` (record + mastery + SRS in
+  one transaction),
   and an audit trail on `evidence_records` (migration 0032: `grader_output`,
   `grader_prompt_hash`, `grader_model`, `grader_contract`, `grade_samples`;
   kept OFF the DTO, read via `getEvidenceAudit`). The grader's stable prefix
@@ -527,7 +530,10 @@ All provider calls go through `chatJSON(config, request, passName)` in
 - The configured candidate topic-fit API path must stay small enough for low
   Groq TPM tiers. Prefer small batches and compact prompts over sending the full
   candidate list. The manual ChatGPT prompt remains the large-list fallback.
-- Anthropic JSON mode is emulated by prompt instruction and fence stripping.
+- Anthropic JSON mode: structured passes (`chatStructured`: grader,
+  lazy_tasks, enrich_concept, prereq_suggest) force a single tool with the Zod
+  schema as `input_schema`; plain `chatJSON` callers (extraction passes, topic
+  filter) still rely on prompt instruction + fence stripping.
 
 ## Skills/Agent Workflow
 
