@@ -34,8 +34,12 @@ deliberately accepting a change. Bump the matching contract version in
 ## Golden sets
 
 `golden/*.jsonl` — one case per line; `//` lines are comments. Every case
-carries `label_status`. **`proposed` labels were drafted, not reviewed** — review
-and relabel them (set `"label_status":"reviewed"`) before trusting the numbers.
+carries `label_status`: `proposed` (drafted, unreviewed), `claude-reviewed`
+(checked against the grader rubric and its calibration examples by Claude —
+useful, but not an independent human judgment), or `reviewed` (a human
+checked it). Relabelled cases carry a `review_note` saying what changed and
+why. A human pass that promotes cases to `reviewed` is still the gold
+standard.
 The grader set covers each stage plus traps: verbatim restatement, vague
 recognition, confident misconceptions, and answers that are correct in general
 but go beyond the provided source.
