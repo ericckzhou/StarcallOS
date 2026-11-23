@@ -21,6 +21,7 @@ import {
   computeCalibrationGap,
   scoreOutcome,
   getStudyProgress,
+  getEvidenceAudit,
 } from './evidence';
 import { listReviewQueue } from './concepts';
 
@@ -383,5 +384,35 @@ describe('getStudyProgress — calibration rollup', () => {
     expect(calibration.well_calibrated).toBe(1);
     // mean of (0.29, -0.8, -0.05) = -0.1866…
     expect(calibration.mean_gap).toBeCloseTo(-0.18667, 4);
+  });
+});
+
+
+describe('grader audit (0032)', () => {
+  it('persists audit columns off the DTO and reads them back', () => {
+    const db = openDb(':memory:');
+    const src = createSource(db, { filename: 'a.pdf', file_path: '/tmp/a.pdf' });
+    const c = createConcept(db, {
+      source_id: src.id, name: 'X', slug: 'x', importance: 'core', definition_text: '', why_exists: '',
+      what_breaks: '', where_reappears: [], chunk_ids: [], section_path: [], exam_value: 0.5,
+      misconception_risk: 0.5, centrality_score: 0.5,
+    });
+    const task = createTask(db, { concept_id: c.id, kind: 'definition', prompt: 'p', difficulty: 3 });
+    const base = {
+      task_id: task.id, concept_id: c.id, user_response: 'r', score: 'recognizes' as const,
+      compression_stage: 2 as const, gaps_detected: ['g'], misconceptions_detected: [], grader_reasoning: '',
+      task_prompt_snapshot: 'p', task_kind_snapshot: 'definition',
+    };
+    const withAudit = createEvidenceRecord(db, base, {
+      outputs: [{ score: 'recognizes' }, { score: 'gap' }], prompt_hash: 'h', model: 'groq/m', contract: '1.3.0', samples: 2,
+    });
+    expect(withAudit).not.toHaveProperty('grader_output');
+    expect(getEvidenceAudit(db, withAudit.id)).toEqual({
+      grader_output: [{ score: 'recognizes' }, { score: 'gap' }], grader_prompt_hash: 'h',
+      grader_model: 'groq/m', grader_contract: '1.3.0', grade_samples: 2,
+    });
+
+    const legacy = createEvidenceRecord(db, base);
+    expect(getEvidenceAudit(db, legacy.id)).toMatchObject({ grader_output: null, grade_samples: null });
   });
 });

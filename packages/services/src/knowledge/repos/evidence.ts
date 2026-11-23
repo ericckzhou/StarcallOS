@@ -13,7 +13,7 @@ import type {
   BlockType,
 } from '../../core/domain/types';
 import {
-  scheduleNextSrsReview,
+  scheduleReview,
   replaySrsReviews,
   DEFAULT_SRS_STATE,
   type ConceptSrs,
@@ -206,13 +206,33 @@ export function createTask(
 export function listTasksByConcept(db: DatabaseSync, conceptId: number): EvidenceTask[] {
   return (
     db
-      .prepare('SELECT * FROM evidence_tasks WHERE concept_id = ? ORDER BY kind')
+      .prepare('SELECT * FROM evidence_tasks WHERE concept_id = ? AND retired_at IS NULL ORDER BY kind')
       .all(conceptId) as unknown as TaskRow[]
   ).map(rowToTask);
 }
 
+// WARNING: hard delete. evidence_records.task_id is ON DELETE CASCADE, so this
+// also deletes every graded attempt on these tasks. Use retireTasksForConcept
+// for "replace the live tasks" flows (Regenerate).
 export function deleteTasksForConcept(db: DatabaseSync, conceptId: number): void {
   db.prepare('DELETE FROM evidence_tasks WHERE concept_id = ?').run(conceptId);
+}
+
+// Clear a concept's live task set while keeping graded history: tasks with
+// attempts are retired (hidden from listTasksByConcept, rows kept so their
+// evidence_records survive the CASCADE FK); untouched tasks are deleted.
+export function retireTasksForConcept(db: DatabaseSync, conceptId: number): { retired: number; deleted: number } {
+  const retired = db.prepare(
+    `UPDATE evidence_tasks SET retired_at = datetime('now')
+      WHERE concept_id = ? AND retired_at IS NULL
+        AND id IN (SELECT task_id FROM evidence_records WHERE concept_id = ?)`,
+  ).run(conceptId, conceptId);
+  const deleted = db.prepare(
+    `DELETE FROM evidence_tasks
+      WHERE concept_id = ? AND retired_at IS NULL
+        AND id NOT IN (SELECT task_id FROM evidence_records WHERE concept_id = ?)`,
+  ).run(conceptId, conceptId);
+  return { retired: Number(retired.changes), deleted: Number(deleted.changes) };
 }
 
 // ─── Mastery ──────────────────────────────────────────────────────────────────
@@ -384,6 +404,35 @@ export function calculateEligibleXpAward(
   return currentDifficulty > priorMax ? calculateXpAward(currentDifficulty, score) : 0;
 }
 
+export interface EvidenceGraderAudit {
+  outputs: unknown[];
+  prompt_hash: string;
+  model: string;
+  contract: string;
+  samples: number;
+}
+
+export interface EvidenceAuditRow {
+  grader_output: unknown;
+  grader_prompt_hash: string | null;
+  grader_model: string | null;
+  grader_contract: string | null;
+  grade_samples: number | null;
+}
+
+// Audit columns are deliberately NOT on the EvidenceRecord DTO (they can be
+// large and the renderer never needs them); read them here when re-scoring.
+export function getEvidenceAudit(db: DatabaseSync, recordId: number): EvidenceAuditRow | null {
+  const row = db.prepare(
+    `SELECT grader_output, grader_prompt_hash, grader_model, grader_contract, grade_samples
+       FROM evidence_records WHERE id = ?`,
+  ).get(recordId) as { grader_output: string | null } & Omit<EvidenceAuditRow, 'grader_output'> | undefined;
+  if (!row) return null;
+  let output: unknown = null;
+  if (row.grader_output) { try { output = JSON.parse(row.grader_output); } catch { output = null; } }
+  return { ...row, grader_output: output };
+}
+
 export function createEvidenceRecord(
   db: DatabaseSync,
   input: Omit<
@@ -398,6 +447,8 @@ export function createEvidenceRecord(
         | 'grounding_score' | 'grounding_context_used' | 'unsupported_claims'
         | 'confidence_before'
     >>,
+  // Grader audit trail (migration 0032). Optional: legacy callers/tests omit it.
+  audit?: EvidenceGraderAudit,
 ): EvidenceRecord {
   const difficulty = input.task_difficulty_snapshot ?? 3;
   const xpAwarded = input.xp_awarded ?? calculateXpAward(difficulty, input.score);
@@ -417,8 +468,9 @@ export function createEvidenceRecord(
           gaps_detected, misconceptions_detected, grader_reasoning,
           task_prompt_snapshot, task_kind_snapshot, task_difficulty_snapshot,
           xp_awarded, grounding_score, grounding_context_used, unsupported_claims,
-          confidence_before, calibration_gap)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          confidence_before, calibration_gap,
+          grader_output, grader_prompt_hash, grader_model, grader_contract, grade_samples)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.task_id,
@@ -438,6 +490,11 @@ export function createEvidenceRecord(
       JSON.stringify(unsupportedClaims),
       confidenceBefore,
       calibrationGap,
+      audit ? JSON.stringify(audit.outputs.length === 1 ? audit.outputs[0] : audit.outputs) : null,
+      audit?.prompt_hash ?? null,
+      audit?.model ?? null,
+      audit?.contract ?? null,
+      audit?.samples ?? null,
     );
   const row = db
     .prepare('SELECT * FROM evidence_records WHERE id = ?')
@@ -544,6 +601,8 @@ interface ConceptSrsRow {
   due_at: string | null;
   last_reviewed_at: string | null;
   last_grade: string | null;
+  stability?: number | null;
+  difficulty?: number | null;
 }
 
 function rowToConceptSrs(row: ConceptSrsRow): ConceptSrs {
@@ -556,6 +615,8 @@ function rowToConceptSrs(row: ConceptSrsRow): ConceptSrs {
     due_at: row.due_at,
     last_reviewed_at: row.last_reviewed_at,
     last_grade: (row.last_grade as EvidenceScore | null) ?? null,
+    stability: row.stability ?? null,
+    difficulty: row.difficulty ?? null,
   };
 }
 
@@ -583,8 +644,9 @@ function upsertConceptSrs(
 ): ConceptSrs {
   db.prepare(
     `INSERT INTO concept_srs
-       (concept_id, ease, interval_days, repetitions, lapses, due_at, last_reviewed_at, last_grade)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       (concept_id, ease, interval_days, repetitions, lapses, due_at, last_reviewed_at, last_grade,
+        stability, difficulty)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(concept_id) DO UPDATE SET
        ease             = excluded.ease,
        interval_days    = excluded.interval_days,
@@ -592,7 +654,9 @@ function upsertConceptSrs(
        lapses           = excluded.lapses,
        due_at           = excluded.due_at,
        last_reviewed_at = excluded.last_reviewed_at,
-       last_grade       = excluded.last_grade`,
+       last_grade       = excluded.last_grade,
+       stability        = excluded.stability,
+       difficulty       = excluded.difficulty`,
   ).run(
     conceptId,
     state.ease,
@@ -602,6 +666,8 @@ function upsertConceptSrs(
     dueAt,
     lastReviewedAt,
     lastGrade,
+    state.stability ?? null,
+    state.difficulty ?? null,
   );
   return getConceptSrs(db, conceptId)!;
 }
@@ -613,6 +679,8 @@ export function recordSrsReview(
   conceptId: number,
   score: EvidenceScore,
   now: Date = new Date(),
+  // calibration_gap of the attempt being scheduled (null when not captured).
+  calibrationGap: number | null = null,
 ): ConceptSrs {
   const current = getConceptSrs(db, conceptId);
   const state: SrsState = current
@@ -621,9 +689,14 @@ export function recordSrsReview(
         intervalDays: current.interval_days,
         repetitions: current.repetitions,
         lapses: current.lapses,
+        stability: current.stability,
+        difficulty: current.difficulty,
       }
     : { ...DEFAULT_SRS_STATE };
-  const { next, dueAt } = scheduleNextSrsReview(state, score, now);
+  const { next, dueAt } = scheduleReview(state, score, now, {
+    calibrationGap,
+    lastReviewedAt: current?.last_reviewed_at ? parseDbTime(current.last_reviewed_at) : null,
+  });
   return upsertConceptSrs(db, conceptId, next, dueAt, now.toISOString(), score);
 }
 
@@ -652,18 +725,18 @@ export function setConceptSrsDue(
 export function recomputeSrsForConcept(db: DatabaseSync, conceptId: number): void {
   const rows = db
     .prepare(
-      `SELECT score, created_at
+      `SELECT score, created_at, calibration_gap
          FROM evidence_records
         WHERE concept_id = ?
         ORDER BY created_at ASC, id ASC`,
     )
-    .all(conceptId) as { score: string; created_at: string }[];
+    .all(conceptId) as { score: string; created_at: string; calibration_gap: number | null }[];
   if (rows.length === 0) {
     db.prepare('DELETE FROM concept_srs WHERE concept_id = ?').run(conceptId);
     return;
   }
   const replayed = replaySrsReviews(
-    rows.map(r => ({ score: r.score as EvidenceScore, reviewedAt: parseDbTime(r.created_at) })),
+    rows.map(r => ({ score: r.score as EvidenceScore, reviewedAt: parseDbTime(r.created_at), calibrationGap: r.calibration_gap })),
   );
   upsertConceptSrs(
     db,

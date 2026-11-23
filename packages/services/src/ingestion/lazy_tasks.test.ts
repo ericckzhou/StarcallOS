@@ -6,8 +6,8 @@ import { chatJSON, type ProviderConfig, type UsageStats } from '../core/llm';
 import { openDb } from '../core/infra/db';
 import { createSource } from '../knowledge/repos/sources';
 import { createConcept } from '../knowledge/repos/concepts';
-import { createTask, listTasksByConcept } from '../knowledge/repos/evidence';
-import { ensureTasksForConcept, regenerateTasksForConcept } from './lazy_tasks';
+import { createTask, listTasksByConcept, createEvidenceRecord, listRecordsByConcept } from '../knowledge/repos/evidence';
+import { ensureTasksForConcept, regenerateTasksForConcept, buildLearnerHistoryBlock } from './lazy_tasks';
 import type { EvidenceKind } from '../core/domain/types';
 
 const mockChat = vi.mocked(chatJSON);
@@ -15,7 +15,7 @@ const config: ProviderConfig = { provider: 'groq', apiKey: 'k', model: 'm' };
 
 const usage: UsageStats = {
   pass: 'lazy_tasks', provider: 'groq', model: 'm',
-  promptTokens: 0, completionTokens: 0, totalTokens: 0, durationMs: 0,
+  promptTokens: 0, completionTokens: 0, totalTokens: 0, durationMs: 0, retries: 0, cacheReadTokens: 0,
 };
 
 function reply(tasks: Array<{ kind: string; prompt: string; difficulty: number }>) {
@@ -153,5 +153,77 @@ describe('regenerateTasksForConcept', () => {
     expect(req.messages[1].content).toContain('TWIST');
     expect(req.messages[1].content).toContain('the old prompt');
     d.close();
+  });
+});
+
+describe('adaptive history (contract 1.4.0)', () => {
+  const rec = (over: Record<string, unknown>) => ({
+    score: 'recognizes' as const, compression_stage: 2 as const, gaps_detected: [] as string[],
+    misconceptions_detected: [] as string[], created_at: '2026-05-01 10:00:00', calibration_gap: null as number | null, ...over,
+  });
+
+  it('is empty without history', () => {
+    expect(buildLearnerHistoryBlock([])).toBe('');
+  });
+
+  it('summarizes recent-first gaps, misconceptions, best stage and overconfidence', () => {
+    const block = buildLearnerHistoryBlock([
+      rec({ created_at: '2026-05-01 10:00:00', compression_stage: 3, score: 'understood', gaps_detected: ['old gap'], calibration_gap: 0.4 }),
+      rec({ created_at: '2026-05-03 10:00:00', gaps_detected: ['Did not mention hot keys', 'old gap'], misconceptions_detected: ['Thinks load is always even'], calibration_gap: 0.3 }),
+    ]);
+    expect(block).toContain('Attempts: 2. Last result: recognizes, stage 2. Best stage reached: 3.');
+    expect(block.indexOf('Did not mention hot keys')).toBeLessThan(block.indexOf('old gap'));
+    expect(block.match(/old gap/g)).toHaveLength(1);
+    expect(block).toContain('Thinks load is always even');
+    expect(block).toContain('OVERCONFIDENT');
+    expect(block).toContain('stage 4');
+    expect(block).toContain('probe the recorded misconception');
+  });
+
+  it('is sent to the generator once the concept has graded attempts', async () => {
+    const d = db();
+    const cid = mkConcept(d);
+    const t = createTask(d, { concept_id: cid, kind: 'definition', prompt: 'p', difficulty: 3 });
+    createEvidenceRecord(d, {
+      task_id: t.id, concept_id: cid, user_response: 'r', score: 'gap', compression_stage: 1,
+      gaps_detected: ['Missed the chain rule'], misconceptions_detected: [], grader_reasoning: '',
+      task_prompt_snapshot: 'p', task_kind_snapshot: 'definition',
+    });
+    mockChat.mockResolvedValueOnce(reply(FIVE_KINDS.map(kind => ({ kind, prompt: `${kind} q`, difficulty: 3 }))));
+    await regenerateTasksForConcept(config, d, cid);
+    const userMsg = mockChat.mock.calls[0][1].messages.find((m: { role: string }) => m.role === 'user')!.content;
+    expect(userMsg).toContain('LEARNER HISTORY');
+    expect(userMsg).toContain('Missed the chain rule');
+  });
+
+  it('first-time generation has no history block', async () => {
+    const d = db();
+    const cid = mkConcept(d);
+    mockChat.mockResolvedValueOnce(reply(FIVE_KINDS.map(kind => ({ kind, prompt: `${kind} q`, difficulty: 3 }))));
+    await ensureTasksForConcept(config, d, cid);
+    expect(mockChat.mock.calls[0][1].messages[1].content).not.toContain('LEARNER HISTORY');
+  });
+});
+
+describe('regenerate keeps graded history (migration 0035)', () => {
+  it('retires attempted tasks instead of cascading their records away', async () => {
+    const d = db();
+    const cid = mkConcept(d);
+    const attempted = createTask(d, { concept_id: cid, kind: 'definition', prompt: 'answered', difficulty: 3 });
+    createTask(d, { concept_id: cid, kind: 'connection', prompt: 'never answered', difficulty: 3 });
+    createEvidenceRecord(d, {
+      task_id: attempted.id, concept_id: cid, user_response: 'r', score: 'recognizes', compression_stage: 2,
+      gaps_detected: ['g'], misconceptions_detected: [], grader_reasoning: '',
+      task_prompt_snapshot: 'answered', task_kind_snapshot: 'definition',
+    });
+    mockChat.mockResolvedValueOnce(reply(FIVE_KINDS.map(kind => ({ kind, prompt: `new ${kind}`, difficulty: 3 }))));
+
+    const fresh = await regenerateTasksForConcept(config, d, cid);
+
+    expect(fresh.map(t => t.prompt).every(p => p.startsWith('new '))).toBe(true);
+    expect(listTasksByConcept(d, cid).map(t => t.prompt).sort()).toEqual(FIVE_KINDS.map(k => `new ${k}`).sort());
+    expect(listRecordsByConcept(d, cid)).toHaveLength(1);
+    const rows = d.prepare('SELECT prompt, retired_at FROM evidence_tasks WHERE concept_id = ? AND prompt NOT LIKE ?').all(cid, 'new %') as Array<{ prompt: string; retired_at: string | null }>;
+    expect(rows).toEqual([{ prompt: 'answered', retired_at: expect.any(String) }]);
   });
 });

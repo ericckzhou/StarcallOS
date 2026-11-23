@@ -1,6 +1,6 @@
 # Contract: `lazy_tasks`
 
-- **Contract version:** 1.0.0 (see `CONTRACT_VERSION`)
+- **Contract version:** 1.4.0 (see `CONTRACT_VERSION`; shared counter)
 - **Pass name:** `lazy_tasks` (heavy)
 - **Implemented in:** `packages/services/src/ingestion/lazy_tasks.ts`
 - **Runs in:** user opens Challenge for a promoted concept with no tasks yet, or
@@ -23,6 +23,19 @@ evidence of understanding rather than recall.
   avoid_prompts?: string[],       // on regenerate: every already-seen prompt
 }
 ```
+
+## Adaptive history (1.4.0)
+
+When the concept has graded attempts, the user message ends with a
+`LEARNER HISTORY` block built by `buildLearnerHistoryBlock`: attempt count,
+last score/stage, best stage, up to 3 recent distinct `gaps_detected`, up to 2
+`misconceptions_detected`, and a calibration verdict (mean `calibration_gap`
+vs `CALIBRATION_TOLERANCE`). The model must still return exactly 5 tasks, one
+per kind in order, but aims them at the listed gaps, pitches difficulty at or
+above the next stage after the best one reached, probes a recorded
+misconception in the misconception_resistance task, prefers checkable
+questions for an overconfident learner, and never mentions the history in the
+prompts. With no history the block is absent and behavior is unchanged.
 
 ## Output JSON schema
 

@@ -63,6 +63,8 @@ export function clearDerivedDataForSource(
   // here so a re-extract recomputes them; accepted edges survive separately as
   // user-curated concept_edges rows on the preserved promoted concepts.
   const prerequisite_suggestions = countAndDelete(db, 'prerequisite_suggestions', 'source_id = ?', sourceId);
+  // Embedding vectors are derived and rebuilt incrementally on demand.
+  countAndDelete(db, 'embeddings', 'source_id = ?', sourceId);
 
   // Concepts: split by whether the user has studied them.
   // "Studied" = at least one row in evidence_records for that concept_id.

@@ -9,7 +9,7 @@ const longStr     = (max = 50_000) => z.string().max(max);
 
 // ─── Enum schemas ─────────────────────────────────────────────────────────────
 
-const providerIdSchema        = z.enum(['groq', 'anthropic']);
+const providerIdSchema        = z.enum(['groq', 'anthropic', 'local']);
 const extractionModeSchema    = z.enum(['deterministic', 'candidate_gated', 'full']);
 const conceptImportanceSchema = z.enum(['foundational', 'core', 'supporting', 'peripheral', 'reference_only']);
 const annotationTypeSchema    = z.enum(['highlight', 'note']);
@@ -86,6 +86,12 @@ export const SettingsPatchSchema = z.object({
   extractionMode:  extractionModeSchema.optional(),
   heavyModel:      z.string().max(200).optional(),
   lightModel:      z.string().max(200).optional(),
+  gradeSelfConsistency: z.boolean().optional(),
+  localBaseUrl:    z.string().max(300).optional(),
+  localModel:      z.string().max(200).optional(),
+  embeddingsEnabled: z.boolean().optional(),
+  embeddingModel:  z.string().max(200).optional(),
+  srsScheduler:    z.enum(['sm2', 'fsrs']).optional(),
 });
 
 export const SubmitEvidenceArgsSchema = z.object({

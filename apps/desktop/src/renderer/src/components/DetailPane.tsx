@@ -327,6 +327,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   const [confidence, setConfidence] = useState(0.5);
   const [grading, setGrading] = useState(false);
   const [grade, setGrade] = useState<Grade | null>(null);
+  const [gradeError, setGradeError] = useState<string | null>(null);
   const [generatingTasks, setGeneratingTasks] = useState(false);
   const [taskGenError, setTaskGenError] = useState<string | null>(null);
   const [progress, setProgress] = useState<StudyProgress | null>(null);
@@ -364,7 +365,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   useEffect(() => {
     if (!concept) return;
     setTasks([]); setMastery(null); setMisconceptions([]); setEquations([]);
-    setHistory([]); setGrade(null); setSelectedTask(null); setResponse(''); setConfidence(0.5);
+    setHistory([]); setGrade(null); setGradeError(null); setSelectedTask(null); setResponse(''); setConfidence(0.5);
     setTaskGenError(null); setGeneratingTasks(false);
     setEvidenceKinds([]);
     Promise.all([
@@ -482,6 +483,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   async function handleSubmit() {
     if (!selectedTask || !concept || !response.trim()) return;
     setGrading(true);
+    setGradeError(null);
     try {
       const result = await window.api.evidence.submit({
         taskId: selectedTask.id, conceptId: concept.id,
@@ -494,6 +496,11 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
       setProgress(await window.api.evidence.progress() as StudyProgress);
       window.dispatchEvent(new Event('starcall:progressChanged'));
       window.dispatchEvent(new Event('starcall:review-queue-stale'));
+    } catch (e) {
+      // Nothing was recorded (grading fails before any write) and the typed
+      // answer is kept, so the learner can simply resubmit.
+      const msg = e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e);
+      setGradeError(msg);
     } finally {
       setGrading(false);
     }
@@ -548,7 +555,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
           tasks={tasks} selectedTask={selectedTask} onSelectTask={setSelectedTask}
           response={response} onResponseChange={setResponse}
           confidence={confidence} onConfidenceChange={setConfidence}
-          grading={grading} grade={grade}
+          grading={grading} grade={grade} gradeError={gradeError}
           generatingTasks={generatingTasks} taskGenError={taskGenError}
           onGenerateTasks={generateTasks}
           onRegenerateTasks={regenerateTasks}
@@ -2323,11 +2330,11 @@ function ConfidenceSlider({ value, onChange, disabled }: {
   );
 }
 
-function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseChange, confidence, onConfidenceChange, grading, grade, generatingTasks, taskGenError, onGenerateTasks, onRegenerateTasks, onSubmit, onReset }: {
+function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseChange, confidence, onConfidenceChange, grading, grade, gradeError, generatingTasks, taskGenError, onGenerateTasks, onRegenerateTasks, onSubmit, onReset }: {
   tasks: Task[]; selectedTask: Task | null; onSelectTask: (t: Task) => void;
   response: string; onResponseChange: (v: string) => void;
   confidence: number; onConfidenceChange: (v: number) => void;
-  grading: boolean; grade: Grade | null;
+  grading: boolean; grade: Grade | null; gradeError: string | null;
   generatingTasks: boolean; taskGenError: string | null;
   onGenerateTasks: () => void;
   onRegenerateTasks: () => void;
@@ -2434,6 +2441,12 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
       }}>
         {grading ? 'Grading…' : 'Submit Response'}
       </button>
+      {gradeError && !grading && (
+        <div role="alert" style={{ fontSize: 12, color: '#fca5a5', lineHeight: 1.5 }}>
+          Grading failed — nothing was recorded and your answer is kept. Try submitting again.
+          <div style={{ color: '#9ca3af', marginTop: 2 }}>{gradeError}</div>
+        </div>
+      )}
     </div>
   );
 }

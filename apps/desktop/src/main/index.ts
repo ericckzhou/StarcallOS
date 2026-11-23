@@ -68,7 +68,9 @@ import {
   runConceptExtractor, runGraphBuilder,
   runMisconceptionExtractor, runTaskGenerator, computeCentrality,
   gradeResponse,
-  resetUsageStats, getUsageStats,
+  resetUsageStats, getUsageStats, setLlmTraceSink, effectiveSelfConsistency, listLocalModels, DEFAULT_LOCAL_BASE_URL,
+  setSrsScheduler, mergeSettingsPatch, createOpenAICompatEmbedder, createCachingEmbedder, findCandidateNearDuplicates, DEFAULT_EMBEDDING_MODEL, indexSourceEmbeddings, retrieveSourceExcerpts, relatedConcepts, embeddingStats,
+  type Embedder, buildCandidateLlmFilterPrompt, parseCandidateLlmFilterResponse, createLlmCallSink, summarizeLlmCalls,
 } from '@starcall/services';
 import { IPC } from '@starcall/shared';
 import type {
@@ -249,22 +251,33 @@ function secretCodec(): SecretCodec {
   };
 }
 
+// Embedder for the opt-in local embedding index, or null when disabled.
+function getEmbedder(): Embedder | null {
+  const s = loadSettings(app.getPath('userData'), secretCodec());
+  if (!s.embeddingsEnabled) return null;
+  return createOpenAICompatEmbedder(s.localBaseUrl, s.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL);
+}
+
+// Embedding work must never stall or fail the feature it decorates.
+async function softTimeout<T>(p: Promise<T>, ms: number, fallback: T, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<T>(resolve => { timer = setTimeout(() => { console.warn(`[EMBED] ${label} timed out after ${ms}ms`); resolve(fallback); }, ms); }),
+    ]);
+  } catch (e) {
+    console.warn(`[EMBED] ${label} failed: ${e instanceof Error ? e.message : String(e)}`);
+    return fallback;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function cfgFor(pass: PassName): ReturnType<typeof resolveProviderConfig> {
   const dir = app.getPath('userData');
   const s = applyEnvFallbacks(loadSettings(dir, secretCodec()), envFallbacks());
   return resolveProviderConfig(s, pass);
-}
-
-function stripJsonFences(raw: string): string {
-  let body = raw.trim();
-  const fenced = body.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (fenced) body = fenced[1].trim();
-  if (!body.startsWith('{')) {
-    const start = body.indexOf('{');
-    const end = body.lastIndexOf('}');
-    if (start >= 0 && end > start) body = body.slice(start, end + 1);
-  }
-  return body;
 }
 
 // Max candidates evaluated per LLM topic-fit call. The term-only payload +
@@ -291,54 +304,6 @@ function dedupeByNormalized(candidates: CandidateLlmFilterArgs['candidates']): C
     out.push(c);
   }
   return out;
-}
-
-// Compact prompt: one term per line (no per-candidate JSON, no context snippet —
-// the term + book title is enough signal for topic-fit, and dropping ctx roughly
-// halves input tokens so far more candidates fit per call). Output is a keep-list
-// (just the terms to keep) which is much smaller than a per-candidate decision.
-function buildCandidateLlmFilterPrompt(sourceTitle: string | undefined, candidates: CandidateLlmFilterArgs['candidates']): string {
-  const title = sourceTitle || '(unknown source title)';
-  const lines = candidates.map(c => c.normalized).join('\n');
-  return [
-    `Filter candidate concepts extracted from a book.`,
-    `Book title: "${title}"`,
-    ``,
-    `Keep only terms a reader would specifically study for THIS book's subject.`,
-    `Reject broad/generic words, boilerplate, captions, fragments, TOC/index leftovers, and off-topic terms.`,
-    ``,
-    `Candidate terms (one per line):`,
-    lines,
-    ``,
-    `Respond ONLY with compact JSON listing the terms to KEEP, copied exactly:`,
-    `{"keep":["<term>", ...]}`,
-  ].join('\n');
-}
-
-// Accepts the new keep-list form {"keep":[...]} (preferred) and the legacy
-// per-candidate {"decisions":[{term,keep}]} form (manual ChatGPT paste path).
-function parseCandidateLlmFilterResponse(raw: string): CandidateLlmFilterDecision[] {
-  const parsed = JSON.parse(stripJsonFences(raw)) as { keep?: unknown; decisions?: unknown };
-  if (Array.isArray(parsed.keep)) {
-    return parsed.keep
-      .filter((t): t is string => typeof t === 'string')
-      .map(term => ({ term, keep: true }));
-  }
-  if (!Array.isArray(parsed.decisions)) {
-    throw new Error('LLM response did not include a keep or decisions array.');
-  }
-  return parsed.decisions
-    .map((d): CandidateLlmFilterDecision | null => {
-      if (!d || typeof d !== 'object') return null;
-      const obj = d as { term?: unknown; keep?: unknown; reason?: unknown };
-      if (typeof obj.term !== 'string' || typeof obj.keep !== 'boolean') return null;
-      return {
-        term: obj.term,
-        keep: obj.keep,
-        reason: typeof obj.reason === 'string' ? obj.reason : undefined,
-      };
-    })
-    .filter((d): d is CandidateLlmFilterDecision => d !== null);
 }
 
 function registerIpc(db: ReturnType<typeof openDb>): void {
@@ -1117,6 +1082,87 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     return new Uint8Array(buf).buffer;
   });
 
+  ipcMain.handle(IPC.LLM_TRACE_SUMMARY, (_e, rawDays: unknown) => {
+    const days = typeof rawDays === 'number' && Number.isFinite(rawDays)
+      ? Math.min(365, Math.max(1, Math.floor(rawDays)))
+      : 30;
+    return summarizeLlmCalls(db, days);
+  });
+
+  ipcMain.handle(IPC.EMBEDDINGS_STATUS, () => {
+    const s = loadSettings(app.getPath('userData'), secretCodec());
+    const model = s.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
+    return {
+      enabled: !!s.embeddingsEnabled,
+      model,
+      ...embeddingStats(db, model),
+      totalSources: listSources(db).length,
+    };
+  });
+
+  let libraryIndexing: Promise<unknown> | null = null;
+  ipcMain.handle(IPC.EMBEDDINGS_INDEX_LIBRARY, async () => {
+    const embedder = getEmbedder();
+    if (!embedder) return { ok: false as const, error: 'Embeddings are turned off.' };
+    if (libraryIndexing) return { ok: false as const, error: 'Indexing is already running.' };
+    const run = (async () => {
+      let embedded = 0;
+      const sources = listSources(db);
+      for (const src of sources) {
+        embedded += (await indexSourceEmbeddings(db, embedder, src.id)).embedded;
+      }
+      return { ok: true as const, sources: sources.length, embedded };
+    })();
+    libraryIndexing = run;
+    try {
+      return await run;
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      libraryIndexing = null;
+    }
+  });
+
+  // Memoized per model: candidate terms are derived and not persisted, so the
+  // in-memory cache is what keeps re-opening Candidate Review cheap.
+  const cachedEmbedders = new Map<string, Embedder>();
+  ipcMain.handle(IPC.CANDIDATES_NEAR_DUPLICATES, async (_e, rawId: unknown) => {
+    const sourceId = validateIpc(PositiveIntSchema, rawId, IPC.CANDIDATES_NEAR_DUPLICATES);
+    const base = getEmbedder();
+    if (!base) return {};
+    const embedder = cachedEmbedders.get(base.model) ?? createCachingEmbedder(base);
+    cachedEmbedders.set(base.model, embedder);
+    const candidates = listConceptCandidatesBySource(db, sourceId).map(c => ({
+      id: c.id, term: c.term, normalized: c.normalized,
+    }));
+    return softTimeout(findCandidateNearDuplicates(embedder, candidates), 60_000, {}, 'candidate near-duplicates');
+  });
+
+  ipcMain.handle(IPC.CONCEPTS_RELATED, async (_e, rawId: unknown) => {
+    const conceptId = validateIpc(PositiveIntSchema, rawId, IPC.CONCEPTS_RELATED);
+    const embedder = getEmbedder();
+    const concept = getConceptById(db, conceptId);
+    if (!embedder || !concept) return [];
+    // Keep this concept's own source fresh; other sources come from the last
+    // library index (Settings → Embeddings), so this stays fast.
+    await softTimeout(indexSourceEmbeddings(db, embedder, concept.source_id), 8_000, null, 'related index');
+    const linked = new Set(
+      (concept.where_reappears as Array<string | { name: string }>).map(l => (typeof l === 'string' ? l : l.name).toLowerCase()),
+    );
+    return relatedConcepts(db, embedder.model, conceptId, 10).filter(r => !linked.has(r.name.toLowerCase())).slice(0, 6);
+  });
+
+  ipcMain.handle(IPC.LLM_LIST_LOCAL_MODELS, async (_e, rawBaseUrl: unknown) => {
+    if (typeof rawBaseUrl !== 'string' || rawBaseUrl.length > 300) {
+      return { ok: false as const, error: 'Base URL must be a string.' };
+    }
+    try {
+      return { ok: true as const, models: await listLocalModels(rawBaseUrl || DEFAULT_LOCAL_BASE_URL) };
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
   ipcMain.handle(IPC.SETTINGS_GET, () => {
     const dir = app.getPath('userData');
     const fb  = envFallbacks();
@@ -1130,6 +1176,14 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       heavyModel: s.heavyModel ?? '',
       lightModel: s.lightModel ?? '',
       modelChoices: MODEL_CHOICES,
+      gradeSelfConsistency: effectiveSelfConsistency(s),
+      localBaseUrl: s.localBaseUrl ?? '',
+      localModel: s.localModel ?? '',
+      defaultLocalBaseUrl: DEFAULT_LOCAL_BASE_URL,
+      embeddingsEnabled: !!s.embeddingsEnabled,
+      embeddingModel: s.embeddingModel ?? '',
+      defaultEmbeddingModel: DEFAULT_EMBEDDING_MODEL,
+      srsScheduler: s.srsScheduler ?? 'sm2',
     };
   });
   ipcMain.handle(IPC.SETTINGS_SET, (_e, rawInput: Partial<LLMSettings>) => {
@@ -1139,18 +1193,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     // Validate structure first, then clamp enum values via sanitizeSettingsInput.
     const validated = validateIpc(SettingsPatchSchema, rawInput, IPC.SETTINGS_SET);
     const input = sanitizeSettingsInput(validated, current);
-    const next: LLMSettings = {
-      ...current,
-      provider:        input.provider        ?? current.provider,
-      // Preserve previously stored keys when the renderer omits them.
-      groqApiKey:      input.groqApiKey      !== undefined ? input.groqApiKey      : current.groqApiKey,
-      anthropicApiKey: input.anthropicApiKey !== undefined ? input.anthropicApiKey : current.anthropicApiKey,
-      modelOverrides:  input.modelOverrides  ?? current.modelOverrides ?? {},
-      extractionMode:  input.extractionMode  ?? current.extractionMode ?? 'deterministic',
-      heavyModel:      input.heavyModel      !== undefined ? input.heavyModel      : current.heavyModel,
-      lightModel:      input.lightModel      !== undefined ? input.lightModel      : current.lightModel,
-    };
+    const next = mergeSettingsPatch(current, input);
     saveSettings(dir, next, codec);
+    setSrsScheduler(next.srsScheduler ?? 'sm2');
     return { ok: true as const };
   });
   ipcMain.handle(IPC.EVIDENCE_HISTORY, (_e, conceptId: number) => listRecordsByConcept(db, conceptId));
@@ -1288,7 +1333,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
           { role: 'system', content: 'You are a precise textbook concept filter. Return valid JSON only.' },
           { role: 'user', content: buildCandidateLlmFilterPrompt(title, batch) },
         ],
-      }, 'concepts');
+      }, 'topic_filter');
       const decisions = parseCandidateLlmFilterResponse(content);
       const terms = new Set(batch.map(c => c.normalized.toLowerCase()));
       const keepTerms = decisions
@@ -1390,12 +1435,23 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     // Assemble the concept's source material so the grader can judge whether the
     // answer is BACKED BY the source, not merely plausible. When the concept is
     // too sparse (hasContext=false) we pass nothing and grounding is skipped.
-    const grounding = buildGroundingContext(db, conceptId);
+    // Widen grounding with similar quotes from OTHER concepts in the same source
+    // (opt-in embeddings; silently skipped when off, slow, or unreachable).
+    const embedder = getEmbedder();
+    const extraExcerpts = embedder
+      ? await softTimeout((async () => {
+          await indexSourceEmbeddings(db, embedder, concept.source_id);
+          const hits = await retrieveSourceExcerpts(db, embedder, concept.source_id, userResponse, conceptId);
+          return hits.map(h => h.text);
+        })(), 8_000, [] as string[], 'grounding retrieval')
+      : [];
+    const grounding = buildGroundingContext(db, conceptId, extraExcerpts);
+    const gradeSettings = applyEnvFallbacks(loadSettings(app.getPath('userData'), secretCodec()), envFallbacks());
     const grade = await gradeResponse(cfgFor('grader'), {
       concept_name: concept.name, concept_definition: concept.definition_text,
       task_kind: task.kind, task_prompt: task.prompt, user_response: userResponse,
       source_context: grounding.hasContext ? grounding.context : undefined,
-    });
+    }, { selfConsistency: effectiveSelfConsistency(gradeSettings) });
     {
       const s = getUsageStats();
       const passes = Object.entries(s.byPass)
@@ -1417,12 +1473,12 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       grounding_context_used: grade.grounding_context_used,
       unsupported_claims: grade.unsupported_claims,
       confidence_before: confidenceBefore ?? null,
-    });
+    }, grade.audit);
 
     upsertMastery(db, conceptId, grade.compression_stage);
     // Advance the spaced-repetition card from the graded score so the concept's
     // next due date reflects this attempt (mirrors the mastery upsert).
-    recordSrsReview(db, conceptId, grade.score);
+    recordSrsReview(db, conceptId, grade.score, new Date(), record.calibration_gap);
     emitEvent(db, 'evidence_record.graded', { recordId: record.id, score: grade.score }, { entityType: 'concept', entityId: conceptId });
     return record;
   });
@@ -1497,6 +1553,9 @@ app.whenReady().then(() => {
 
   const DB_PATH = path.join(app.getPath('userData'), 'stellaria.db');
   const db = openDb(DB_PATH);
+  // Persist every chatJSON call's metadata (never prompt text) to llm_calls.
+  setLlmTraceSink(createLlmCallSink(db));
+  setSrsScheduler(loadSettings(app.getPath('userData'), secretCodec()).srsScheduler ?? 'sm2');
 
   // Recovery scan: anything still 'processing' was killed mid-run. Mark
   // failed so the user can retry deliberately.
