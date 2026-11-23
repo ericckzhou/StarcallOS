@@ -16,5 +16,5 @@ playwright/.cache/
 # Local Claude Code skill/config (not project code)
 .claude/
 
-# Eval run outputs (baselines/ IS committed)
+# Eval run outputs (evals/baselines/, once recorded, should be committed)
 evals/results/

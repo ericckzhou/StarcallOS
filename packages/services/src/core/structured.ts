@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { chatJSON, type ChatRequest, type ProviderConfig, type UsageStats } from './llm';
+import { chatJSON, emitTrace, hashPrompt, type ChatRequest, type ProviderConfig, type UsageStats } from './llm';
 
 // ─── Structured output: validate → repair once → typed error ─────────────────
 
@@ -88,5 +88,13 @@ export async function chatStructured<T>(
   );
   const v2 = describeFailure(repair.content, opts.schema as z.ZodType<unknown>);
   if (v2.ok) return { data: v2.data as T, usage: repair.usage, repaired: true };
+  // Both HTTP calls were traced as 'ok'; record the pass-level failure so the
+  // usage table's Errors column reflects grades/tasks that never landed.
+  emitTrace({
+    pass: passName, provider: config.provider, model: config.model,
+    status: 'error', errorMessage: `output failed validation after repair: ${v2.issues}`,
+    promptTokens: 0, completionTokens: 0, cacheReadTokens: 0, durationMs: 0, retries: 0,
+    promptHash: hashPrompt(req.messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n')),
+  });
   throw new LlmParseError(passName, v2.issues, repair.content.slice(0, 2000));
 }

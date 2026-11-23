@@ -25,7 +25,9 @@ Metric code is pure TS in `packages/services/src/evals/metrics.ts` (unit-tested)
 
 ## Baselines and regressions
 
-`baselines/<pass>.json` is committed. A run without `--save-baseline` compares
+`baselines/<pass>.json` is created by `--save-baseline` and should be
+committed (none is recorded yet, so no run gates on regressions until one is).
+A run without `--save-baseline` compares
 against it and exits 1 if any metric drops by more than 0.03 (or rises, for
 lower-is-better metrics such as `stage_mae`). Re-record the baseline only after
 deliberately accepting a change. Bump the matching contract version in

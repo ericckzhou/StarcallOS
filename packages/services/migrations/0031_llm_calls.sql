@@ -10,8 +10,9 @@
 --                   prompt/contract version produced a result
 --   cache_read_tokens  Anthropic prompt-cache reads (0 otherwise)
 --   retries         provider-level retries before success/failure
---   parse_ok        NULL = caller did not report; 1/0 once structured-output
---                   validation reports back (reserved for chatStructured)
+--   parse_ok        UNUSED (never written). Structured-output validation
+--                   failures are recorded as their own status='error' rows
+--                   by chatStructured instead.
 CREATE TABLE IF NOT EXISTS llm_calls (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
   created_at         TEXT    NOT NULL DEFAULT (datetime('now')),

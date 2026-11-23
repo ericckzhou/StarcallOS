@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { SettingsPatchSchema } from './ipc-schemas';
 import { loadSettings, saveSettings, migrateSecretsAtRest, sanitizeSettingsInput, resolveProviderConfig, mergeSettingsPatch, type LLMSettings, type SecretCodec } from './settings';
 
 // Reversible stand-in for Electron safeStorage (which is unavailable in tests).
@@ -157,5 +158,28 @@ describe('mergeSettingsPatch', () => {
   });
   it('lets an explicit empty key clear a stored key', () => {
     expect(mergeSettingsPatch(current, { groqApiKey: '' }).groqApiKey).toBe('');
+  });
+});
+
+describe('settings save pipeline (SettingsPatchSchema -> sanitize -> merge)', () => {
+  it('persists every patchable key', () => {
+    const patch = {
+      provider: 'local', groqApiKey: 'g2', anthropicApiKey: 'a2', modelOverrides: { grader: 'x' },
+      extractionMode: 'full', heavyModel: 'h2', lightModel: 'l2', gradeSelfConsistency: true,
+      localBaseUrl: 'http://box:1/v1', localModel: 'm', embeddingsEnabled: true, embeddingModel: 'e',
+      srsScheduler: 'fsrs',
+    } as const;
+    // Every key the schema accepts must be exercised here, so a newly added
+    // setting that the schema strips (or the merge drops) fails this test.
+    expect(Object.keys(patch).sort()).toEqual(Object.keys(SettingsPatchSchema.shape).sort());
+    const current: LLMSettings = { provider: 'groq', groqApiKey: '', anthropicApiKey: '' };
+    const next = mergeSettingsPatch(current, sanitizeSettingsInput(SettingsPatchSchema.parse(patch), current));
+    for (const [k, v] of Object.entries(patch)) expect(next[k as keyof LLMSettings]).toEqual(v);
+  });
+
+  it('clamps an unknown scheduler to sm2 and trims the embedding model', () => {
+    const current: LLMSettings = { provider: 'groq', groqApiKey: '', anthropicApiKey: '' };
+    const out = sanitizeSettingsInput({ srsScheduler: 'bogus' as never, embeddingModel: '  nomic  ' }, current);
+    expect(out).toMatchObject({ srsScheduler: 'sm2', embeddingModel: 'nomic' });
   });
 });

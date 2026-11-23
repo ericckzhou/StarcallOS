@@ -14,6 +14,9 @@ const EMBED_MAX_CHARS = 2_000;
 
 export interface Embedder {
   model: string;
+  // Server the vectors come from (when known). Part of any cache key: the same
+  // model name on a different server is a different embedder.
+  baseUrl?: string;
   embed(texts: string[]): Promise<Float32Array[]>;
 }
 
@@ -21,6 +24,7 @@ export function createOpenAICompatEmbedder(baseUrlRaw: string | undefined, model
   const baseUrl = normalizeLocalBaseUrl(baseUrlRaw) ?? DEFAULT_LOCAL_BASE_URL;
   return {
     model,
+    baseUrl,
     async embed(texts: string[]): Promise<Float32Array[]> {
       const out: Float32Array[] = [];
       for (let i = 0; i < texts.length; i += EMBED_BATCH) {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('../core/llm', () => ({ chatJSON: vi.fn() }));
+vi.mock('../core/llm', async (importOriginal) => ({ ...(await importOriginal<typeof import('../core/llm')>()), chatJSON: vi.fn() }));
 
 import { chatJSON, type ProviderConfig, type UsageStats } from '../core/llm';
 import { openDb } from '../core/infra/db';

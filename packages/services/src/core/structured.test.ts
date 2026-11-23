@@ -20,7 +20,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }));
 
 import { chatStructured, LlmParseError, toProviderJsonSchema } from './structured';
-import type { ProviderConfig } from './llm';
+import { setLlmTraceSink, type ProviderConfig } from './llm';
 
 const anthropicCfg: ProviderConfig = { provider: 'anthropic', apiKey: 'k', model: 'claude-haiku-4-5-20251001' };
 const groqCfg: ProviderConfig = { provider: 'groq', apiKey: 'k', model: 'llama-3.1-8b-instant' };
@@ -71,5 +71,20 @@ describe('chatStructured', () => {
     const js = toProviderJsonSchema(Schema);
     expect(js.$schema).toBeUndefined();
     expect(js.type).toBe('object');
+  });
+});
+
+describe('chatStructured — trace on final failure', () => {
+  it('records a status=error trace event when the repair also fails', async () => {
+    const events: Array<{ pass: string; status: string; errorMessage: string | null }> = [];
+    setLlmTraceSink(e => events.push(e));
+    try {
+      groqCreate.mockResolvedValue(groqOk('nope'));
+      await chatStructured(groqCfg, msgs, 'grader', { schema: Schema, name: 't' }).catch(() => {});
+      const errors = events.filter(e => e.status === 'error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({ pass: 'grader' });
+      expect(errors[0].errorMessage).toMatch(/failed validation after repair/);
+    } finally { setLlmTraceSink(null); }
   });
 });

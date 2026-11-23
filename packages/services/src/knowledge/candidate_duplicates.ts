@@ -61,6 +61,7 @@ export function createCachingEmbedder(inner: Embedder, max = 20_000): Embedder {
   const cache = new Map<string, Float32Array>();
   return {
     model: inner.model,
+    baseUrl: inner.baseUrl,
     async embed(texts: string[]): Promise<Float32Array[]> {
       const keys = texts.map(t => `${inner.model}|${textHash(t)}`);
       const missing = [...new Set(keys.filter(k => !cache.has(k)))];

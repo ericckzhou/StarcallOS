@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { computeCentrality, runStructureExtractor, runChunker } from './extraction';
 
-vi.mock('../core/llm', () => ({ chatJSON: vi.fn() }));
+vi.mock('../core/llm', async (importOriginal) => ({ ...(await importOriginal<typeof import('../core/llm')>()), chatJSON: vi.fn() }));
 import { chatJSON } from '../core/llm';
 const mockChat = vi.mocked(chatJSON);
 
