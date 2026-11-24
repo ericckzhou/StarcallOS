@@ -1,0 +1,15 @@
+{
+  "description": "Document pinned by the retrieval golden set (retrieval.jsonl). Labels reference chunk keys of THIS file; the runner refuses to score a different file.",
+  "document": {
+    "filename": "b36-txtbook.pdf",
+    "title": "Introduction to the Theory of Computation (course notes)",
+    "sha256": "0779dd3e3c6951e9f8a30bcc9d6d0cb0da8bc7655e8487cd500601227fcaa9ae",
+    "pages": 275
+  },
+  "labelled_with": {
+    "chunker_version": "0.1.0",
+    "layout_version": "0.5.2",
+    "chunks": 663,
+    "date": "2026-11-23"
+  }
+}

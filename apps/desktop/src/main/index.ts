@@ -28,6 +28,7 @@ import {
   recordSrsReview, countDueConcepts, countNewConcepts, setConceptSrsDue, getConceptSrs,
   emitEvent,
   segmentPdf, segmentText,
+  chunkBlocks, syncSourceChunks,
   extractCandidates, buildSectionPath, persistCandidateExtraction,
   selectBudgetedBlocks,
   deriveTopicAnchors, setTopicAnchors,
@@ -318,6 +319,28 @@ function dedupeByNormalized(candidates: CandidateLlmFilterArgs['candidates']): C
   return out;
 }
 
+// Deterministic retrieval-chunk index (RAG foundation). Zero LLM, zero
+// embedding calls: chunks are reconciled by content key, so re-processing an
+// unchanged document writes nothing. A failure here is logged and reported in
+// the parse-run diagnostics but never fails processing — candidates are the
+// product; the chunk index is an additive derived artifact.
+function syncRetrievalChunks(
+  db: ReturnType<typeof openDb>,
+  sourceId: number,
+  blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'],
+  runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'],
+): Record<string, unknown> {
+  try {
+    const { chunks, diagnostics } = chunkBlocks(blocks, runningHeaderSections);
+    const sync = syncSourceChunks(db, sourceId, chunks);
+    console.log(`[RAG_CHUNKS] source=${sourceId} chunks=${chunks.length} sync=${JSON.stringify(sync)}`);
+    return { ...diagnostics, sync };
+  } catch (e) {
+    console.error('[RAG_CHUNKS] failed for source', sourceId, e);
+    return { error: (e as Error).message };
+  }
+}
+
 function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.SOURCES_LIST, () => listSources(db));
 
@@ -462,6 +485,10 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       } catch (e) {
         console.error('[CANDIDATES] failed for source', sourceId, e);
       }
+      layoutDiagnostics = {
+        ...layoutDiagnostics,
+        rag_chunks: syncRetrievalChunks(db, sourceId, blocksForLLM, runningHeaderSections),
+      };
 
       // ─── Mode dispatch ──────────────────────────────────────────────────────
       // deterministic = no LLM. Candidates are the product.
@@ -1428,6 +1455,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     setTopicAnchors(db, sourceId, anchors);
     const cand = extractCandidates(blocks, sectionPaths, anchors, sectionSources, runningHeaderSections);
     persistCandidateExtraction(db, sourceId, cand);
+    syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections);
     console.log(
       `[CANDIDATES] (manual) source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +
       `concepts=${cand.candidates.length} relations=${cand.relations.length} ` +

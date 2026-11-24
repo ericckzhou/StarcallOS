@@ -42,8 +42,11 @@ function wantedForSource(db: DatabaseSync, sourceId: number): Wanted[] {
 
 export async function indexSourceEmbeddings(db: DatabaseSync, embedder: Embedder, sourceId: number): Promise<IndexResult> {
   const wanted = wantedForSource(db, sourceId);
+  // Scoped to concept/span rows: chunk vectors (owner_kind 'chunk') share this
+  // table but are owned by indexSourceChunkEmbeddings (repos/rag_chunks.ts).
   const existing = db.prepare(
-    `SELECT id, owner_kind, owner_id, text_hash FROM embeddings WHERE source_id = ? AND model = ?`,
+    `SELECT id, owner_kind, owner_id, text_hash FROM embeddings
+      WHERE source_id = ? AND model = ? AND owner_kind IN ('concept', 'span')`,
   ).all(sourceId, embedder.model) as Array<{ id: number; owner_kind: OwnerKind; owner_id: number; text_hash: string }>;
 
   const key = (k: string, o: number, h: string) => `${k}|${o}|${h}`;
@@ -52,7 +55,9 @@ export async function indexSourceEmbeddings(db: DatabaseSync, embedder: Embedder
 
   // Prune stale rows (text changed, concept deleted, or another model).
   const stale = existing.filter(r => !wantKeys.has(key(r.owner_kind, Number(r.owner_id), r.text_hash))).map(r => Number(r.id));
-  const otherModel = db.prepare(`DELETE FROM embeddings WHERE source_id = ? AND model <> ?`).run(sourceId, embedder.model);
+  const otherModel = db.prepare(
+    `DELETE FROM embeddings WHERE source_id = ? AND model <> ? AND owner_kind IN ('concept', 'span')`,
+  ).run(sourceId, embedder.model);
   const del = db.prepare(`DELETE FROM embeddings WHERE id = ?`);
   for (const id of stale) del.run(id);
 

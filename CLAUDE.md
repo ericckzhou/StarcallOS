@@ -280,6 +280,22 @@ Remember these as the active state of the repo:
   models, threshold 0.93 calibrated on nomic; not persisted — main memoizes via
   `createCachingEmbedder`); hints only, never auto-merge. Every consumer must
   degrade silently when embeddings are off/unreachable.
+- The RAG retrieval foundation is shipped (migration 0036, PR 1 of local Q&A;
+  no UI, no answer generation yet). `chunkBlocks` (`ingestion/chunker.ts`,
+  `CHUNKER_VERSION`) turns the existing layout blocks into section-bounded,
+  page-traceable chunks (drops page-numbered running headers itself; `layout.ts`
+  unchanged). `syncSourceChunks` reconciles `rag_chunks` by content-addressed
+  `chunk_key` right after candidate persistence in both processing paths —
+  unchanged documents write nothing and keep chunk ids. `rag_chunks_fts` (FTS5,
+  porter) is trigger-synced. Chunk vectors are `embeddings` rows with
+  `owner_kind='chunk'` (on demand via `indexSourceChunkEmbeddings`; processing
+  never embeds); `clearDerivedDataForSource` and `indexSourceEmbeddings` must
+  never touch chunk rows. `retrieveChunks` (`knowledge/retrieval.ts`) =
+  keyword (BM25) | vector | hybrid (RRF k=60), deterministic tie-breaks, and an
+  explicit keyword fallback (`mode_used`/`vector_error`) when vectors are
+  unavailable. Eval: `pnpm eval:retrieval -- --pdf <b36-txtbook.pdf>` against
+  the sha-pinned `evals/golden/retrieval.jsonl` (labels `proposed` until a human
+  reviews them; the repo is public, so labels hold keys + 60-char anchors only).
 - User-facing provider text should say "configured LLM provider" unless a
   feature is truly Groq-specific.
 - `.claude/agents/ipc-contract-reviewer.md` is a project review agent that
@@ -368,6 +384,7 @@ changes that affect repeatability:
 - `PARSER_VERSION`: candidates/topic scoring/promotion-output behavior
 - `GRAMMAR_VERSION`: grammar/equation extraction behavior
 - `LAYOUT_VERSION`: segmentation/layout classification behavior
+- `CHUNKER_VERSION`: retrieval chunk boundaries (`ingestion/chunker.ts`)
 
 Candidate rows and parse runs stamp these versions for auditability.
 

@@ -48,3 +48,69 @@ but go beyond the provided source.
 
 Grow the sets from real usage: concepts and answers from your own library are
 far better test cases than synthetic ones.
+
+## Retrieval (RAG PR 1)
+
+`evals/retrieval.mjs` measures chunk retrieval: keyword (SQLite FTS5 BM25),
+vector (local embeddings) and hybrid (Reciprocal Rank Fusion). No LLM is
+called. It is not part of CI: it needs the pinned textbook and, for the
+vector modes, a local OpenAI-compatible embedding server.
+
+```sh
+ollama pull nomic-embed-text
+pnpm eval:retrieval -- --pdf /path/to/b36-txtbook.pdf
+pnpm eval:retrieval -- --pdf /path/to/b36-txtbook.pdf --keyword-only   # no embedding server
+pnpm eval:retrieval -- --pdf /path/to/b36-txtbook.pdf --review         # local labelling sheet
+pnpm eval:retrieval -- --pdf /path/to/b36-txtbook.pdf --save-baseline
+```
+
+Env: `RETRIEVAL_EVAL_PDF` (instead of `--pdf`), `EVAL_BASE_URL` (default
+`http://127.0.0.1:11434/v1`), `EVAL_EMBED_MODEL` (default `nomic-embed-text`).
+
+- **Dataset**: `golden/retrieval.jsonl`, 30 questions across seven categories
+  (`exact_term`, `conceptual`, `multi_passage`, `equation`, `ambiguous`,
+  `no_answer`, `false_premise`). `golden/retrieval.meta.json` pins the document
+  by sha256; the runner refuses to score any other file. Each relevant passage
+  is `{ key, page, anchor }`: the chunk key, plus page + a 60-character anchor so
+  a label can be re-resolved after a chunker change (anything that no longer
+  resolves is reported as "relabel needed"). The repo is public, so labels hold
+  keys and anchors only, never chunk text.
+- **Label status**: every case is currently `proposed`. Claude drafted the
+  questions and picked relevant chunks by reading the chunk text, which it
+  found partly by keyword search. That biases the labels toward passages that
+  share words with the question, which in turn favours keyword retrieval.
+  Treat all numbers as provisional until a human reviews them.
+- **Reviewing**: `--review` writes `results/<stamp>-retrieval-review.md`
+  (gitignored, because it contains book text). For each question it pools the
+  top 10 from every mode and marks the currently labelled chunks (★). Tick
+  every chunk that helps answer the question (or refutes a false premise), copy
+  the keys, pages and anchors into `relevant`, and set `label_status` to
+  `reviewed`. Pooling across all three modes is what corrects the
+  keyword-search bias above.
+- **Metrics** (`scoreRetrieval` in `packages/services/src/evals/metrics.ts`):
+  Precision@K, Recall@K, MRR@K and coverage (at least one relevant chunk in the
+  top K), at K = 5 and 10, overall and per category, over answerable
+  questions. `no_answer` cases have no relevant set, so they are reported only
+  through their mean top-1 cosine (vector mode). That is an abstention signal
+  for later, not a threshold.
+- **Cache**: chunk vectors are cached in `evals/.cache/` (gitignored), so
+  re-runs embed nothing unless the chunker output changes.
+- **Baseline**: `baselines/retrieval.json` records the configuration (document
+  hash, chunker version, model, RRF k, pool) and the label status it was
+  measured with. A drop of more than 0.03 in any metric fails the run.
+
+### Provisional baseline: limitations
+
+`baselines/retrieval.json` (2026-11-23) is a starting point to measure
+changes against. It is not a quality claim:
+
+- All 30 labels are `proposed` (Claude-drafted) and have not been reviewed by
+  a human. The labels will stay `proposed` until the maintainer reviews the
+  dataset.
+- The labels are biased toward keyword matches (see "Label status" above).
+- There are only 27 answerable questions from one textbook, with one embedding
+  model (`nomic-embed-text`) and one chunker configuration.
+- Hybrid led keyword on MRR@5 with 6 wins, 1 loss and 20 ties per question.
+  A sign test gives p ≈ 0.125, which is not significant.
+- Re-record the baseline (`--save-baseline`) after the human review, and
+  report the comparison against this one.

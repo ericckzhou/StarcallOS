@@ -6,6 +6,7 @@
 export const PARSER_VERSION  = '0.6.2';  // candidates.ts: strip "Page N" from terms so per-page running headers collapse to one candidate
 export const GRAMMAR_VERSION = '0.2.2';  // grammar.ts: definition terms may include multi-word Title Case phrases
 export const LAYOUT_VERSION  = '0.5.2';  // layout.ts: strip Markdown markers from text-source blocks so candidate terms stay clean
+export const CHUNKER_VERSION = '0.1.0';  // chunker.ts: section-bounded retrieval chunks with formula gluing + block overlap
 
 // Behavioral contract for the LLM passes (the `contracts/*.md` specs). Bump when
 // a pass's purpose, output schema, hard invariants, or forbidden behavior change
