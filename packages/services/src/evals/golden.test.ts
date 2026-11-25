@@ -80,3 +80,42 @@ describe('golden sets', () => {
     expect(m).toMatchObject({ accuracy: 1, f1: 1, failed: 0 });
   });
 });
+
+describe('retrieval golden set', () => {
+  const CATEGORIES = ['exact_term', 'conceptual', 'multi_passage', 'equation', 'ambiguous', 'no_answer', 'false_premise'];
+
+  it('evals/retrieval.mjs only calls functions the services package exports', () => {
+    const src = fs.readFileSync(path.join(EVALS, 'retrieval.mjs'), 'utf8');
+    const used = [...new Set([...src.matchAll(/svc\.(\w+)/g)].map(m => m[1]))];
+    expect(used.length).toBeGreaterThan(8);
+    expect(used.filter(n => !(n in svc))).toEqual([]);
+  });
+
+  it('cases are well formed, cover every category, and an oracle scores 1.0', () => {
+    const rows = readJsonl('retrieval.jsonl');
+    const meta = JSON.parse(fs.readFileSync(path.join(EVALS, 'golden', 'retrieval.meta.json'), 'utf8'));
+    expect(meta.document.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(rows.length).toBeGreaterThanOrEqual(30);
+    expect(new Set(rows.map(r => r.id)).size).toBe(rows.length);
+    expect(new Set(rows.map(r => r.category))).toEqual(new Set(CATEGORIES));
+    for (const r of rows) {
+      expect(CATEGORIES, r.id).toContain(r.category);
+      expect(STATUSES, r.id).toContain(r.label_status);
+      expect(typeof r.question, r.id).toBe('string');
+      // Unanswerable <=> no relevant passage; everything else needs at least one.
+      expect(r.answerable, r.id).toBe(r.relevant.length > 0);
+      expect(r.answerable, r.id).toBe(r.category !== 'no_answer');
+      for (const l of r.relevant) {
+        expect(l.key, r.id).toMatch(/^[0-9a-f]{24}#\d+$/);
+        expect(Number.isInteger(l.page), r.id).toBe(true);
+        expect(l.anchor.length, r.id).toBeGreaterThan(0);
+        expect(l.anchor.length, r.id).toBeLessThanOrEqual(60);   // public repo: anchors only, never chunk text
+      }
+    }
+    const oracle = rows.map(r => {
+      const keys = r.relevant.map((l: { key: string }) => l.key);
+      return { id: r.id, category: r.category, answerable: r.answerable, relevant: keys, retrieved: keys, top_score: null };
+    });
+    expect(svc.scoreRetrieval(oracle, 10)).toMatchObject({ recall_at_k: 1, mrr: 1, coverage: 1 });
+  });
+});

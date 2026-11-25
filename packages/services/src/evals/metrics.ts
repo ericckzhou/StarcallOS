@@ -230,3 +230,86 @@ export function compareToBaseline(
   }
   return out;
 }
+
+// ─── Retrieval ───────────────────────────────────────────────────────────────
+// Chunk-level IR metrics over human-labelled relevant chunk keys. Unanswerable
+// questions (no relevant chunk exists) are excluded from P/R/MRR — those
+// metrics are undefined without a relevant set — and are instead summarized by
+// their top retrieval score, which later abstention thresholds are tuned on.
+
+export interface RetrievalCaseResult {
+  id: string;
+  category: string;
+  answerable: boolean;
+  relevant: string[];          // relevant chunk keys
+  retrieved: string[];         // retrieved chunk keys, best first
+  top_score: number | null;    // score of the first hit in the mode used
+}
+
+export function precisionAtK(relevant: Set<string>, retrieved: string[], k: number): number {
+  if (k <= 0) return 0;
+  return retrieved.slice(0, k).filter(x => relevant.has(x)).length / k;
+}
+
+export function recallAtK(relevant: Set<string>, retrieved: string[], k: number): number {
+  if (relevant.size === 0) return 0;
+  return new Set(retrieved.slice(0, k).filter(x => relevant.has(x))).size / relevant.size;
+}
+
+export function reciprocalRank(relevant: Set<string>, retrieved: string[], k = Infinity): number {
+  const i = retrieved.slice(0, k).findIndex(x => relevant.has(x));
+  return i < 0 ? 0 : 1 / (i + 1);
+}
+
+export interface RetrievalGroupMetrics {
+  n: number;
+  precision_at_k: number;
+  recall_at_k: number;
+  mrr: number;
+  coverage: number;            // share of questions with >= 1 relevant chunk in the top k
+}
+
+export interface RetrievalMetrics extends RetrievalGroupMetrics {
+  k: number;
+  n_unanswerable: number;
+  by_category: Record<string, RetrievalGroupMetrics>;
+  mean_top_score_answerable: number | null;
+  mean_top_score_unanswerable: number | null;
+}
+
+const round = (x: number) => Math.round(x * 1000) / 1000;
+
+function group(results: RetrievalCaseResult[], k: number): RetrievalGroupMetrics {
+  const n = results.length;
+  if (n === 0) return { n: 0, precision_at_k: 0, recall_at_k: 0, mrr: 0, coverage: 0 };
+  let p = 0, r = 0, rr = 0, cov = 0;
+  for (const c of results) {
+    const rel = new Set(c.relevant);
+    p += precisionAtK(rel, c.retrieved, k);
+    r += recallAtK(rel, c.retrieved, k);
+    rr += reciprocalRank(rel, c.retrieved, k);
+    if (c.retrieved.slice(0, k).some(x => rel.has(x))) cov++;
+  }
+  return { n, precision_at_k: round(p / n), recall_at_k: round(r / n), mrr: round(rr / n), coverage: round(cov / n) };
+}
+
+export function scoreRetrieval(results: RetrievalCaseResult[], k: number): RetrievalMetrics {
+  const answerable = results.filter(c => c.answerable && c.relevant.length > 0);
+  const unanswerable = results.filter(c => !c.answerable);
+  const by_category: Record<string, RetrievalGroupMetrics> = {};
+  for (const cat of [...new Set(answerable.map(c => c.category))].sort()) {
+    by_category[cat] = group(answerable.filter(c => c.category === cat), k);
+  }
+  const meanTop = (cs: RetrievalCaseResult[]) => {
+    const xs = cs.map(c => c.top_score).filter((x): x is number => x != null);
+    return xs.length ? round(xs.reduce((a, b) => a + b, 0) / xs.length) : null;
+  };
+  return {
+    k,
+    ...group(answerable, k),
+    n_unanswerable: unanswerable.length,
+    by_category,
+    mean_top_score_answerable: meanTop(answerable),
+    mean_top_score_unanswerable: meanTop(unanswerable),
+  };
+}

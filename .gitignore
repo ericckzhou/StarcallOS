@@ -18,3 +18,5 @@ playwright/.cache/
 
 # Eval run outputs (evals/baselines/, once recorded, should be committed)
 evals/results/
+# Retrieval eval vector cache (local embeddings of a private textbook)
+evals/.cache/

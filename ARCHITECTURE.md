@@ -93,6 +93,67 @@ parse_runs                 append-only audit of every Process click (mode, durat
   list can group formulas under their source topic rather than leaving them
   unattached whenever possible.
 
+## Retrieval Chunk Index (RAG foundation, migration 0036)
+
+A deterministic, zero-LLM passage index over every processed source, built as
+the first slice of local question answering. No UI and no answer generation
+yet; retrieval is a services API measured by an offline eval.
+
+```text
+layout blocks (segmentPdf / segmentText, unchanged)
+  -> chunkBlocks (ingestion/chunker.ts)      section-bounded, page-traceable chunks
+  -> syncSourceChunks (repos/rag_chunks.ts)  reconcile by content key
+  -> rag_chunks + rag_chunks_fts (FTS5)      BM25 keyword index, kept in sync by triggers
+  -> embeddings owner_kind='chunk'           opt-in local vectors (indexSourceChunkEmbeddings)
+  -> retrieveChunks (knowledge/retrieval.ts) keyword | vector | hybrid (RRF)
+```
+
+- **Chunker** (`CHUNKER_VERSION`): never crosses a section boundary, never
+  splits a layout block (except a single block over `maxChars`, split at
+  sentences), never starts a chunk with a formula and keeps short "where ..."
+  continuations with it, keeps a heading with the block after it, carries up to
+  `overlapChars` of whole trailing blocks into the next chunk of the same
+  section. Defaults: target 1000 / max 1800 / min 200 / overlap 200 chars.
+  It drops numeric figure-label noise and page-numbered running headers (which
+  `layout.ts` classifies as headings) before calling the existing
+  `buildSectionPath`; `layout.ts` itself is unchanged.
+- **Identity**: `chunk_key` = sha256(text) prefix + `#` + duplicate index. Stable
+  while the text is unchanged, so re-processing an unchanged document writes
+  nothing, keeps every chunk id, and never re-embeds. Eval labels reference it.
+- **Lifecycle**: processing and manual re-extract call `syncSourceChunks` right
+  after candidate persistence (failures are logged + recorded in parse-run
+  diagnostics, never fail processing). `clearDerivedDataForSource` does NOT wipe
+  chunks or chunk vectors — they are reconciled instead. Source delete cascades
+  (rows, FTS entries via trigger, vectors). `deleteSourceChunks` removes one
+  source's index. Sources processed before 0036 get chunks on their next
+  process / re-extract (no forced backfill).
+- **Vectors** reuse the existing `embeddings` table, text-hash caching and model
+  column; nomic models get `search_document:` / `search_query:` prefixes.
+  `indexSourceEmbeddings` (concept/span) is scoped to its own kinds so it can no
+  longer prune chunk vectors. Processing never embeds; nothing in the app calls
+  `indexSourceChunkEmbeddings` yet.
+- **Retrieval**: FTS5 query is built from quoted unicode word tokens (stopwords
+  and single letters dropped, OR-combined), so user text can never become FTS
+  syntax. BM25 weights text 1.0 / section path 0.5. Vector = brute-force cosine
+  over the selected sources. Hybrid = Reciprocal Rank Fusion (k = 60, pool 50),
+  ties broken by best single rank then chunk id. When vectors are unavailable a
+  hybrid request degrades to keyword and says so in `mode_used` +
+  `vector_error`; it is never silent. Filters: `sourceIds`, `k`, `minSimilarity`.
+- **FTS5** is verified in both runtimes that open the DB (Node 22.16 / SQLite
+  3.49.1 for tests, Electron 42 / SQLite 3.53.0 for the app); `hasFts5(db)` is
+  the runtime check, covered by a test.
+- **Decided follow-ups (not built)**:
+  - Backfilling existing sources will be a resumable background operation,
+    never startup-time processing.
+  - Chunk vectors will be generated lazily the first time the user asks a
+    question (Ask) about a source. That run shows progress, persists each
+    batch as it completes, and reuses compatible vectors (same model and
+    text hash). Generation stays local.
+  - The page-numbered running-header bug is fixed in `layout.ts` separately,
+    with a `LAYOUT_VERSION` bump.
+- **Eval**: `pnpm eval:retrieval -- --pdf <b36-txtbook.pdf>` (see
+  `evals/README.md`). Labels are Claude-proposed until a human reviews them.
+
 ## Mastery Model (compression stages)
 ```
 0  Unseen
@@ -121,6 +182,7 @@ Hand-bumped in `packages/services/src/core/version.ts`:
 - `PARSER_VERSION` — `candidates.ts` + `topic.ts` (signal weights, scoring)
 - `GRAMMAR_VERSION` — `grammar.ts` + `equations.ts` (regex patterns)
 - `LAYOUT_VERSION` — `layout.ts` (geometry segmentation, classify hints)
+- `CHUNKER_VERSION` — `chunker.ts` (retrieval chunk boundaries; stamped on `rag_chunks` rows)
 
 Every `concept_candidates` row stamps `parser_version`. Every `parse_runs` row stamps all three. Bump after behavioral changes so diffs across runs are traceable.
 
@@ -166,7 +228,7 @@ repeated domain-term evidence.
 `clearDerivedDataForSource(db, sourceId, { preserveUserData: true })`:
 - Always wipes: `concept_candidates`, `relation_candidates`, `equation_candidates`, `misconception_candidates`, `semantic_chunks`
 - For `concepts`: preserves any concept with study history (`evidence_records`) OR non-empty `evidence_json` (= manually promoted from candidate). Deletes only LLM-generated/untouched ones.
-- Never touches: `sources`, source file, `events`
+- Never touches: `sources`, source file, `events`, `rag_chunks` and chunk vectors (reconciled by `syncSourceChunks` instead)
 
 Startup: `recoverInterruptedSources(db)` flips any `status='processing'` (killed mid-run) → `status='failed'` with recoverable error message.
 

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { addressesGap, compareToBaseline, jaccard, scoreGrader, scoreTasks, scoreTopicFilter } from './metrics';
+import {
+  addressesGap, compareToBaseline, jaccard, precisionAtK, recallAtK, reciprocalRank,
+  scoreGrader, scoreRetrieval, scoreTasks, scoreTopicFilter,
+} from './metrics';
 
 describe('scoreGrader', () => {
   it('computes accuracy, stage tolerance, confusion and unsupported P/R', () => {
@@ -73,5 +76,32 @@ describe('gap targeting proxy', () => {
     ]);
     expect(m.gap_targeting).toBe(0.5);
     expect(scoreTasks([{ id: 'c', tasks: [] }]).gap_targeting).toBeNull();
+  });
+});
+
+describe('retrieval metrics', () => {
+  const rel = new Set(['a', 'b']);
+  it('computes precision@k, recall@k and reciprocal rank', () => {
+    expect(precisionAtK(rel, ['x', 'a', 'y', 'b'], 2)).toBe(0.5);
+    expect(precisionAtK(rel, ['a'], 4)).toBe(0.25);          // short lists still divide by k
+    expect(recallAtK(rel, ['x', 'a', 'y', 'b'], 2)).toBe(0.5);
+    expect(recallAtK(rel, ['a', 'a', 'b'], 3)).toBe(1);      // duplicates do not double count
+    expect(recallAtK(new Set(), ['a'], 3)).toBe(0);
+    expect(reciprocalRank(rel, ['x', 'y', 'b'])).toBeCloseTo(1 / 3);
+    expect(reciprocalRank(rel, ['x', 'y', 'b'], 2)).toBe(0);
+    expect(reciprocalRank(rel, [])).toBe(0);
+  });
+
+  it('aggregates answerable cases, splits categories and keeps unanswerable apart', () => {
+    const m = scoreRetrieval([
+      { id: '1', category: 'exact_term', answerable: true, relevant: ['a'], retrieved: ['a', 'x'], top_score: 0.9 },
+      { id: '2', category: 'conceptual', answerable: true, relevant: ['b', 'c'], retrieved: ['x', 'c'], top_score: 0.7 },
+      { id: '3', category: 'no_answer', answerable: false, relevant: [], retrieved: ['z'], top_score: 0.4 },
+    ], 2);
+    expect(m).toMatchObject({ k: 2, n: 2, n_unanswerable: 1, coverage: 1, mrr: 0.75, recall_at_k: 0.75, precision_at_k: 0.5 });
+    expect(m.by_category.conceptual).toMatchObject({ n: 1, mrr: 0.5, recall_at_k: 0.5 });
+    expect(m.by_category.no_answer).toBeUndefined();
+    expect(m.mean_top_score_answerable).toBe(0.8);
+    expect(m.mean_top_score_unanswerable).toBe(0.4);
   });
 });

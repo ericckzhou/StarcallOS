@@ -64,7 +64,10 @@ export function clearDerivedDataForSource(
   // user-curated concept_edges rows on the preserved promoted concepts.
   const prerequisite_suggestions = countAndDelete(db, 'prerequisite_suggestions', 'source_id = ?', sourceId);
   // Embedding vectors are derived and rebuilt incrementally on demand.
-  countAndDelete(db, 'embeddings', 'source_id = ?', sourceId);
+  // Retrieval chunks (rag_chunks) and their vectors are NOT wiped here: they
+  // are reconciled by chunk_key right after re-segmentation (syncSourceChunks),
+  // so an unchanged document keeps its chunk ids and never re-embeds.
+  countAndDelete(db, 'embeddings', `source_id = ? AND owner_kind <> 'chunk'`, sourceId);
 
   // Concepts: split by whether the user has studied them.
   // "Studied" = at least one row in evidence_records for that concept_id.

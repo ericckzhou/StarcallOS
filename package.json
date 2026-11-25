@@ -13,7 +13,8 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "eval": "pnpm -C packages/services build && node evals/run.mjs"
+    "eval": "pnpm -C packages/services build && node evals/run.mjs",
+    "eval:retrieval": "pnpm -C packages/services build && node evals/retrieval.mjs"
   },
   "devDependencies": {
     "typescript": "^5.4.5"
