@@ -125,3 +125,69 @@ describe('segmentText with Markdown', () => {
     expect(blocks.map(b => b.text)).toEqual(['one', 'two']);
   });
 });
+
+describe('detectPrintedPageHeaders', () => {
+  const H = 800;
+  const top = (text: string) => ({ text, y: 780 });       // top 8% margin
+  const body = (text: string) => ({ text, y: 400 });
+  // A 40-page book: printed page = PDF page + 20 (front matter). Chapter 1
+  // headers only span pages 1–12 — far below the book-wide repeat threshold.
+  function book() {
+    return Array.from({ length: 40 }, (_, i) => {
+      const page = i + 1;
+      const printed = page + 20;
+      const header = page === 9
+        ? top(`0.1. SETS ${printed}`)                                  // one-off odd-page header
+        : page <= 12
+          ? top(page % 2 ? `1.2. MATHEMATICAL INDUCTION ${printed}` : `${printed} CHAPTER 1. INDUCTION`)
+          : top(page % 2 ? `2.1. TREES ${printed}` : `${printed} CHAPTER 2. GRAPHS`);
+      return { page, pageHeight: H, lines: [header, body('1 Introduction to the topic'), body(`Equation ${page} holds.`)] };
+    });
+  }
+
+  it('recovers the printed-page offset and flags every page-numbered header, even one-offs', () => {
+    const r = __layoutTest.detectPrintedPageHeaders(book());
+    expect(r.offset).toBe(20);
+    expect(r.keys.size).toBe(40);
+    expect(r.keys.has('9|0.1. SETS 29')).toBe(true);
+    expect(r.keys.has('2|22 CHAPTER 1. INDUCTION')).toBe(true);
+  });
+
+  it('never flags body lines, even ones that start with a number', () => {
+    const r = __layoutTest.detectPrintedPageHeaders(book());
+    expect([...r.keys].some(k => k.includes('Introduction to the topic') || k.includes('Equation'))).toBe(false);
+  });
+
+  it('does nothing when margins carry no consistent page numbering', () => {
+    const pages = Array.from({ length: 30 }, (_, i) => ({
+      page: i + 1, pageHeight: H,
+      lines: [top(i % 7 === 0 ? `${(i * 13) % 50} Results` : 'Journal of Things'), body('Some text.')],
+    }));
+    expect(__layoutTest.detectPrintedPageHeaders(pages)).toEqual({ offset: null, keys: new Set() });
+  });
+
+  it('finds LaTeX headers that sit just below the fixed margin band (real b36 geometry)', () => {
+    // b36: header at y=722 on a 792pt page (91.2%), the 8% band starts at 92%.
+    const pages = Array.from({ length: 20 }, (_, i) => {
+      const page = i + 30;
+      const printed = page - 8;
+      return {
+        page, pageHeight: 792,
+        lines: [
+          { text: page % 2 ? `1.2. MATHEMATICAL INDUCTION ${printed}` : `${printed} CHAPTER 1. INDUCTION`, y: 722 },
+          { text: 'as wanted.', y: 691 },
+          { text: '3', y: 94 },          // figure label near the bottom, not a page number
+          { text: 'If the root is also a leaf, then the tree has one node.', y: 91 },
+        ],
+      };
+    });
+    const r = __layoutTest.detectPrintedPageHeaders(pages);
+    expect(r.offset).toBe(-8);
+    expect(r.keys.size).toBe(20);
+    expect([...r.keys].some(k => k.endsWith('|3'))).toBe(false);
+  });
+
+  it('ignores short documents', () => {
+    expect(__layoutTest.detectPrintedPageHeaders(book().slice(0, 5)).offset).toBeNull();
+  });
+});

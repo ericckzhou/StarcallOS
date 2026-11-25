@@ -114,9 +114,16 @@ layout blocks (segmentPdf / segmentText, unchanged)
   continuations with it, keeps a heading with the block after it, carries up to
   `overlapChars` of whole trailing blocks into the next chunk of the same
   section. Defaults: target 1000 / max 1800 / min 200 / overlap 200 chars.
-  It drops numeric figure-label noise and page-numbered running headers (which
-  `layout.ts` classifies as headings) before calling the existing
-  `buildSectionPath`; `layout.ts` itself is unchanged.
+  It drops numeric figure-label noise and, as a backstop, any page-numbered
+  running headers that still arrive as headings before calling the existing
+  `buildSectionPath`.
+- **Running headers** (`LAYOUT_VERSION` 0.5.3, `detectPrintedPageHeaders` in
+  `layout.ts`): margin lines (fixed band OR a page's first/last line) whose
+  leading/trailing integer `n` votes for offset `n − page`; when one offset wins
+  on ≥ max(5, 20% of pages) pages, every margin line whose number equals
+  `page + offset` is stripped. This catches chapter-scoped and one-off headers
+  that the book-wide repeat set misses. On b36 (offset −8) it strips 257 lines
+  and drops heading blocks from 326 to 122.
 - **Identity**: `chunk_key` = sha256(text) prefix + `#` + duplicate index. Stable
   while the text is unchanged, so re-processing an unchanged document writes
   nothing, keeps every chunk id, and never re-embeds. Eval labels reference it.
@@ -147,8 +154,6 @@ layout blocks (segmentPdf / segmentText, unchanged)
 - **Decided follow-ups (not built)**:
   - A library-wide resumable background backfill (the per-source Index is
     already resumable by construction: each source is reconciled on its own).
-  - The page-numbered running-header bug is fixed in `layout.ts` separately,
-    with a `LAYOUT_VERSION` bump.
   - Jumping from a citation into the PDF page (the viewer is concept-bound today).
 - **Eval**: `pnpm eval:retrieval -- --pdf <b36-txtbook.pdf>` (see
   `evals/README.md`). Labels are Claude-proposed until a human reviews them.

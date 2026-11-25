@@ -283,8 +283,10 @@ Remember these as the active state of the repo:
 - The RAG retrieval foundation is shipped (migration 0036, PR 1 of local Q&A;
   no UI, no answer generation yet). `chunkBlocks` (`ingestion/chunker.ts`,
   `CHUNKER_VERSION`) turns the existing layout blocks into section-bounded,
-  page-traceable chunks (drops page-numbered running headers itself; `layout.ts`
-  unchanged). `syncSourceChunks` reconciles `rag_chunks` by content-addressed
+  page-traceable chunks. Page-numbered running headers are stripped in
+  `layout.ts` (`detectPrintedPageHeaders`, LAYOUT 0.5.3: margin/first/last-line
+  numbers voting for one printed-page offset); the chunker's own header filter
+  is now only a backstop. `syncSourceChunks` reconciles `rag_chunks` by content-addressed
   `chunk_key` right after candidate persistence in both processing paths —
   unchanged documents write nothing and keep chunk ids. `rag_chunks_fts` (FTS5,
   porter) is trigger-synced. Chunk vectors are `embeddings` rows with

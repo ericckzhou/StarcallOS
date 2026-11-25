@@ -12,11 +12,11 @@
 //   4. Close a chunk once it reaches targetChars; carry up to overlapChars of
 //      trailing whole blocks into the next chunk of the same section.
 //
-// Running headers that the layout layer classifies as headings (e.g.
-// "32 CHAPTER 1. INDUCTION" — the page number defeats layout.ts's
-// repeated-margin stripping) are detected here and dropped before section
-// paths are built; otherwise the section path changes on every page. This is a
-// chunker-local filter: layout.ts and the candidate pipeline are unchanged.
+// Running headers that reach the chunker as headings (e.g.
+// "32 CHAPTER 1. INDUCTION") are dropped before section paths are built;
+// otherwise the section path changes on every page. Since LAYOUT_VERSION 0.5.3,
+// layout.ts strips page-numbered headers itself (detectPrintedPageHeaders), so
+// this is now a backstop for documents without consistent printed numbering.
 
 import type { SegmentedBlock } from './layout';
 import type { SectionNode } from '../core/domain/types';

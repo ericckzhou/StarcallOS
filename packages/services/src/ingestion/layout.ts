@@ -195,6 +195,7 @@ function makeLine(items: RawItem[]): Line {
 
 export const __layoutTest = {
   makeLine,
+  detectPrintedPageHeaders: (...a: Parameters<typeof detectPrintedPageHeaders>) => detectPrintedPageHeaders(...a),
   classify,
   groupIntoBlocks,
 };
@@ -335,6 +336,86 @@ function isValidHeaderTitle(title: string): boolean {
   if (title.split(/\s+/).filter(Boolean).length > 12) return false;
   if (isTocLine(title)) return false;
   return true;
+}
+
+// ─── Pass 3c: page-numbered running headers ──────────────────────────────────
+//
+// Book headers carry the printed page number ("32 CHAPTER 1. INDUCTION",
+// "1.2. MATHEMATICAL INDUCTION 33"). The repeat set above masks digits, but it
+// needs a line to repeat on a book-wide fraction of pages — a chapter's header
+// only spans that chapter, and a short section's odd-page header can appear
+// once. Those slipped through as headings and changed the section path on
+// every page.
+//
+// Instead, recover the book's printed numbering: a margin line whose leading or
+// trailing integer n sits on PDF page p votes for offset n − p. When one offset
+// wins on enough pages, every margin line whose number equals p + offset is a
+// running header (or a bare page number) and is stripped. A real heading would
+// have to sit in the margin AND carry a number equal to the printed page to be
+// caught, which body headings essentially never do.
+
+const PRINTED_MIN_PAGES = 5;          // absolute floor of agreeing pages
+const PRINTED_MIN_FRACTION = 0.2;     // and at least this share of pages with text
+
+export interface PrintedPageHeaders {
+  offset: number | null;              // printed page number − PDF page number
+  keys: Set<string>;                  // `${page}|${trimmed line text}` to strip
+}
+
+function marginNumbers(text: string): number[] {
+  const t = text.trim();
+  const out: number[] = [];
+  const lead = /^(\d{1,4})(?:\s+\S|$)/.exec(t);
+  const trail = /\S\s+(\d{1,4})$/.exec(t);
+  if (lead) out.push(Number(lead[1]));
+  if (trail) out.push(Number(trail[1]));
+  return out;
+}
+
+export function detectPrintedPageHeaders(
+  pages: Array<{ page: number; pageHeight: number; lines: Array<{ text: string; y: number }> }>,
+): PrintedPageHeaders {
+  const none: PrintedPageHeaders = { offset: null, keys: new Set() };
+  if (pages.length < REPEAT_MIN_PAGES) return none;
+  // A page's first and last text lines count as margin lines in addition to
+  // the fixed band: LaTeX books put the header at ~91% of the page height,
+  // just below an 8% band. The page-number match is the real evidence;
+  // position only narrows where we look.
+  const extremes = pages.map(p => {
+    const ys = p.lines.map(l => l.y);
+    return ys.length ? { hi: Math.max(...ys), lo: Math.min(...ys) } : { hi: NaN, lo: NaN };
+  });
+  const inMargin = (pi: number, y: number) => {
+    const h = pages[pi].pageHeight;
+    return y === extremes[pi].hi || y === extremes[pi].lo || y / h > 1 - REPEAT_MARGIN_FRAC || y / h < REPEAT_MARGIN_FRAC;
+  };
+
+  const votes = new Map<number, number>();
+  let pagesWithText = 0;
+  pages.forEach((p, pi) => {
+    if (p.lines.length) pagesWithText++;
+    const offsets = new Set<number>();
+    for (const l of p.lines) {
+      if (!inMargin(pi, l.y) || l.text.length >= 100) continue;
+      for (const n of marginNumbers(l.text)) offsets.add(n - p.page);
+    }
+    for (const o of offsets) votes.set(o, (votes.get(o) ?? 0) + 1);
+  });
+  let best: number | null = null;
+  let bestVotes = 0;
+  for (const [o, v] of votes) {
+    if (v > bestVotes || (v === bestVotes && best != null && Math.abs(o) < Math.abs(best))) { best = o; bestVotes = v; }
+  }
+  if (best == null || bestVotes < Math.max(PRINTED_MIN_PAGES, Math.ceil(pagesWithText * PRINTED_MIN_FRACTION))) return none;
+
+  const keys = new Set<string>();
+  pages.forEach((p, pi) => {
+    for (const l of p.lines) {
+      if (!inMargin(pi, l.y) || l.text.length >= 100) continue;
+      if (marginNumbers(l.text).includes(p.page + best!)) keys.add(`${p.page}|${l.text.trim()}`);
+    }
+  });
+  return { offset: best, keys };
 }
 
 function isRepeatingHeader(line: Line, repeats: Set<string>): boolean {
@@ -518,6 +599,10 @@ export interface LayoutDiagnostics {
   two_column_pages: number;
   noise_removed_count: number;     // includes TOC lines (matched by isTocLine inside isNoise)
   repeating_header_stripped: number;
+  // Margin lines stripped because their number matched the detected printed
+  // page numbering (see detectPrintedPageHeaders). Optional: PDF only.
+  page_numbered_header_stripped?: number;
+  printed_page_offset?: number | null;
   running_header_sections: number;
   merged_broken_headings: number;
   index_blocks_stripped: number;
@@ -558,6 +643,13 @@ export async function segmentPdf(filePath: string): Promise<{
   if (debug && repeatingHeaders.size > 0) {
     console.log(`[LAYOUT] repeating margin texts detected (${repeatingHeaders.size}): ${[...repeatingHeaders].slice(0, 5).join(' | ')}`);
   }
+  const printedHeaders = detectPrintedPageHeaders(
+    perPageRaw.map((p, i) => ({ page: i + 1, pageHeight: p.pageHeight, lines: groupIntoLines(p.raw) })),
+  );
+  let pageNumberedStrippedCount = 0;
+  if (debug && printedHeaders.offset != null) {
+    console.log(`[LAYOUT] printed page offset=${printedHeaders.offset} page-numbered margin lines=${printedHeaders.keys.size}`);
+  }
   if (debug && runningHeaderSections.length > 0) {
     console.log(`[LAYOUT] running-header sections (${runningHeaderSections.length}): ${runningHeaderSections.slice(0, 5).map(s => `${s.heading}[${s.page_start}-${s.page_end}]`).join(' | ')}`);
   }
@@ -577,6 +669,10 @@ export async function segmentPdf(filePath: string): Promise<{
       if (isNoise(l, pageHeight)) return false;
       if (isRepeatingHeader(l, repeatingHeaders)) {
         repeatingHeaderStrippedCount += 1;
+        return false;
+      }
+      if (printedHeaders.keys.has(`${pageNum}|${l.text.trim()}`)) {
+        pageNumberedStrippedCount += 1;
         return false;
       }
       return true;
@@ -635,6 +731,8 @@ export async function segmentPdf(filePath: string): Promise<{
     two_column_pages:    twoColumnPages,
     noise_removed_count: noiseRemovedCount,
     repeating_header_stripped: repeatingHeaderStrippedCount,
+    page_numbered_header_stripped: pageNumberedStrippedCount,
+    printed_page_offset: printedHeaders.offset,
     running_header_sections: runningHeaderSections.length,
     merged_broken_headings: mergedHeadingCount,
     index_blocks_stripped: indexStrippedCount,
