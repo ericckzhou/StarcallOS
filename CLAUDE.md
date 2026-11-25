@@ -296,6 +296,19 @@ Remember these as the active state of the repo:
   unavailable. Eval: `pnpm eval:retrieval -- --pdf <b36-txtbook.pdf>` against
   the sha-pinned `evals/golden/retrieval.jsonl` (labels `proposed` until a human
   reviews them; the repo is public, so labels hold keys + 60-char anchors only).
+- Local Ask (RAG PR 2) is shipped as a top-level **Ask** tab (`AskPane.tsx`,
+  `knowledge/ask.ts`). Generation is LOCAL-ONLY: `resolveAskConfig` always
+  returns the `local` provider (pass `ask`) and never a cloud one. Citations
+  are verified by `validateAnswer`/`quoteInPassage`: the quote must occur in
+  the passage after `normalizeWithMap` folding, and the result carries
+  `start`/`end` offsets into the original text, which the UI highlights.
+  Unverified citations are dropped and markers rewritten. Status is
+  grounded/partial/unsupported/insufficient/no_passages/retrieval_only. A model
+  failure degrades to `retrieval_only` (passages still shown). Chunk vectors
+  are embedded lazily on Ask with `rag:progress`; `rag.indexSource` backfills
+  one pre-0036 source; `+ Note` saves the answer and its citations as a concept
+  note. Never loosen the quote check into fuzzy/semantic matching: the
+  guarantee is verbatim modulo typography.
 - User-facing provider text should say "configured LLM provider" unless a
   feature is truly Groq-specific.
 - `.claude/agents/ipc-contract-reviewer.md` is a project review agent that

@@ -166,6 +166,12 @@ export const ExportBundleArgsSchema = z
     path: ['sourceId'],
   });
 
+// Local Ask (RAG). Bounded so a pasted essay can't become a huge FTS/prompt.
+export const RagAskArgsSchema = z.object({
+  question:  z.string().trim().min(1).max(2000),
+  sourceIds: z.array(positiveInt).max(500).optional(),
+});
+
 // ─── Remaining mutating-handler schemas ────────────────────────────────────────
 // These guard the rest of the write-path IPC surface. Kept permissive (generous
 // bounds, clamped numerics left as plain numbers, no `.strict()`) so they reject

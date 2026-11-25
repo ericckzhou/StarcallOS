@@ -156,4 +156,14 @@ contextBridge.exposeInMainWorld('api', {
     indexLibrary: () => ipcRenderer.invoke('embeddings:indexLibrary'),
     related: (conceptId: number) => ipcRenderer.invoke('concepts:related', conceptId),
   },
+  rag: {
+    status: () => ipcRenderer.invoke('rag:status'),
+    indexSource: (sourceId: number) => ipcRenderer.invoke('rag:indexSource', sourceId),
+    ask: (args: { question: string; sourceIds?: number[] }) => ipcRenderer.invoke('rag:ask', args),
+    onProgress: (cb: (p: { phase: 'embedding'; sourceId: number; done: number; total: number }) => void) => {
+      const listener = (_e: unknown, p: { phase: 'embedding'; sourceId: number; done: number; total: number }) => cb(p);
+      ipcRenderer.on('rag:progress', listener);
+      return () => ipcRenderer.removeListener('rag:progress', listener);
+    },
+  },
 });

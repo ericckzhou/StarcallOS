@@ -71,6 +71,7 @@ import {
   gradeResponse,
   resetUsageStats, getUsageStats, setLlmTraceSink, effectiveSelfConsistency, listLocalModels, DEFAULT_LOCAL_BASE_URL,
   setSrsScheduler, mergeSettingsPatch, persistGradedAttempt, normalizeLocalBaseUrl, createOpenAICompatEmbedder, createCachingEmbedder, findCandidateNearDuplicates, DEFAULT_EMBEDDING_MODEL, indexSourceEmbeddings, retrieveSourceExcerpts, relatedConcepts, embeddingStats,
+  resolveAskConfig, askSources, chunkIndexStats, indexSourceChunkEmbeddings, RagAskArgsSchema,
   type Embedder, buildCandidateLlmFilterPrompt, parseCandidateLlmFilterResponse, createLlmCallSink, summarizeLlmCalls,
 } from '@starcall/services';
 import { IPC } from '@starcall/shared';
@@ -89,6 +90,8 @@ import type {
   UpdatePdfAnnotationArgs,
   SettingsSnapshot,
   LlmTraceSummary,
+  RagStatus,
+  RagIndexSourceResult,
   EmbeddingsStatus,
   CandidateNearDuplicates,
 } from '@starcall/shared';
@@ -1192,6 +1195,88 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       (concept.where_reappears as Array<string | { name: string }>).map(l => (typeof l === 'string' ? l : l.name).toLowerCase()),
     );
     return relatedConcepts(db, embedder.model, conceptId, 10).filter(r => !linked.has(r.name.toLowerCase())).slice(0, 6);
+  });
+
+  // ─── Local Ask (RAG) ──────────────────────────────────────────────────────
+  // Answers come only from the local model (resolveAskConfig). Embeddings are
+  // local too and generated lazily here, on Ask, per selected source — each
+  // batch is persisted, so an interrupted run resumes where it stopped and
+  // compatible vectors (same model + text hash) are never recomputed.
+  ipcMain.handle(IPC.RAG_STATUS, (): RagStatus => {
+    const s = loadRawSettings();
+    const model = s.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
+    const ask = resolveAskConfig(s);
+    return {
+      askModel: ask?.model ?? null,
+      askBaseUrl: ask?.baseUrl ?? null,
+      embeddingsEnabled: !!s.embeddingsEnabled,
+      embeddingModel: model,
+      sources: listSources(db).map(src => {
+        const st = chunkIndexStats(db, s.embeddingsEnabled ? model : undefined, src.id);
+        return { source_id: src.id, title: src.title ?? src.filename, chunks: st.chunks, embedded: st.embedded };
+      }),
+    };
+  });
+
+  // Backfill for sources processed before the chunk index existed: re-segment
+  // the file and reconcile chunks only. Candidates/concepts are not touched.
+  const indexingSources = new Set<number>();
+  ipcMain.handle(IPC.RAG_INDEX_SOURCE, async (_e, rawId: unknown): Promise<RagIndexSourceResult> => {
+    const sourceId = validateIpc(PositiveIntSchema, rawId, IPC.RAG_INDEX_SOURCE);
+    if (indexingSources.has(sourceId)) return { ok: false, error: 'This source is already being indexed.' };
+    const source = getSourceById(db, sourceId);
+    if (!source) return { ok: false, error: 'Source not found.' };
+    if (!fs.existsSync(source.file_path)) return { ok: false, error: 'The source file no longer exists.' };
+    indexingSources.add(sourceId);
+    try {
+      let blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
+      let runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'] = [];
+      if (source.file_path.endsWith('.txt')) {
+        blocks = segmentText(fs.readFileSync(source.file_path, 'utf-8'));
+      } else {
+        const out = await segmentPdf(source.file_path);
+        blocks = out.blocks;
+        runningHeaderSections = out.runningHeaderSections;
+      }
+      const diag = syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections);
+      if (typeof diag.error === 'string') return { ok: false, error: diag.error };
+      return { ok: true, chunks: chunkIndexStats(db, undefined, sourceId).chunks };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      indexingSources.delete(sourceId);
+    }
+  });
+
+  ipcMain.handle(IPC.RAG_ASK, async (e, rawArgs: unknown) => {
+    const args = validateIpc(RagAskArgsSchema, rawArgs, IPC.RAG_ASK);
+    const sourceIds = args.sourceIds?.length ? args.sourceIds : undefined;
+    const embedder = getEmbedder();
+    let indexWarning: string | null = null;
+    if (embedder) {
+      const ids = sourceIds ?? listSources(db).map(s => s.id);
+      for (const id of ids) {
+        try {
+          await indexSourceChunkEmbeddings(db, embedder, id, (done, total) => {
+            if (!e.sender.isDestroyed()) e.sender.send(IPC.RAG_PROGRESS, { phase: 'embedding', sourceId: id, done, total });
+          });
+        } catch (err) {
+          // Keep going: keyword retrieval still works and vectors already
+          // stored stay usable. Stop trying further sources — the server is
+          // most likely down and each attempt would fail the same way.
+          indexWarning = `Embedding chunks failed (${err instanceof Error ? err.message : String(err)}); vector search may be partial or unavailable.`;
+          console.warn('[RAG] chunk embedding failed:', err);
+          break;
+        }
+      }
+    }
+    const result = await askSources(db, {
+      question: args.question,
+      sourceIds,
+      config: resolveAskConfig(loadRawSettings()),
+      embedder,
+    });
+    return { ...result, index_warning: indexWarning };
   });
 
   ipcMain.handle(IPC.LLM_LIST_LOCAL_MODELS, async (_e, rawBaseUrl: unknown) => {

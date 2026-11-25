@@ -8,6 +8,7 @@ import ProfilePane, { Avatar } from './components/ProfilePane';
 import ParseRunsPanel from './components/ParseRunsPanel';
 import ConstellationMap from './components/ConstellationMap';
 import HubsPane from './components/HubsPane';
+import AskPane from './components/AskPane';
 import { loadProfile, xpToNext, type Profile, type StudyProgress } from './components/profile';
 
 type Tab = 'concepts' | 'candidates' | 'runs';
@@ -21,7 +22,7 @@ function loadInitialTab(): Tab {
   const stored = localStorage.getItem(SOURCE_TAB_KEY);
   return (stored && (VALID_TABS as string[]).includes(stored)) ? (stored as Tab) : 'candidates';
 }
-type TopLevel = 'sources' | 'review' | 'map' | 'hubs' | 'profile';
+type TopLevel = 'sources' | 'review' | 'map' | 'hubs' | 'ask' | 'profile';
 
 export default function App() {
   const [topLevel, setTopLevel] = useState<TopLevel>('sources');
@@ -182,6 +183,7 @@ export default function App() {
           {topBtn('review',   'Review')}
           {topBtn('map',      'Map')}
           {topBtn('hubs',     'Hubs')}
+          {topBtn('ask',      'Ask')}
         </div>
         {(reviewCounts.newCount + reviewCounts.dueCount) > 0 && (() => {
           // Honest label: brand-new and due-now are distinct review states, so
@@ -249,6 +251,8 @@ export default function App() {
         />
       ) : topLevel === 'hubs' ? (
         <HubsPane onChanged={() => setConceptsRefreshKey(k => k + 1)} />
+      ) : topLevel === 'ask' ? (
+        <AskPane />
       ) : topLevel === 'review' ? (
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
           <ReviewQueue

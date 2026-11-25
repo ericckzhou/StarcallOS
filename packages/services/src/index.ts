@@ -28,6 +28,7 @@ export * from './knowledge/repos/llm_calls';
 export * from './knowledge/repos/embeddings';
 export * from './knowledge/repos/rag_chunks';
 export * from './knowledge/retrieval';
+export * from './knowledge/ask';
 export * from './knowledge/srs';
 export * from './knowledge/fsrs';
 export * from './knowledge/promotion';
