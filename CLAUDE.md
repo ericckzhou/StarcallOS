@@ -308,7 +308,13 @@ Remember these as the active state of the repo:
   grounded/partial/unsupported/insufficient/no_passages/retrieval_only. A model
   failure degrades to `retrieval_only` (passages still shown). Chunk vectors
   are embedded lazily on Ask with `rag:progress`; `rag.indexSource` backfills
-  one pre-0036 source; `+ Note` saves the answer and its citations as a concept
+  one pre-0036 source; the whole-library job (`knowledge/library_index.ts`,
+  `LibraryIndexPanel` in the Ask rail + Settings → Passage index) chunks
+  unindexed sources, re-chunks outdated ones (older chunker/layout stamps) and
+  embeds everything. It is user-started only (never at startup), resumable with
+  no job table (per-source/per-batch commits), and Stop-able; failures are
+  skipped and reported. A main-process per-source lock serializes it with
+  Index/Ask; Ask skips busy sources (index_warning). `+ Note` saves the answer and its citations as a concept
   note. Never loosen the quote check into fuzzy/semantic matching: the
   guarantee is verbatim modulo typography. The concept header **Ask** button
   (hidden on Challenges until graded) opens Ask with that concept as context:

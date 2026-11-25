@@ -162,6 +162,19 @@ contextBridge.exposeInMainWorld('api', {
     ask: (args: { question: string; sourceIds?: number[]; conceptId?: number }) => ipcRenderer.invoke('rag:ask', args),
     history: (conceptId: number) => ipcRenderer.invoke('rag:history', conceptId),
     historyDelete: (id: number) => ipcRenderer.invoke('rag:historyDelete', id),
+    libraryStatus: () => ipcRenderer.invoke('rag:libraryStatus'),
+    libraryStart: () => ipcRenderer.invoke('rag:libraryStart'),
+    libraryStop: () => ipcRenderer.invoke('rag:libraryStop'),
+    onLibraryProgress: (cb: (p: unknown) => void) => {
+      const listener = (_e: unknown, p: unknown) => cb(p);
+      ipcRenderer.on('rag:libraryProgress', listener);
+      return () => ipcRenderer.removeListener('rag:libraryProgress', listener);
+    },
+    onLibraryDone: (cb: (s: unknown) => void) => {
+      const listener = (_e: unknown, s: unknown) => cb(s);
+      ipcRenderer.on('rag:libraryDone', listener);
+      return () => ipcRenderer.removeListener('rag:libraryDone', listener);
+    },
     onProgress: (cb: (p: { phase: 'embedding'; sourceId: number; done: number; total: number }) => void) => {
       const listener = (_e: unknown, p: { phase: 'embedding'; sourceId: number; done: number; total: number }) => cb(p);
       ipcRenderer.on('rag:progress', listener);

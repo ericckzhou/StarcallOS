@@ -152,11 +152,41 @@ layout blocks (segmentPdf / segmentText, unchanged)
 - **Built in PR 2 (Ask)**: chunk vectors are generated lazily on Ask (below);
   per-source backfill for pre-0036 sources is the Ask rail's **Index** button.
 - **Decided follow-ups (not built)**:
-  - A library-wide resumable background backfill (the per-source Index is
-    already resumable by construction: each source is reconciled on its own).
   - Jumping from a citation into the PDF page (the viewer is concept-bound today).
 - **Eval**: `pnpm eval:retrieval -- --pdf <b36-txtbook.pdf>` (see
   `evals/README.md`). Labels are Claude-proposed until a human reviews them.
+
+## Library passage index
+
+`knowledge/library_index.ts`; controls in the Ask rail ("Passage index") and
+Settings → Passage index (both `LibraryIndexPanel.tsx`).
+
+- **Plan** (`planLibraryIndex`, pure read): per source, `chunk` (no chunks),
+  `rechunk` (any chunk stamped with an older `chunker_version`/`layout_version`),
+  and, when embeddings are on, chunks missing a vector for the model. Run order:
+  unindexed, then stale, then embed-only; fewer pages first in each group.
+- **Run** (`runLibraryIndex`): re-segment and reconcile chunks only (candidates,
+  concepts, notes, history untouched), then `indexSourceChunkEmbeddings`.
+  Segmentation, embedder, lock, progress and stop are injected, so the runner is
+  tested with fakes.
+- **Resumable with no job table**: chunks commit per source and vectors per
+  64-chunk batch, and vectors are reused by (model, text hash). Stop is checked
+  between sources and between batches. Resuming just plans again; finished
+  work is never redone.
+- **Failures**: a source that fails to chunk (missing file, bad PDF) is recorded
+  and skipped. The first embedding failure ends vector work for the run (the
+  server is most likely down), but chunking continues. Everything is reported
+  in the summary.
+- **Never automatic**: the job only starts from a user click (`rag.libraryStart`),
+  never at startup. Re-chunking an outdated source updates its passages only;
+  its candidates follow on the next re-extract.
+- **Per-source lock** (main): the library job, the per-source Index button and
+  Ask's lazy embedding serialize on a source. Ask never waits; it skips a busy
+  source's embedding and says so in `index_warning`. Index refuses a busy source.
+  The job queues behind the lock.
+- IPC: `rag.{libraryStatus,libraryStart,libraryStop,onLibraryProgress,onLibraryDone}`;
+  `rag.status` sources carry `stale`. Settings' older "Index concepts now"
+  button is the separate concept/span index (grading excerpts, related concepts).
 
 ## Local Ask (RAG PR 2)
 

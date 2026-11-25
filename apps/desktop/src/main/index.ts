@@ -71,6 +71,7 @@ import {
   gradeResponse,
   resetUsageStats, getUsageStats, setLlmTraceSink, effectiveSelfConsistency, listLocalModels, DEFAULT_LOCAL_BASE_URL,
   setSrsScheduler, mergeSettingsPatch, persistGradedAttempt, normalizeLocalBaseUrl, createOpenAICompatEmbedder, createCachingEmbedder, findCandidateNearDuplicates, DEFAULT_EMBEDDING_MODEL, indexSourceEmbeddings, retrieveSourceExcerpts, relatedConcepts, embeddingStats,
+  planLibraryIndex, runLibraryIndex, type LibraryIndexProgress, type LibraryIndexSummary,
   resolveAskConfig, askSources, saveAskHistory, listAskHistory, deleteAskHistory, chunkIndexStats, indexSourceChunkEmbeddings, RagAskArgsSchema,
   type Embedder, buildCandidateLlmFilterPrompt, parseCandidateLlmFilterResponse, createLlmCallSink, summarizeLlmCalls,
 } from '@starcall/services';
@@ -91,6 +92,7 @@ import type {
   SettingsSnapshot,
   LlmTraceSummary,
   RagStatus,
+  RagLibraryStatus,
   RagIndexSourceResult,
   EmbeddingsStatus,
   CandidateNearDuplicates,
@@ -1206,6 +1208,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const s = loadRawSettings();
     const model = s.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
     const ask = resolveAskConfig(s);
+    const stale = new Set(planLibraryIndex(db, { embeddingModel: null }).items.filter(i => i.action === 'rechunk').map(i => i.source_id));
     return {
       askModel: ask?.model ?? null,
       askBaseUrl: ask?.baseUrl ?? null,
@@ -1213,39 +1216,110 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       embeddingModel: model,
       sources: listSources(db).map(src => {
         const st = chunkIndexStats(db, s.embeddingsEnabled ? model : undefined, src.id);
-        return { source_id: src.id, title: src.title ?? src.filename, chunks: st.chunks, embedded: st.embedded };
+        return {
+          source_id: src.id, title: src.title ?? src.filename, chunks: st.chunks, embedded: st.embedded,
+          stale: stale.has(src.id),
+        };
       }),
     };
   });
 
-  // Backfill for sources processed before the chunk index existed: re-segment
-  // the file and reconcile chunks only. Candidates/concepts are not touched.
-  const indexingSources = new Set<number>();
+  // ─── Per-source RAG lock ────────────────────────────────────────────────
+  // Serializes chunk/embedding work on one source across the library job, the
+  // per-source Index button and Ask's lazy embedding. Ask never WAITS on a busy
+  // source (it skips its embedding and says so); Index refuses; the library job
+  // queues behind whoever holds it.
+  const sourceLocks = new Map<number, Promise<unknown>>();
+  function withSourceLock<T>(sourceId: number, fn: () => Promise<T>): Promise<T> {
+    const prev = sourceLocks.get(sourceId) ?? Promise.resolve();
+    const run = prev.catch(() => undefined).then(fn);
+    const tail = run.catch(() => undefined);
+    sourceLocks.set(sourceId, tail);
+    void tail.then(() => { if (sourceLocks.get(sourceId) === tail) sourceLocks.delete(sourceId); });
+    return run;
+  }
+  const isSourceBusy = (sourceId: number) => sourceLocks.has(sourceId);
+
+  // Re-segment a source file and reconcile its chunks only (candidates,
+  // concepts and user data are untouched). Throws with a user-facing message.
+  async function rebuildChunksForSource(sourceId: number): Promise<void> {
+    const source = getSourceById(db, sourceId);
+    if (!source) throw new Error('Source not found.');
+    if (!fs.existsSync(source.file_path)) throw new Error('The source file no longer exists.');
+    let blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
+    let runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'] = [];
+    if (source.file_path.endsWith('.txt')) {
+      blocks = segmentText(fs.readFileSync(source.file_path, 'utf-8'));
+    } else {
+      const out = await segmentPdf(source.file_path);
+      blocks = out.blocks;
+      runningHeaderSections = out.runningHeaderSections;
+    }
+    const diag = syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections);
+    if (typeof diag.error === 'string') throw new Error(diag.error);
+  }
+
+  // Backfill one source (Ask rail "Index" button).
   ipcMain.handle(IPC.RAG_INDEX_SOURCE, async (_e, rawId: unknown): Promise<RagIndexSourceResult> => {
     const sourceId = validateIpc(PositiveIntSchema, rawId, IPC.RAG_INDEX_SOURCE);
-    if (indexingSources.has(sourceId)) return { ok: false, error: 'This source is already being indexed.' };
-    const source = getSourceById(db, sourceId);
-    if (!source) return { ok: false, error: 'Source not found.' };
-    if (!fs.existsSync(source.file_path)) return { ok: false, error: 'The source file no longer exists.' };
-    indexingSources.add(sourceId);
+    if (isSourceBusy(sourceId)) return { ok: false, error: 'This source is already being indexed.' };
     try {
-      let blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
-      let runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'] = [];
-      if (source.file_path.endsWith('.txt')) {
-        blocks = segmentText(fs.readFileSync(source.file_path, 'utf-8'));
-      } else {
-        const out = await segmentPdf(source.file_path);
-        blocks = out.blocks;
-        runningHeaderSections = out.runningHeaderSections;
-      }
-      const diag = syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections);
-      if (typeof diag.error === 'string') return { ok: false, error: diag.error };
+      await withSourceLock(sourceId, () => rebuildChunksForSource(sourceId));
       return { ok: true, chunks: chunkIndexStats(db, undefined, sourceId).chunks };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    } finally {
-      indexingSources.delete(sourceId);
     }
+  });
+
+  // ─── Whole-library index (user-started background job, never at startup) ──
+  // Resumable by construction: chunks commit per source and vectors per batch,
+  // so Stop (or quitting) keeps finished work and the next run skips it.
+  let libraryJob: { stop: boolean; progress: LibraryIndexProgress | null } | null = null;
+  let lastLibrarySummary: LibraryIndexSummary | null = null;
+  const broadcast = (channel: string, payload: unknown) => {
+    for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send(channel, payload);
+  };
+
+  ipcMain.handle(IPC.RAG_LIBRARY_STATUS, (): RagLibraryStatus => {
+    const s = loadRawSettings();
+    const model = s.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
+    const { items: _items, ...plan } = planLibraryIndex(db, { embeddingModel: s.embeddingsEnabled ? model : null });
+    return { running: libraryJob != null, progress: libraryJob?.progress ?? null, plan, last: lastLibrarySummary };
+  });
+
+  ipcMain.handle(IPC.RAG_LIBRARY_START, (): { ok: true } | { ok: false; error: string } => {
+    if (libraryJob) return { ok: false, error: 'Library indexing is already running.' };
+    const job: { stop: boolean; progress: LibraryIndexProgress | null } = { stop: false, progress: null };
+    libraryJob = job;
+    void runLibraryIndex(db, {
+      rebuildChunks: rebuildChunksForSource,
+      embedder: getEmbedder(),
+      withSourceLock,
+      shouldStop: () => job.stop,
+      onProgress: p => { job.progress = p; broadcast(IPC.RAG_LIBRARY_PROGRESS, p); },
+    })
+      .then(summary => {
+        console.log(`[RAG_LIBRARY] ${JSON.stringify({ ...summary, failures: summary.failures.length })}`);
+        lastLibrarySummary = summary;
+      })
+      .catch(err => {
+        console.error('[RAG_LIBRARY] failed:', err);
+        lastLibrarySummary = {
+          stopped: true, sources_processed: 0, chunked: 0, rechunked: 0, embedded_chunks: 0,
+          failures: [{ source_id: 0, title: '(library index)', stage: 'chunk', error: err instanceof Error ? err.message : String(err) }],
+          embed_error: null,
+        };
+      })
+      .finally(() => {
+        libraryJob = null;
+        broadcast(IPC.RAG_LIBRARY_DONE, lastLibrarySummary);
+      });
+    return { ok: true };
+  });
+
+  ipcMain.handle(IPC.RAG_LIBRARY_STOP, () => {
+    if (libraryJob) libraryJob.stop = true;
+    return { ok: true as const };
   });
 
   ipcMain.handle(IPC.RAG_ASK, async (e, rawArgs: unknown) => {
@@ -1259,11 +1333,15 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     let indexWarning: string | null = null;
     if (embedder) {
       const ids = sourceIds ?? listSources(db).map(s => s.id);
+      const busy: string[] = [];
       for (const id of ids) {
+        // Never wait behind the library job: skip this source's lazy
+        // embedding (its stored vectors are still searched) and say so.
+        if (isSourceBusy(id)) { busy.push(getSourceById(db, id)?.title ?? String(id)); continue; }
         try {
-          await indexSourceChunkEmbeddings(db, embedder, id, (done, total) => {
+          await withSourceLock(id, () => indexSourceChunkEmbeddings(db, embedder, id, (done, total) => {
             if (!e.sender.isDestroyed()) e.sender.send(IPC.RAG_PROGRESS, { phase: 'embedding', sourceId: id, done, total });
-          });
+          }));
         } catch (err) {
           // Keep going: keyword retrieval still works and vectors already
           // stored stay usable. Stop trying further sources — the server is
@@ -1272,6 +1350,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
           console.warn('[RAG] chunk embedding failed:', err);
           break;
         }
+      }
+      if (busy.length && !indexWarning) {
+        indexWarning = `Being indexed in the background: ${busy.join(', ')}. Vector search may be partial for ${busy.length === 1 ? 'it' : 'them'} until indexing finishes.`;
       }
     }
     const result = await askSources(db, {
