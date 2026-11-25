@@ -314,7 +314,10 @@ Remember these as the active state of the repo:
   embeds everything. It is user-started only (never at startup), resumable with
   no job table (per-source/per-batch commits), and Stop-able; failures are
   skipped and reported. A main-process per-source lock serializes it with
-  Index/Ask; Ask skips busy sources (index_warning). `+ Note` saves the answer and its citations as a concept
+  Index/Ask; Ask skips busy sources (index_warning). Citations open
+  `SourcePagePreview` (read-only cited-page render, quote located on
+  letters/digits only — pdf.js emits math glyphs as out-of-order spans; never
+  use it to VERIFY, only to locate). `+ Note` saves the answer and its citations as a concept
   note. Never loosen the quote check into fuzzy/semantic matching: the
   guarantee is verbatim modulo typography. The concept header **Ask** button
   (hidden on Challenges until graded) opens Ask with that concept as context:
