@@ -298,6 +298,10 @@ Remember these as the active state of the repo:
   unavailable. Eval: `pnpm eval:retrieval -- --pdf <b36-txtbook.pdf>` against
   the sha-pinned `evals/golden/retrieval.jsonl` (labels `proposed` until a human
   reviews them; the repo is public, so labels hold keys + 60-char anchors only).
+  `pnpm eval:ask -- --pdf <pdf> --model <local>` scores real Ask answers on
+  the same questions (deterministic: status mix, abstention, citation
+  precision, dropped citations; no LLM judge; tolerance 0.075). Shared setup
+  lives in `evals/pinned_doc.mjs`.
 - Local Ask (RAG PR 2) is shipped as a top-level **Ask** tab (`AskPane.tsx`,
   `knowledge/ask.ts`). Generation is LOCAL-ONLY: `resolveAskConfig` always
   returns the `local` provider (pass `ask`) and never a cloud one. Citations

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addressesGap, compareToBaseline, jaccard, precisionAtK, recallAtK, reciprocalRank,
-  scoreGrader, scoreRetrieval, scoreTasks, scoreTopicFilter,
+  percentile, scoreAsk, scoreGrader, scoreRetrieval, scoreTasks, scoreTopicFilter, type AskCaseResult,
 } from './metrics';
 
 describe('scoreGrader', () => {
@@ -103,5 +103,50 @@ describe('retrieval metrics', () => {
     expect(m.by_category.no_answer).toBeUndefined();
     expect(m.mean_top_score_answerable).toBe(0.8);
     expect(m.mean_top_score_unanswerable).toBe(0.4);
+  });
+});
+
+describe('ask metrics', () => {
+  const c = (o: Partial<AskCaseResult>): AskCaseResult => ({
+    id: 'x', category: 'exact_term', answerable: true, relevant: ['a'], status: 'grounded', cited: [], dropped: 0, latency_ms: 100, ...o,
+  });
+
+  it('percentile uses nearest rank', () => {
+    expect(percentile([], 50)).toBe(0);
+    expect(percentile([5, 1, 3], 50)).toBe(3);
+    expect(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 95)).toBe(10);
+  });
+
+  it('scores statuses, citations, abstention and drops', () => {
+    const m = scoreAsk([
+      c({ id: '1', status: 'grounded', cited: ['a', 'b'], latency_ms: 100 }),
+      c({ id: '2', status: 'partial', cited: ['z'], dropped: 1, latency_ms: 300 }),
+      c({ id: '3', status: 'insufficient', latency_ms: 200 }),
+      c({ id: '4', status: 'retrieval_only', latency_ms: 50 }),
+      c({ id: '5', category: 'no_answer', answerable: false, relevant: [], status: 'insufficient', latency_ms: 80 }),
+      c({ id: '6', category: 'no_answer', answerable: false, relevant: [], status: 'grounded', cited: ['q'], latency_ms: 90 }),
+    ]);
+    expect(m.n).toBe(6);
+    expect(m.answerable).toEqual({
+      n: 4, grounded_rate: 0.25, supported_rate: 0.5, declined_rate: 0.25, unsupported_rate: 0, failed_rate: 0.25,
+    });
+    expect(m.correct_abstention_rate).toBe(0.5);
+    expect(m.n_unanswerable).toBe(2);
+    // answerable citations: a (rel), b, z → 1/3
+    expect(m.citation_precision).toBe(0.333);
+    // supported answerable: #1 cites a relevant chunk, #2 does not
+    expect(m.relevant_citation_rate).toBe(0.5);
+    // verified 4 (a,b,z,q) + dropped 1
+    expect(m.dropped_citation_rate).toBe(0.2);
+    expect(m.latency_p50_ms).toBe(90);
+    expect(m.by_category.no_answer.n).toBe(2);
+  });
+
+  it('reports null rates when there is nothing to measure', () => {
+    const m = scoreAsk([c({ status: 'insufficient' })]);
+    expect(m.correct_abstention_rate).toBeNull();
+    expect(m.citation_precision).toBeNull();
+    expect(m.relevant_citation_rate).toBeNull();
+    expect(m.dropped_citation_rate).toBeNull();
   });
 });
