@@ -8,7 +8,7 @@ import ProfilePane, { Avatar } from './components/ProfilePane';
 import ParseRunsPanel from './components/ParseRunsPanel';
 import ConstellationMap from './components/ConstellationMap';
 import HubsPane from './components/HubsPane';
-import AskPane from './components/AskPane';
+import AskPane, { type AskContext } from './components/AskPane';
 import { loadProfile, xpToNext, type Profile, type StudyProgress } from './components/profile';
 
 type Tab = 'concepts' | 'candidates' | 'runs';
@@ -37,6 +37,7 @@ export default function App() {
   const [xpPulse, setXpPulse] = useState(false);
   const prevLevel = useRef<number | null>(null);
   const prevXp = useRef<number | null>(null);
+  const [askContext, setAskContext] = useState<AskContext | null>(null);
   const [reviewCounts, setReviewCounts] = useState<{ newCount: number; dueCount: number }>({ newCount: 0, dueCount: 0 });
 
   // Celebrate level-ups and pulse the XP chip on XP gains. Guards the initial
@@ -79,6 +80,20 @@ export default function App() {
     refreshDue();
     window.addEventListener('starcall:review-queue-stale', refreshDue);
     return () => window.removeEventListener('starcall:review-queue-stale', refreshDue);
+  }, []);
+
+  // "Ask about this" from any concept view routes here with the concept as
+  // context (DetailPane dispatches the event; it has no App callbacks).
+  useEffect(() => {
+    const onAsk = (e: Event) => {
+      const d = (e as CustomEvent<AskContext>).detail;
+      if (!d) return;
+      setAskContext({ ...d });
+      setTopLevel('ask');
+      setSelectedConcept(null);
+    };
+    window.addEventListener('starcall:ask', onAsk);
+    return () => window.removeEventListener('starcall:ask', onAsk);
   }, []);
 
   // If the selected source disappears from the list (e.g. user deleted it),
@@ -252,7 +267,7 @@ export default function App() {
       ) : topLevel === 'hubs' ? (
         <HubsPane onChanged={() => setConceptsRefreshKey(k => k + 1)} />
       ) : topLevel === 'ask' ? (
-        <AskPane />
+        <AskPane context={askContext} onClearContext={() => setAskContext(null)} />
       ) : topLevel === 'review' ? (
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
           <ReviewQueue

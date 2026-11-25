@@ -170,6 +170,8 @@ export const ExportBundleArgsSchema = z
 export const RagAskArgsSchema = z.object({
   question:  z.string().trim().min(1).max(2000),
   sourceIds: z.array(positiveInt).max(500).optional(),
+  // "Ask about this": focus retrieval on the concept and save to its history.
+  conceptId: positiveInt.optional(),
 });
 
 // ─── Remaining mutating-handler schemas ────────────────────────────────────────

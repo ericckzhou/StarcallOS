@@ -71,7 +71,7 @@ import {
   gradeResponse,
   resetUsageStats, getUsageStats, setLlmTraceSink, effectiveSelfConsistency, listLocalModels, DEFAULT_LOCAL_BASE_URL,
   setSrsScheduler, mergeSettingsPatch, persistGradedAttempt, normalizeLocalBaseUrl, createOpenAICompatEmbedder, createCachingEmbedder, findCandidateNearDuplicates, DEFAULT_EMBEDDING_MODEL, indexSourceEmbeddings, retrieveSourceExcerpts, relatedConcepts, embeddingStats,
-  resolveAskConfig, askSources, chunkIndexStats, indexSourceChunkEmbeddings, RagAskArgsSchema,
+  resolveAskConfig, askSources, saveAskHistory, listAskHistory, deleteAskHistory, chunkIndexStats, indexSourceChunkEmbeddings, RagAskArgsSchema,
   type Embedder, buildCandidateLlmFilterPrompt, parseCandidateLlmFilterResponse, createLlmCallSink, summarizeLlmCalls,
 } from '@starcall/services';
 import { IPC } from '@starcall/shared';
@@ -1250,7 +1250,11 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
 
   ipcMain.handle(IPC.RAG_ASK, async (e, rawArgs: unknown) => {
     const args = validateIpc(RagAskArgsSchema, rawArgs, IPC.RAG_ASK);
-    const sourceIds = args.sourceIds?.length ? args.sourceIds : undefined;
+    const concept = args.conceptId != null ? getConceptById(db, args.conceptId) : null;
+    if (args.conceptId != null && !concept) throw new Error(`concept ${args.conceptId} not found`);
+    const sourceIds = args.sourceIds?.length
+      ? args.sourceIds
+      : concept?.source_id != null ? [concept.source_id] : undefined;
     const embedder = getEmbedder();
     let indexWarning: string | null = null;
     if (embedder) {
@@ -1275,8 +1279,26 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       sourceIds,
       config: resolveAskConfig(loadRawSettings()),
       embedder,
+      focus: concept?.name ?? null,
     });
-    return { ...result, index_warning: indexWarning };
+    const full = { ...result, index_warning: indexWarning };
+    if (!concept) return full;
+    // Saving history must never cost the user the answer they just got.
+    try {
+      const entry = saveAskHistory(db, concept.id, full);
+      return { ...full, history_id: entry.id };
+    } catch (err) {
+      console.warn('[RAG] saving Ask history failed:', err);
+      return full;
+    }
+  });
+
+  ipcMain.handle(IPC.RAG_HISTORY, (_e, rawId: unknown) =>
+    listAskHistory(db, validateIpc(PositiveIntSchema, rawId, IPC.RAG_HISTORY)));
+
+  ipcMain.handle(IPC.RAG_HISTORY_DELETE, (_e, rawId: unknown) => {
+    deleteAskHistory(db, validateIpc(PositiveIntSchema, rawId, IPC.RAG_HISTORY_DELETE));
+    return { ok: true as const };
   });
 
   ipcMain.handle(IPC.LLM_LIST_LOCAL_MODELS, async (_e, rawBaseUrl: unknown) => {

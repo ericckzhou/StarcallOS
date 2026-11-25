@@ -195,8 +195,20 @@ rag.ask -> lazy chunk embedding (indexSourceChunkEmbeddings, progress events)
   its chunks. Candidates and concepts are never touched.
 - **Learning loop**: `+ Note` saves the verified answer and its cited quotes
   and pages as an ordinary user-owned note on a concept from the cited sources.
-- IPC: `rag.{status,indexSource,ask,onProgress}`; args validated by
-  `RagAskArgsSchema` (question ≤ 2000 chars).
+- **Ask about a concept** (PR 3, migration 0037): the DetailPane header **Ask**
+  button (hidden on the Challenges tab until the current attempt is graded, so
+  lookup never replaces recall) dispatches `starcall:ask`. App switches to Ask
+  with that concept as context: an "About" chip, the concept's source selected,
+  and agreement-free starter questions that only fill the box. `rag.ask({conceptId})`
+  passes the concept name as `focus`, which is appended to the RETRIEVAL query
+  only (never the prompt, so verification is unchanged), and saves the result to
+  `ask_history`. That table is user-owned, keeps the newest 50 per concept, and
+  cascades on concept delete. History is a list of independent verified
+  answers, deliberately not a chat thread: prior answers are never fed back
+  into the prompt, so the model can't cite itself. `+ Note` defaults to the
+  concept (one click; ▾ picks another).
+- IPC: `rag.{status,indexSource,ask,onProgress,history,historyDelete}`; args
+  validated by `RagAskArgsSchema` (question ≤ 2000 chars, optional `conceptId`).
 
 ## Mastery Model (compression stages)
 ```

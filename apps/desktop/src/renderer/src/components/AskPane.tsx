@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AskResult, RagProgress, RagStatus } from '@starcall/shared';
+import type { AskHistoryEntry, AskResult, RagProgress, RagStatus } from '@starcall/shared';
 
 // Local Ask: question → retrieved passages → local-model answer whose every
 // [n] marker has been verified against the passage text (services/ask.ts).
@@ -48,7 +48,29 @@ function highlight(text: string, spans: Array<[number, number]>): React.ReactNod
   return out;
 }
 
-export default function AskPane() {
+// Set when Ask is opened from a concept ("Ask about this").
+export interface AskContext { conceptId: number; name: string; sourceId: number | null }
+
+// Starter questions follow the concept's own Overview fields (definition / why
+// it exists / what breaks / where it reappears). They only fill the box — the
+// user still chooses to ask.
+function starters(name: string): string[] {
+  // Phrased so the verb never agrees with the concept name ("Regular
+  // expressions" would make "What is …" / "Why does … exist" ungrammatical).
+  return [`Define ${name}.`, `What is the purpose of ${name}?`, `What goes wrong without ${name}?`, `Give an example of ${name}.`];
+}
+
+function ago(sqlTime: string): string {
+  const t = Date.parse(sqlTime.replace(' ', 'T') + 'Z');
+  if (Number.isNaN(t)) return '';
+  const m = Math.round((Date.now() - t) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  if (m < 1440) return `${Math.round(m / 60)}h ago`;
+  return `${Math.round(m / 1440)}d ago`;
+}
+
+export default function AskPane({ context = null, onClearContext }: { context?: AskContext | null; onClearContext?: () => void }) {
   const [status, setStatus] = useState<RagStatus | null>(null);
   const [selected, setSelected] = useState<number[]>(loadSelected);
   const [question, setQuestion] = useState('');
@@ -59,6 +81,23 @@ export default function AskPane() {
   const [indexing, setIndexing] = useState<Set<number>>(new Set());
   const [focusN, setFocusN] = useState<number | null>(null);
   const passageRefs = useRef(new Map<number, HTMLDivElement>());
+  const [history, setHistory] = useState<AskHistoryEntry[]>([]);
+
+  const refreshHistory = useCallback(() => {
+    if (!context) { setHistory([]); return; }
+    window.api.rag.history(context.conceptId).then(setHistory).catch(() => setHistory([]));
+  }, [context]);
+
+  // Opening Ask from a concept scopes it to that concept's source and starts
+  // fresh; leaving the concept keeps the user's own source selection.
+  useEffect(() => {
+    if (!context) return;
+    if (context.sourceId != null) setSelected([context.sourceId]);
+    setQuestion('');
+    setResult(null);
+    setError(null);
+  }, [context]);
+  useEffect(() => { refreshHistory(); }, [refreshHistory]);
 
   const refreshStatus = useCallback(() => {
     window.api.rag.status().then(setStatus).catch(() => setStatus(null));
@@ -102,7 +141,12 @@ export default function AskPane() {
     setProgress(null);
     setFocusN(null);
     try {
-      setResult(await window.api.rag.ask({ question: q, sourceIds: validSelected.length ? validSelected : undefined }));
+      setResult(await window.api.rag.ask({
+        question: q,
+        sourceIds: validSelected.length ? validSelected : undefined,
+        conceptId: context?.conceptId,
+      }));
+      if (context) refreshHistory();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -181,11 +225,22 @@ export default function AskPane() {
       <main style={{ flex: 1, overflowY: 'auto', padding: '18px 24px' }}>
         <div style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={panel}>
+            {context && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                <span style={{ ...badge, color: '#c7d2fe', borderColor: 'rgba(129,140,248,0.5)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  About: {context.name}
+                  <button onClick={onClearContext} title="Stop asking about this concept" style={{ ...linkBtn, color: '#94a3b8', fontSize: 12 }}>×</button>
+                </span>
+                {!question.trim() && starters(context.name).map(s => (
+                  <button key={s} onClick={() => setQuestion(s)} style={smallBtn} title="Use this question (you still choose to ask)">{s}</button>
+                ))}
+              </div>
+            )}
             <textarea
               value={question}
               onChange={e => setQuestion(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void ask(); } }}
-              placeholder="Ask a question about your sources…"
+              placeholder={context ? `Ask about ${context.name}…` : 'Ask a question about your sources…'}
               rows={3}
               maxLength={2000}
               style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', background: 'rgba(2,4,18,0.45)', border: '1px solid rgba(55,65,120,0.6)', borderRadius: 8, color: '#e2e8f0', padding: '10px 12px', fontSize: 14, fontFamily: 'inherit' }}
@@ -210,6 +265,36 @@ export default function AskPane() {
 
           {error && <div style={{ ...panel, borderColor: 'rgba(239,68,68,0.5)', color: '#fca5a5', fontSize: 12 }}>{error}</div>}
 
+          {context && history.length > 0 && (
+            <details style={{ ...panel, padding: '10px 14px' }} open={!result}>
+              <summary style={{ ...label, cursor: 'pointer' }}>Earlier questions about {context.name} ({history.length})</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 8 }}>
+                {history.map(h => {
+                  const m = STATUS_META[h.result.status];
+                  const active = result?.history_id === h.id;
+                  return (
+                    <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 6, background: active ? 'rgba(129,140,248,0.12)' : 'transparent' }}>
+                      <button onClick={() => { setResult({ ...h.result, history_id: h.id }); setFocusN(null); }} title="Show this answer" style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'transparent', border: 'none', color: '#e2e8f0', fontSize: 12, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: 0 }}>
+                        {h.result.question}
+                      </button>
+                      <span title={m.hint} style={{ fontSize: 10, fontWeight: 700, color: m.color, whiteSpace: 'nowrap' }}>{m.label}</span>
+                      <span style={{ fontSize: 10, color: '#6b7280', whiteSpace: 'nowrap' }}>{ago(h.created_at)}</span>
+                      <button
+                        onClick={async () => {
+                          await window.api.rag.historyDelete(h.id);
+                          if (result?.history_id === h.id) setResult(null);
+                          refreshHistory();
+                        }}
+                        title="Remove this question from the history"
+                        style={{ ...linkBtn, color: '#6b7280', fontSize: 13 }}
+                      >×</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          )}
+
           {result && meta && (
             <>
               <div style={panel}>
@@ -224,7 +309,13 @@ export default function AskPane() {
                   {result.model && result.status !== 'retrieval_only' && result.status !== 'no_passages' && (
                     <span style={{ fontSize: 11, color: '#6b7280' }}>{result.model}</span>
                   )}
-                  {result.answer && <SaveAsNote result={result} />}
+                  {result.answer && (
+                    <SaveAsNote
+                      key={result.history_id ?? result.question}
+                      result={result}
+                      defaultConcept={context ? { id: context.conceptId, name: context.name } : null}
+                    />
+                  )}
                 </div>
                 {result.answer ? (
                   <div style={{ fontSize: 14, lineHeight: 1.65, color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>{renderAnswer(result.answer)}</div>
@@ -297,7 +388,9 @@ export default function AskPane() {
 // Learning-loop hook: keep a verified answer as a note on a concept from one
 // of the cited sources. The note is ordinary user-owned text (editable, never
 // rewritten by extraction) and carries the citations with their pages.
-function SaveAsNote({ result }: { result: AskResult }) {
+// From "Ask about this" the asked-about concept is the one-click default; the
+// ▾ picker still allows any concept from the cited sources.
+function SaveAsNote({ result, defaultConcept }: { result: AskResult; defaultConcept: { id: number; name: string } | null }) {
   const [open, setOpen] = useState(false);
   const [concepts, setConcepts] = useState<Array<{ id: number; name: string; source: string }>>([]);
   const [query, setQuery] = useState('');
@@ -328,7 +421,14 @@ function SaveAsNote({ result }: { result: AskResult }) {
   return (
     <span style={{ marginLeft: 'auto', position: 'relative' }}>
       {saved && !open && <span style={{ fontSize: 11, color: '#22c55e', marginRight: 8 }}>Saved to {saved}</span>}
-      <button onClick={() => setOpen(o => !o)} style={smallBtn} title="Save this answer as a note on a concept">+ Note</button>
+      {defaultConcept ? (
+        <>
+          <button onClick={() => void save(defaultConcept.id, defaultConcept.name)} style={{ ...smallBtn, borderRadius: '6px 0 0 6px' }} title={`Save this answer as a note on ${defaultConcept.name}`}>+ Note</button>
+          <button onClick={() => setOpen(o => !o)} style={{ ...smallBtn, borderLeft: 'none', borderRadius: '0 6px 6px 0', padding: '2px 6px' }} title="Save to a different concept" aria-label="Save to a different concept">▾</button>
+        </>
+      ) : (
+        <button onClick={() => setOpen(o => !o)} style={smallBtn} title="Save this answer as a note on a concept">+ Note</button>
+      )}
       {open && (
         <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 280, zIndex: 20, background: 'rgba(8,10,34,0.96)', border: '1px solid rgba(55,65,120,0.7)', borderRadius: 8, padding: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
           <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Find concept…" style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(2,4,18,0.5)', border: '1px solid rgba(55,65,120,0.6)', borderRadius: 6, color: '#e2e8f0', padding: '5px 8px', fontSize: 12 }} />

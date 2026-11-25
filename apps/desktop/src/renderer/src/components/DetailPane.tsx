@@ -215,6 +215,25 @@ function RescheduleButton({ conceptId }: { conceptId: number }) {
 // to export the concept as Markdown (.md) or an Anki import file (.txt,
 // tab-separated) via export:concept; the main process owns the Save dialog and
 // file write. Briefly flips to a check on success.
+// Opens the Ask tab scoped to this concept. Hidden on the Challenge tab until
+// the current attempt is graded, so looking things up can't replace recall.
+function AskAboutButton({ concept }: { concept: Concept }) {
+  return (
+    <button
+      onClick={() => window.dispatchEvent(new CustomEvent('starcall:ask', {
+        detail: { conceptId: concept.id, name: concept.name, sourceId: concept.source_id ?? null },
+      }))}
+      title={`Ask a question about ${concept.name} (answers from your sources, local model)`}
+      style={{
+        background: 'rgba(129,140,248,0.10)', border: '1px solid rgba(129,140,248,0.35)', color: '#c7d2fe',
+        borderRadius: 6, padding: '3px 9px', fontSize: 11, fontWeight: 600, cursor: 'pointer', flexShrink: 0,
+      }}
+    >
+      Ask
+    </button>
+  );
+}
+
 function ExportButton({ conceptId }: { conceptId: number }) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -615,6 +634,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
               </span>
               <RescheduleButton conceptId={concept.id} />
               <ExportButton conceptId={concept.id} />
+              {!(tab === 'challenge' && grade == null) && <AskAboutButton concept={concept} />}
               <button
                 onClick={() => setSourcePreviewOpen(false)}
                 title="Hide source"
@@ -664,6 +684,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
           </span>
           <RescheduleButton conceptId={concept.id} />
           <ExportButton conceptId={concept.id} />
+              {!(tab === 'challenge' && grade == null) && <AskAboutButton concept={concept} />}
           <button
             onClick={() => setSourcePreviewOpen(v => !v)}
             title="Show source on the right"

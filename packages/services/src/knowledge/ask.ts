@@ -72,6 +72,10 @@ export interface AskResult {
   // Set by the caller when lazy chunk embedding failed, so vector coverage of
   // the selected sources may be partial even though hybrid retrieval ran.
   index_warning?: string | null;
+  // Concept the question was asked about (retrieval focus only), if any.
+  focus?: string | null;
+  // Set when the result was saved to a concept's Ask history.
+  history_id?: number | null;
 }
 
 export interface AskOptions {
@@ -81,6 +85,16 @@ export interface AskOptions {
   embedder?: Embedder | null;
   k?: number;                      // passages sent to the model (default 6)
   maxPassageChars?: number;        // per-passage cap in the prompt (default 1600)
+  // Concept name to bias RETRIEVAL toward (appended to the search query unless
+  // the question already contains it). Never added to the model prompt, so it
+  // cannot change what counts as a verified citation.
+  focus?: string | null;
+}
+
+export function retrievalQuery(question: string, focus?: string | null): string {
+  const f = focus?.trim();
+  if (!f) return question;
+  return normalizeForQuote(question).includes(normalizeForQuote(f)) ? question : `${question} ${f}`;
 }
 
 export const ASK_SYSTEM = `You answer a learner's question using ONLY the numbered source passages provided.
@@ -273,7 +287,7 @@ export function buildAskUserPrompt(question: string, passages: AskPassage[], max
 export async function askSources(db: DatabaseSync, opts: AskOptions): Promise<AskResult> {
   const question = opts.question.trim();
   const retrieval = await retrieveChunks(db, {
-    query: question, mode: 'hybrid', k: opts.k ?? 6, sourceIds: opts.sourceIds, embedder: opts.embedder ?? null,
+    query: retrievalQuery(question, opts.focus), mode: 'hybrid', k: opts.k ?? 6, sourceIds: opts.sourceIds, embedder: opts.embedder ?? null,
   });
   const passages = toPassages(retrieval.hits);
   const base = {
@@ -281,6 +295,7 @@ export async function askSources(db: DatabaseSync, opts: AskOptions): Promise<As
     passages,
     retrieval: { mode_requested: retrieval.mode_requested, mode_used: retrieval.mode_used, vector_error: retrieval.vector_error },
     model: opts.config?.model ?? null,
+    focus: opts.focus?.trim() || null,
   };
 
   if (passages.length === 0) {

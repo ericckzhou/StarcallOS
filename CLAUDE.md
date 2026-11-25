@@ -308,7 +308,10 @@ Remember these as the active state of the repo:
   are embedded lazily on Ask with `rag:progress`; `rag.indexSource` backfills
   one pre-0036 source; `+ Note` saves the answer and its citations as a concept
   note. Never loosen the quote check into fuzzy/semantic matching: the
-  guarantee is verbatim modulo typography.
+  guarantee is verbatim modulo typography. The concept header **Ask** button
+  (hidden on Challenges until graded) opens Ask with that concept as context:
+  retrieval `focus` only, per-concept `ask_history` (migration 0037, newest
+  50). This is NOT a chat: never feed earlier answers back into the prompt.
 - User-facing provider text should say "configured LLM provider" unless a
   feature is truly Groq-specific.
 - `.claude/agents/ipc-contract-reviewer.md` is a project review agent that
