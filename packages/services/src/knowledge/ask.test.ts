@@ -10,7 +10,7 @@ import { chunkBlocks } from '../ingestion/chunker';
 import { createSource } from './repos/sources';
 import { syncSourceChunks } from './repos/rag_chunks';
 import {
-  askSources, buildAskUserPrompt, quoteInPassage, rewriteMarkers, validateAnswer, type AskPassage,
+  askSources, buildAskUserPrompt, quoteInPassage, retrievalQuery, rewriteMarkers, validateAnswer, type AskPassage,
 } from './ask';
 
 const mockChat = vi.mocked(chatJSON);
@@ -120,6 +120,14 @@ describe('validateAnswer', () => {
   });
 });
 
+describe('retrievalQuery', () => {
+  it('appends the focus concept unless the question already names it', () => {
+    expect(retrievalQuery('Why does it exist?', 'Kleene star')).toBe('Why does it exist? Kleene star');
+    expect(retrievalQuery('What is the KLEENE   star?', 'Kleene star')).toBe('What is the KLEENE   star?');
+    expect(retrievalQuery('What is it?', null)).toBe('What is it?');
+  });
+});
+
 describe('buildAskUserPrompt', () => {
   it('numbers passages with source, section and page', () => {
     const s = buildAskUserPrompt('What is induction?', P);
@@ -163,6 +171,17 @@ describe('askSources', () => {
     expect(r.citations[0]).toMatchObject({ n: 1, source_id: s.id, page_start: 4 });
     expect(mockChat).toHaveBeenCalledTimes(1);
     expect(mockChat.mock.calls[0][2]).toBe('ask');
+  });
+
+  it('uses the focus for retrieval only, never in the prompt', async () => {
+    const { db, s } = seed();
+    mockChat.mockResolvedValueOnce(reply({ answer: 'x', citations: [], insufficient: true }));
+    // "step" alone matches; the focus must not leak into the user prompt.
+    const r = await askSources(db, { question: 'What is the step?', sourceIds: [s.id], config, focus: 'Mathematical induction' });
+    expect(r.focus).toBe('Mathematical induction');
+    expect(r.passages).toHaveLength(1);
+    const userMsg = (mockChat.mock.calls[0][1] as { messages: Array<{ role: string; content: string }> }).messages[1].content;
+    expect(userMsg.endsWith('Question: What is the step?')).toBe(true);
   });
 
   it('makes no model call when retrieval finds nothing', async () => {

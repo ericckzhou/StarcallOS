@@ -16,6 +16,7 @@ import type {
   StoredMisconceptionCandidate,
   StoredEquationCandidate,
   AskResult,
+  AskHistoryEntry,
 } from '@starcall/services';
 
 export type {
@@ -135,6 +136,8 @@ export const IPC = {
   RAG_INDEX_SOURCE:        'rag:indexSource',
   RAG_ASK:                 'rag:ask',
   RAG_PROGRESS:            'rag:progress',
+  RAG_HISTORY:             'rag:history',
+  RAG_HISTORY_DELETE:      'rag:historyDelete',
 } as const;
 
 export type ExportFormat = 'markdown' | 'anki';
@@ -267,7 +270,7 @@ export type EmbeddingsIndexResult =
 
 // ─── Local Ask (RAG) ─────────────────────────────────────────────────────────
 
-export type { AskResult };
+export type { AskResult, AskHistoryEntry };
 
 export interface RagSourceStatus {
   source_id: number;
@@ -291,7 +294,10 @@ export type RagIndexSourceResult =
 
 export interface RagAskArgs {
   question: string;
-  sourceIds?: number[];   // omitted/empty = all sources
+  sourceIds?: number[];   // omitted/empty = all sources (or the concept's source)
+  // "Ask about this": focus retrieval on this concept and save the result
+  // to its Ask history. sourceIds then defaults to the concept's source.
+  conceptId?: number;
 }
 
 // Streamed while Ask lazily embeds chunk vectors for the selected sources.
@@ -799,6 +805,9 @@ export interface IpcApi {
     // offline model/embeddings — degrades to passages (see AskResult.status).
     ask: (args: RagAskArgs) => Promise<AskResult>;
     onProgress: (cb: (p: RagProgress) => void) => () => void;
+    // Per-concept saved answers, newest first. Each is independent (no chat).
+    history: (conceptId: number) => Promise<AskHistoryEntry[]>;
+    historyDelete: (id: number) => Promise<{ ok: true }>;
   };
   candidates: {
     bySource: (sourceId: number) => Promise<CandidatesBundle>;
