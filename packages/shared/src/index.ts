@@ -17,6 +17,9 @@ import type {
   StoredEquationCandidate,
   AskResult,
   AskHistoryEntry,
+  LibraryIndexPlan,
+  LibraryIndexProgress,
+  LibraryIndexSummary,
 } from '@starcall/services';
 
 export type {
@@ -138,6 +141,11 @@ export const IPC = {
   RAG_PROGRESS:            'rag:progress',
   RAG_HISTORY:             'rag:history',
   RAG_HISTORY_DELETE:      'rag:historyDelete',
+  RAG_LIBRARY_STATUS:      'rag:libraryStatus',
+  RAG_LIBRARY_START:       'rag:libraryStart',
+  RAG_LIBRARY_STOP:        'rag:libraryStop',
+  RAG_LIBRARY_PROGRESS:    'rag:libraryProgress',
+  RAG_LIBRARY_DONE:        'rag:libraryDone',
 } as const;
 
 export type ExportFormat = 'markdown' | 'anki';
@@ -270,13 +278,21 @@ export type EmbeddingsIndexResult =
 
 // ─── Local Ask (RAG) ─────────────────────────────────────────────────────────
 
-export type { AskResult, AskHistoryEntry };
+export type { AskResult, AskHistoryEntry, LibraryIndexProgress, LibraryIndexSummary };
+
+export interface RagLibraryStatus {
+  running: boolean;
+  progress: LibraryIndexProgress | null;
+  plan: Omit<LibraryIndexPlan, 'items'>;   // coverage now (unindexed / stale / embed_missing)
+  last: LibraryIndexSummary | null;        // most recent run this session
+}
 
 export interface RagSourceStatus {
   source_id: number;
   title: string;
   chunks: number;     // 0 => not indexed yet (processed before the chunk index existed)
   embedded: number;   // chunks with a vector for the configured embedding model
+  stale: boolean;     // chunks predate the current chunker/layout (re-chunked by library index)
 }
 
 export interface RagStatus {
@@ -808,6 +824,12 @@ export interface IpcApi {
     // Per-concept saved answers, newest first. Each is independent (no chat).
     history: (conceptId: number) => Promise<AskHistoryEntry[]>;
     historyDelete: (id: number) => Promise<{ ok: true }>;
+    // Whole-library index: user-started, resumable, never runs at startup.
+    libraryStatus: () => Promise<RagLibraryStatus>;
+    libraryStart: () => Promise<{ ok: true } | { ok: false; error: string }>;
+    libraryStop: () => Promise<{ ok: true }>;
+    onLibraryProgress: (cb: (p: LibraryIndexProgress) => void) => () => void;
+    onLibraryDone: (cb: (s: LibraryIndexSummary | null) => void) => () => void;
   };
   candidates: {
     bySource: (sourceId: number) => Promise<CandidatesBundle>;

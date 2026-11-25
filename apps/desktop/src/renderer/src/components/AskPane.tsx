@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AskHistoryEntry, AskResult, RagProgress, RagStatus } from '@starcall/shared';
+import LibraryIndexPanel, { RAG_INDEX_CHANGED } from './LibraryIndexPanel';
 
 // Local Ask: question → retrieved passages → local-model answer whose every
 // [n] marker has been verified against the passage text (services/ask.ts).
@@ -103,6 +104,10 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
     window.api.rag.status().then(setStatus).catch(() => setStatus(null));
   }, []);
   useEffect(() => { refreshStatus(); }, [refreshStatus]);
+  useEffect(() => {
+    window.addEventListener(RAG_INDEX_CHANGED, refreshStatus);
+    return () => window.removeEventListener(RAG_INDEX_CHANGED, refreshStatus);
+  }, [refreshStatus]);
   useEffect(() => window.api.rag.onProgress(setProgress), []);
 
   // Drop selections for sources that no longer exist.
@@ -129,7 +134,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
       if (!r.ok) setError(`Indexing "${titleById.get(id) ?? id}" failed: ${r.error}`);
     } finally {
       setIndexing(prev => { const n = new Set(prev); n.delete(id); return n; });
-      refreshStatus();
+      window.dispatchEvent(new Event(RAG_INDEX_CHANGED));
     }
   }
 
@@ -183,6 +188,10 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
       <aside style={{ width: 260, flexShrink: 0, borderRight: '1px solid rgba(31,41,55,0.72)', background: 'rgba(4,6,26,0.42)', backdropFilter: 'blur(14px)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid rgba(31,41,55,0.72)' }}>
+          <span style={label}>Passage index</span>
+          <div style={{ marginTop: 4 }}><LibraryIndexPanel compact /></div>
+        </div>
         <div style={{ padding: '12px 14px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={label}>Sources</span>
           <button onClick={() => setSelected([])} disabled={validSelected.length === 0} style={linkBtn} title="Search every source">
@@ -199,6 +208,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                   <div style={{ fontSize: 12, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.title}>{s.title}</div>
                   <div style={{ fontSize: 10, color: '#6b7280' }}>
                     {s.chunks === 0 ? 'not indexed' : `${s.chunks} passages${status?.embeddingsEnabled ? ` · ${s.embedded} embedded` : ''}`}
+                    {s.stale && <span style={{ color: '#f59e0b' }} title="Indexed by an older parser; Index library re-indexes its passages"> · outdated</span>}
                   </div>
                 </div>
                 {s.chunks === 0 && (

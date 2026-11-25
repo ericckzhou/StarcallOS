@@ -197,7 +197,7 @@ export function queryEmbeddingText(model: string, query: string): string {
   return /nomic/i.test(model) ? `search_query: ${query}` : query;
 }
 
-export interface ChunkEmbeddingResult { embedded: number; pruned: number; total: number }
+export interface ChunkEmbeddingResult { embedded: number; pruned: number; total: number; stopped?: boolean }
 
 // Embed every chunk of a source that has no vector for (embedder.model, its
 // current text). Incremental: re-running on an unchanged index embeds nothing.
@@ -207,6 +207,9 @@ export async function indexSourceChunkEmbeddings(
   embedder: Embedder,
   sourceId: number,
   onProgress?: (done: number, total: number) => void,
+  // Checked before each batch; already-committed batches are kept, so a
+  // stopped run resumes exactly where it left off.
+  shouldStop?: () => boolean,
 ): Promise<ChunkEmbeddingResult> {
   const chunks = listSourceChunks(db, sourceId);
   const wanted = chunks.map(c => {
@@ -233,7 +236,11 @@ export async function indexSourceChunkEmbeddings(
   );
   // Commit in batches so a long first-time index survives an interruption.
   const BATCH = 64;
+  let embedded = 0;
   for (let i = 0; i < missing.length; i += BATCH) {
+    if (shouldStop?.()) {
+      return { embedded, pruned: stale.length + Number(otherModel.changes), total: wanted.length, stopped: true };
+    }
     const batch = missing.slice(i, i + BATCH);
     const vecs = await embedder.embed(batch.map(m => m.text));
     db.exec('BEGIN');
@@ -244,9 +251,10 @@ export async function indexSourceChunkEmbeddings(
       db.exec('ROLLBACK');
       throw e;
     }
+    embedded += batch.length;
     onProgress?.(Math.min(i + BATCH, missing.length), missing.length);
   }
-  return { embedded: missing.length, pruned: stale.length + Number(otherModel.changes), total: wanted.length };
+  return { embedded, pruned: stale.length + Number(otherModel.changes), total: wanted.length };
 }
 
 // Chunk vectors for `model`, optionally limited to some sources. One vector per

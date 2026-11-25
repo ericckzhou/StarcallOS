@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import LibraryIndexPanel from './LibraryIndexPanel';
 import type { EmbeddingsStatus, ExtractionMode, LlmTraceSummary, ProviderId, SettingsSnapshot } from '@starcall/shared';
 
 type Snapshot = SettingsSnapshot;
@@ -337,6 +338,16 @@ export default function SettingsPane() {
           onSave={patch => autoSave(patch)}
         />
 
+        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
+          Passage index
+        </h1>
+        <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 10, lineHeight: 1.5 }}>
+          The passages Ask searches. Index every source at once, including sources added before Ask existed and
+          ones indexed by an older parser. Runs locally in the background; with embeddings on it also embeds
+          every passage. Concepts, candidates and notes are never changed.
+        </p>
+        <LibraryIndexPanel />
+
         <LlmUsageSection />
 
         <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
@@ -503,7 +514,7 @@ function EmbeddingsSection({ enabled, model, defaultModel, baseUrl, onSave }: {
                 background: 'transparent', border: '1px solid rgba(99,102,241,0.5)', borderRadius: 5,
                 padding: '5px 12px', color: '#c7d2fe', fontSize: 12, cursor: job.state === 'running' ? 'wait' : 'pointer',
               }}>
-              {job.state === 'running' ? 'Indexing…' : 'Index library now'}
+              {job.state === 'running' ? 'Indexing…' : 'Index concepts now'}
             </button>
             {status && (
               <span style={{ fontSize: 11, color: '#9ca3af' }}>
