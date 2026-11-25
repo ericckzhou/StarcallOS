@@ -15,6 +15,7 @@ import type {
   StoredRelationCandidate,
   StoredMisconceptionCandidate,
   StoredEquationCandidate,
+  AskResult,
 } from '@starcall/services';
 
 export type {
@@ -130,6 +131,10 @@ export const IPC = {
   PARSE_RUNS_BY_SOURCE:    'parseRuns:bySource',
   EXPORT_CONCEPT:          'export:concept',
   EXPORT_BUNDLE:           'export:bundle',
+  RAG_STATUS:              'rag:status',
+  RAG_INDEX_SOURCE:        'rag:indexSource',
+  RAG_ASK:                 'rag:ask',
+  RAG_PROGRESS:            'rag:progress',
 } as const;
 
 export type ExportFormat = 'markdown' | 'anki';
@@ -259,6 +264,43 @@ export interface EmbeddingsStatus {
 export type EmbeddingsIndexResult =
   | { ok: true; sources: number; embedded: number }
   | { ok: false; error: string };
+
+// ─── Local Ask (RAG) ─────────────────────────────────────────────────────────
+
+export type { AskResult };
+
+export interface RagSourceStatus {
+  source_id: number;
+  title: string;
+  chunks: number;     // 0 => not indexed yet (processed before the chunk index existed)
+  embedded: number;   // chunks with a vector for the configured embedding model
+}
+
+export interface RagStatus {
+  // Local model that will answer, or null (answers fall back to passages only).
+  askModel: string | null;
+  askBaseUrl: string | null;
+  embeddingsEnabled: boolean;
+  embeddingModel: string;
+  sources: RagSourceStatus[];
+}
+
+export type RagIndexSourceResult =
+  | { ok: true; chunks: number }
+  | { ok: false; error: string };
+
+export interface RagAskArgs {
+  question: string;
+  sourceIds?: number[];   // omitted/empty = all sources
+}
+
+// Streamed while Ask lazily embeds chunk vectors for the selected sources.
+export interface RagProgress {
+  phase: 'embedding';
+  sourceId: number;
+  done: number;
+  total: number;
+}
 
 // candidateId → its most similar other candidate (embeddings; hint only).
 export type CandidateNearDuplicates = Record<number, { id: number; term: string; similarity: number }>;
@@ -747,6 +789,16 @@ export interface IpcApi {
     // Suggestions only — the renderer must route a pick through the normal
     // constellation add flow (user supplies the reason).
     related: (conceptId: number) => Promise<RelatedConceptSuggestion[]>;
+  };
+  rag: {
+    status: () => Promise<RagStatus>;
+    // Build the chunk index for one source (backfill for pre-0036 sources).
+    // Re-segments the file only; candidates and concepts are untouched.
+    indexSource: (sourceId: number) => Promise<RagIndexSourceResult>;
+    // Answer from local sources with validated citations. Never throws for
+    // offline model/embeddings — degrades to passages (see AskResult.status).
+    ask: (args: RagAskArgs) => Promise<AskResult>;
+    onProgress: (cb: (p: RagProgress) => void) => () => void;
   };
   candidates: {
     bySource: (sourceId: number) => Promise<CandidatesBundle>;

@@ -95,9 +95,9 @@ parse_runs                 append-only audit of every Process click (mode, durat
 
 ## Retrieval Chunk Index (RAG foundation, migration 0036)
 
-A deterministic, zero-LLM passage index over every processed source, built as
-the first slice of local question answering. No UI and no answer generation
-yet; retrieval is a services API measured by an offline eval.
+A deterministic, zero-LLM passage index over every processed source. It is the
+foundation of local question answering (the Ask tab, below); retrieval itself
+is a services API measured by an offline eval.
 
 ```text
 layout blocks (segmentPdf / segmentText, unchanged)
@@ -142,17 +142,61 @@ layout blocks (segmentPdf / segmentText, unchanged)
 - **FTS5** is verified in both runtimes that open the DB (Node 22.16 / SQLite
   3.49.1 for tests, Electron 42 / SQLite 3.53.0 for the app); `hasFts5(db)` is
   the runtime check, covered by a test.
+- **Built in PR 2 (Ask)**: chunk vectors are generated lazily on Ask (below);
+  per-source backfill for pre-0036 sources is the Ask rail's **Index** button.
 - **Decided follow-ups (not built)**:
-  - Backfilling existing sources will be a resumable background operation,
-    never startup-time processing.
-  - Chunk vectors will be generated lazily the first time the user asks a
-    question (Ask) about a source. That run shows progress, persists each
-    batch as it completes, and reuses compatible vectors (same model and
-    text hash). Generation stays local.
+  - A library-wide resumable background backfill (the per-source Index is
+    already resumable by construction: each source is reconciled on its own).
   - The page-numbered running-header bug is fixed in `layout.ts` separately,
     with a `LAYOUT_VERSION` bump.
+  - Jumping from a citation into the PDF page (the viewer is concept-bound today).
 - **Eval**: `pnpm eval:retrieval -- --pdf <b36-txtbook.pdf>` (see
   `evals/README.md`). Labels are Claude-proposed until a human reviews them.
+
+## Local Ask (RAG PR 2)
+
+Top-level **Ask** tab (`AskPane.tsx`): pick sources, ask a question, get an
+answer whose every citation has been verified against the passage text.
+
+```text
+rag.ask -> lazy chunk embedding (indexSourceChunkEmbeddings, progress events)
+        -> askSources (knowledge/ask.ts)
+             retrieveChunks hybrid (k = 6)        no hits -> 'no_passages', no model call
+             ONE structured 'ask' call, LOCAL model only
+             validateAnswer: quotes verified, [n] markers rewritten
+```
+
+- **Local-only generation**: `resolveAskConfig` always returns the `local`
+  provider (`localModel` at `localBaseUrl`), whatever the main provider is, so
+  retrieved source text never goes to a cloud API. It returns null when no local
+  model is set and the main provider is not local; Ask then shows passages only.
+- **Citation validation** (pure, `validateAnswer`): every `{passage, quote}`
+  must occur verbatim in that passage after `normalizeWithMap` folding (case,
+  whitespace, NFKC, all quote marks into one class, dashes, PDF glyphs such as
+  TeX's `ǫ`→`ε` and `∗`→`*`, letter-hyphen-letter joined on both sides). Quotes
+  under 12 normalized chars are rejected. `"..."` elisions must match in order.
+  A verified citation carries `start`/`end` offsets into the original passage
+  text, and the UI highlights exactly that span. Unverified citations and
+  markers are dropped with a reason, and the answer's `[n]` markers are
+  rewritten to verified passages only.
+- **Status**: `grounded` / `partial` (something dropped) / `unsupported`
+  (nothing verifiable) / `insufficient` (model says the passages don't answer;
+  a bare "insufficient" answer becomes null) / `no_passages` / `retrieval_only`.
+- **Offline handling**: a model failure (server down, invalid output after the
+  one repair) returns `retrieval_only` with `generation_error`, and the passages
+  are still shown. Embedding failure degrades to keyword retrieval
+  (`mode_used`/`vector_error`); a failed lazy embedding run sets
+  `index_warning`. Nothing is silent.
+- **Lazy embeddings**: when embeddings are enabled, Ask embeds the selected
+  sources' chunks first, streaming `rag:progress`. Each 64-chunk batch is
+  committed, so an interrupted run resumes, and vectors with the same model and
+  text hash are reused. After the first Ask, later Asks embed nothing.
+- **Backfill**: `rag.indexSource` re-segments one source file and reconciles
+  its chunks. Candidates and concepts are never touched.
+- **Learning loop**: `+ Note` saves the verified answer and its cited quotes
+  and pages as an ordinary user-owned note on a concept from the cited sources.
+- IPC: `rag.{status,indexSource,ask,onProgress}`; args validated by
+  `RagAskArgsSchema` (question ≤ 2000 chars).
 
 ## Mastery Model (compression stages)
 ```

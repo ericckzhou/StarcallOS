@@ -16,13 +16,14 @@ export type PassName =
   | 'tasks'
   | 'lazy_tasks'
   | 'prereq_suggest'
-  | 'grader';
+  | 'grader'
+  | 'ask';
 
 // Each pass falls into a "weight class". heavy = quality matters (enrich,
 // concepts, misconceptions, grader). light = mechanical/cheap (structure,
 // graph). The setting picks one model per class per provider.
 const HEAVY_PASSES: PassName[] = [
-  'enrich', 'chunker', 'concepts', 'misconceptions', 'tasks', 'lazy_tasks', 'prereq_suggest', 'grader',
+  'enrich', 'chunker', 'concepts', 'misconceptions', 'tasks', 'lazy_tasks', 'prereq_suggest', 'grader', 'ask',
 ];
 
 export type ExtractionMode = 'deterministic' | 'candidate_gated' | 'full';
@@ -229,6 +230,21 @@ function isModelForProvider(model: string | undefined, provider: ProviderId): bo
   if (!model) return false;
   const choices = MODEL_CHOICES[provider];
   return choices.heavy.includes(model) || choices.light.includes(model);
+}
+
+// Ask (local RAG answers) is LOCAL-ONLY by design: retrieved source passages
+// are sent only to the user's OpenAI-compatible server, never to a cloud
+// provider, regardless of the main provider setting. Null when no local model
+// is set and the main provider is not local (nothing to call).
+export function resolveAskConfig(s: LLMSettings): ProviderConfig | null {
+  const model = s.localModel?.trim();
+  if (!model && s.provider !== 'local') return null;
+  return {
+    provider: 'local',
+    apiKey: '',
+    model: model || DEFAULT_MODELS.local.heavy,
+    baseUrl: normalizeLocalBaseUrl(s.localBaseUrl) ?? DEFAULT_LOCAL_BASE_URL,
+  };
 }
 
 export function resolveProviderConfig(s: LLMSettings, pass: PassName): ProviderConfig {
