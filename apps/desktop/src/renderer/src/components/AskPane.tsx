@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AskHistoryEntry, AskResult, RagProgress, RagStatus } from '@starcall/shared';
 import LibraryIndexPanel, { RAG_INDEX_CHANGED } from './LibraryIndexPanel';
+import SourcePagePreview, { type CitationTarget } from './SourcePagePreview';
 
 // Local Ask: question → retrieved passages → local-model answer whose every
 // [n] marker has been verified against the passage text (services/ask.ts).
@@ -83,6 +84,14 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
   const [focusN, setFocusN] = useState<number | null>(null);
   const passageRefs = useRef(new Map<number, HTMLDivElement>());
   const [history, setHistory] = useState<AskHistoryEntry[]>([]);
+  // Citation → source page preview (PDF sources only; text sources have no pages).
+  const [preview, setPreview] = useState<CitationTarget | null>(null);
+  const [pdfSources, setPdfSources] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    window.api.sources.list()
+      .then(list => setPdfSources(new Set(list.filter(s => /\.pdf$/i.test(s.file_path)).map(s => s.id))))
+      .catch(() => setPdfSources(new Set()));
+  }, []);
 
   const refreshHistory = useCallback(() => {
     if (!context) { setHistory([]); return; }
@@ -146,6 +155,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
     setProgress(null);
     setFocusN(null);
     try {
+      setPreview(null);
       setResult(await window.api.rag.ask({
         question: q,
         sourceIds: validSelected.length ? validSelected : undefined,
@@ -161,9 +171,19 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
     }
   }
 
-  function jumpTo(n: number) {
+  // Open the cited page in the side preview, highlighting `quote` (verified).
+  function openPage(p: { source_id: number; source_title: string; page_start: number; page_end: number }, quote: string | null) {
+    if (!pdfSources.has(p.source_id)) return;
+    setPreview({ sourceId: p.source_id, title: p.source_title, pageStart: p.page_start, pageEnd: p.page_end, quote, nonce: Date.now() });
+  }
+
+  // A citation scrolls to its passage card and, for PDFs, opens the page with
+  // that passage's (first) verified quote highlighted.
+  function jumpTo(n: number, quote?: string) {
     setFocusN(n);
     passageRefs.current.get(n)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const p = result?.passages.find(x => x.n === n);
+    if (p) openPage(p, quote ?? result?.citations.find(c => c.n === n)?.quote ?? null);
   }
 
   // Render [n] / [n, m] markers in the answer as clickable chips.
@@ -338,7 +358,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                     {result.citations.map((c, i) => {
                       const p = result.passages.find(x => x.n === c.n);
                       return (
-                        <button key={i} onClick={() => jumpTo(c.n)} title="Show the passage" style={{ textAlign: 'left', background: 'transparent', border: 'none', padding: '2px 0', cursor: 'pointer', fontSize: 12, color: '#94a3b8', lineHeight: 1.5 }}>
+                        <button key={i} onClick={() => jumpTo(c.n, c.quote)} title={pdfSources.has(c.source_id) ? 'Open the page with this quote highlighted' : 'Show the passage'} style={{ textAlign: 'left', background: 'transparent', border: 'none', padding: '2px 0', cursor: 'pointer', fontSize: 12, color: '#94a3b8', lineHeight: 1.5 }}>
                           <span style={chip}>{c.n}</span>
                           <span style={{ color: '#cbd5e1' }}>{p?.source_title}</span>, {pages(c.page_start, c.page_end)} — <i>“{c.quote}”</i>
                         </button>
@@ -375,9 +395,16 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                       >
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
                           <span style={{ ...chip, cursor: 'default' }}>{p.n}</span>
-                          <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{p.source_title}</span>
+                          <span style={{ color: '#e2e8f0', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '40%' }} title={p.source_title}>{p.source_title}</span>
                           {p.section_path.length > 0 && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{p.section_path.join(' › ')}</span>}
                           <span style={{ marginLeft: 'auto', whiteSpace: 'nowrap' }}>{pages(p.page_start, p.page_end)}</span>
+                          {pdfSources.has(p.source_id) && (
+                            <button
+                              onClick={() => openPage(p, result.citations.find(c => c.n === p.n)?.quote ?? null)}
+                              style={{ ...linkBtn, whiteSpace: 'nowrap' }}
+                              title="Open this page in the source PDF"
+                            >Open page ↗</button>
+                          )}
                         </div>
                         <div style={{ fontSize: 12.5, lineHeight: 1.6, color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>
                           {highlight(p.text, spansByN.get(p.n) ?? [])}
@@ -391,6 +418,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
           )}
         </div>
       </main>
+      {preview && <SourcePagePreview target={preview} onClose={() => setPreview(null)} />}
     </div>
   );
 }

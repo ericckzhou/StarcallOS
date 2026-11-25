@@ -152,7 +152,6 @@ layout blocks (segmentPdf / segmentText, unchanged)
 - **Built in PR 2 (Ask)**: chunk vectors are generated lazily on Ask (below);
   per-source backfill for pre-0036 sources is the Ask rail's **Index** button.
 - **Decided follow-ups (not built)**:
-  - Jumping from a citation into the PDF page (the viewer is concept-bound today).
 - **Eval**: `pnpm eval:retrieval -- --pdf <b36-txtbook.pdf>` (see
   `evals/README.md`). Labels are Claude-proposed until a human reviews them.
 
@@ -242,6 +241,14 @@ rag.ask -> lazy chunk embedding (indexSourceChunkEmbeddings, progress events)
   answers, deliberately not a chat thread: prior answers are never fed back
   into the prompt, so the model can't cite itself. `+ Note` defaults to the
   concept (one click; ▾ picks another).
+- **Citation → page**: clicking a `[n]` marker, a verified source or a passage's
+  "Open page ↗" opens `SourcePagePreview` beside the answer: a read-only render of
+  the cited page range (PDF sources only) with the verified quote highlighted and
+  scrolled into view, plus prev/next page. It is separate from the concept-bound
+  `PdfViewer` and writes nothing. The quote was verified server-side against
+  layout text; the preview only LOCATES it, on letters/digits only
+  (`spansForQuote`), because pdf.js emits math glyphs as out-of-order text-layer
+  spans. Highlighting is line-granular (whole text-layer spans).
 - IPC: `rag.{status,indexSource,ask,onProgress,history,historyDelete}`; args
   validated by `RagAskArgsSchema` (question ≤ 2000 chars, optional `conceptId`).
 
