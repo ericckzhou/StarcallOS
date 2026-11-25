@@ -95,7 +95,12 @@ for (const c of cases) {
   c.relevantKeys = [];
   for (const r of c.relevant) {
     if (byKey.has(r.key)) { c.relevantKeys.push(r.key); continue; }
-    const hit = rows.find(x => Math.abs(x.page_start - r.page) <= 1 && norm(x.text).startsWith(r.anchor));
+    // Prefer a chunk that still STARTS with the anchor; fall back to one that
+    // CONTAINS it, so a chunk-boundary shift (e.g. a layout fix that drops a
+    // running header) re-resolves mechanically instead of scoring as a miss.
+    // Both are lookups of the labelled passage, never a new relevance call.
+    const near = rows.filter(x => Math.abs(x.page_start - r.page) <= 1);
+    const hit = near.find(x => norm(x.text).startsWith(r.anchor)) ?? near.find(x => norm(x.text).includes(r.anchor));
     if (hit) c.relevantKeys.push(hit.chunk_key);
     else { unresolved++; console.warn(`[retrieval-eval] ${c.id}: label ${r.key} (p${r.page}) no longer resolves — relabel needed`); }
   }
