@@ -26,6 +26,14 @@ const HEAVY_PASSES: PassName[] = [
   'enrich', 'chunker', 'concepts', 'misconceptions', 'tasks', 'lazy_tasks', 'prereq_suggest', 'grader', 'ask',
 ];
 
+// Passes whose model can be overridden per pass in Settings (every pass main
+// resolves through resolveProviderConfig). 'ask' is local-only and 'structure'
+// / 'chunker' are trace names inside extraction, never resolved on their own.
+export const OVERRIDABLE_PASSES: readonly PassName[] = [
+  'grader', 'lazy_tasks', 'prereq_suggest',
+  'enrich', 'concepts', 'graph', 'misconceptions', 'tasks',
+];
+
 export type ExtractionMode = 'deterministic' | 'candidate_gated' | 'full';
 
 export interface LLMSettings {
@@ -270,6 +278,17 @@ export function sanitizeSettingsInput(
     out.extractionMode = EXTRACTION_MODES.includes(input.extractionMode)
       ? input.extractionMode
       : (current.extractionMode ?? 'deterministic');
+  }
+  if (input.modelOverrides !== undefined) {
+    // Unknown pass keys and blank values are dropped (blank = "use the class
+    // default"). Model names are not roster-checked here, same as heavyModel:
+    // resolveProviderConfig ignores an override that isn't for the provider.
+    const clean: Partial<Record<PassName, string>> = {};
+    for (const [pass, model] of Object.entries(input.modelOverrides ?? {})) {
+      const m = typeof model === 'string' ? model.trim().slice(0, 200) : '';
+      if (m && (OVERRIDABLE_PASSES as readonly string[]).includes(pass)) clean[pass as PassName] = m;
+    }
+    out.modelOverrides = clean;
   }
   return out;
 }

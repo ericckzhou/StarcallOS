@@ -75,7 +75,7 @@ export default function SettingsPane() {
   // Auto-save non-secret settings the moment they change. Keys still need the
   // explicit "Save API Keys" button below (blank input means "keep current",
   // so we don't want auto-save wiping a stored key on first focus).
-  async function autoSave(patch: { provider?: ProviderId; extractionMode?: ExtractionMode; heavyModel?: string; lightModel?: string; gradeSelfConsistency?: boolean; localBaseUrl?: string; localModel?: string; embeddingsEnabled?: boolean; embeddingModel?: string; srsScheduler?: 'sm2' | 'fsrs'; pdfParser?: 'builtin' | 'docling'; doclingBaseUrl?: string }): Promise<void> {
+  async function autoSave(patch: { modelOverrides?: Record<string, string>; provider?: ProviderId; extractionMode?: ExtractionMode; heavyModel?: string; lightModel?: string; gradeSelfConsistency?: boolean; localBaseUrl?: string; localModel?: string; embeddingsEnabled?: boolean; embeddingModel?: string; srsScheduler?: 'sm2' | 'fsrs'; pdfParser?: 'builtin' | 'docling'; doclingBaseUrl?: string }): Promise<void> {
     try {
       await window.api.settings.set(patch);
       const fresh = await window.api.settings.get();
@@ -236,10 +236,17 @@ export default function SettingsPane() {
               <ModelSelect choices={allChoices} value={modelValue} onChange={pickHeavy} />
               <SavedBadge saved={modelSaved} fallback={allChoices[0]} />
               <div style={{ fontSize: 10, color: '#4b5563', marginTop: 10, lineHeight: 1.5 }}>
-                Used for every LLM pass: enrichment, concepts, misconceptions, tasks, grader, prerequisite suggestions.
+                Used for every LLM pass (enrichment, concepts, misconceptions, tasks, grader, prerequisite suggestions) unless overridden below.
                 <br />
                 Cheap/structural passes (graph, structure) auto-use <code style={{ color: '#9ca3af' }}>{lightFallback}</code>.
               </div>
+              <PassOverrides
+                choices={allChoices}
+                overrides={snap.modelOverrides}
+                heavyDefault={modelValue}
+                lightDefault={lightFallback}
+                onSave={modelOverrides => void autoSave({ modelOverrides })}
+              />
             </>
           )}
         </div>
@@ -711,6 +718,85 @@ function SavedBadge({ saved, fallback }: { saved: boolean; fallback: string }) {
       {saved
         ? '● saved override'
         : `○ default fallback (built-in: ${fallback})`}
+    </div>
+  );
+}
+
+// Per-pass model overrides. Keys mirror OVERRIDABLE_PASSES in services
+// settings.ts; main ignores an override that isn't in the current provider's
+// roster, so one saved under another provider reads here as "Default".
+const PASS_OVERRIDE_ROWS: ReadonlyArray<{ pass: string; label: string; light?: boolean; group: 'study' | 'extraction' }> = [
+  { pass: 'grader',         label: 'Grading',                          group: 'study' },
+  { pass: 'lazy_tasks',     label: 'Challenge tasks + concept enrich', group: 'study' },
+  { pass: 'prereq_suggest', label: 'Prerequisite suggestions',         group: 'study' },
+  { pass: 'concepts',       label: 'Concepts + candidate topic filter', group: 'extraction' },
+  { pass: 'enrich',         label: 'Block enrichment',                 group: 'extraction' },
+  { pass: 'misconceptions', label: 'Misconceptions',                   group: 'extraction' },
+  { pass: 'tasks',          label: 'Extraction tasks',                 group: 'extraction' },
+  { pass: 'graph',          label: 'Concept graph',     light: true,   group: 'extraction' },
+];
+
+function PassOverrides({ choices, overrides, heavyDefault, lightDefault, onSave }: {
+  choices: string[];
+  overrides: Record<string, string>;
+  heavyDefault: string;
+  lightDefault: string;
+  onSave: (next: Record<string, string>) => void;
+}) {
+  const active = PASS_OVERRIDE_ROWS.filter(r => choices.includes(overrides[r.pass] ?? '')).length;
+  const [open, setOpen] = useState(active > 0);
+
+  function setPass(pass: string, model: string): void {
+    const next = { ...overrides };
+    if (model) next[pass] = model; else delete next[pass];
+    onSave(next);
+  }
+
+  const selectStyle: React.CSSProperties = {
+    flex: 1, minWidth: 0, background: 'transparent',
+    border: '1px solid rgba(31,41,55,0.7)', borderRadius: 4,
+    padding: '4px 6px', color: '#e2e8f0', fontSize: 11,
+    fontFamily: 'ui-monospace, Consolas, monospace', outline: 'none',
+  };
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#9ca3af', fontSize: 11 }}
+      >
+        {open ? '▾' : '▸'} Per-pass models{active > 0 ? ` · ${active} overridden` : ''}
+      </button>
+      {open && (
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {(['study', 'extraction'] as const).map(group => (
+            <React.Fragment key={group}>
+              <div style={{ fontSize: 10, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: group === 'extraction' ? 6 : 0 }}>
+                {group === 'study' ? 'Study (all modes)' : 'Extraction (candidate-gated / full)'}
+              </div>
+              {PASS_OVERRIDE_ROWS.filter(r => r.group === group).map(r => {
+                const saved = overrides[r.pass] ?? '';
+                const value = choices.includes(saved) ? saved : '';
+                const fallback = r.light ? lightDefault : heavyDefault;
+                return (
+                  <label key={r.pass} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 200, flexShrink: 0, fontSize: 11, color: value ? '#c4b5fd' : '#9ca3af' }}>{r.label}</span>
+                    <select value={value} onChange={e => setPass(r.pass, e.target.value)} style={selectStyle}>
+                      <option value="">Default ({fallback})</option>
+                      {choices.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </label>
+                );
+              })}
+            </React.Fragment>
+          ))}
+          <div style={{ fontSize: 10, color: '#4b5563', lineHeight: 1.5 }}>
+            Overrides apply to the current provider only; one saved for another provider is ignored here.
+          </div>
+        </div>
+      )}
     </div>
   );
 }

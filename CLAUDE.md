@@ -616,6 +616,10 @@ All provider calls go through `chatJSON(config, request, passName)` in
   `lazy_tasks`, `grader`
 - Light passes: `structure`, `graph`
 - Model names are validated against `MODEL_CHOICES[provider]`.
+- Per-pass overrides (`modelOverrides`) are set in Settings → Model →
+  "Per-pass models" (Groq/Anthropic only; local uses one model). Keys are
+  limited to `OVERRIDABLE_PASSES` by `sanitizeSettingsInput`; an override not
+  in the current provider's roster is ignored at resolve time.
 - Groq `max_tokens` is capped to fit free-tier constraints.
 - The configured candidate topic-fit API path must stay small enough for low
   Groq TPM tiers. Prefer small batches and compact prompts over sending the full

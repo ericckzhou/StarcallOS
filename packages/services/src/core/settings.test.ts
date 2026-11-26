@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { SettingsPatchSchema } from './ipc-schemas';
-import { loadSettings, saveSettings, migrateSecretsAtRest, sanitizeSettingsInput, resolveProviderConfig, mergeSettingsPatch, loadSettingsAsync, saveSettingsAsync, type LLMSettings, type SecretCodec, type AsyncSecretCodec } from './settings';
+import { loadSettings, saveSettings, migrateSecretsAtRest, sanitizeSettingsInput, resolveProviderConfig, mergeSettingsPatch, MODEL_CHOICES, loadSettingsAsync, saveSettingsAsync, type LLMSettings, type SecretCodec, type AsyncSecretCodec } from './settings';
 
 // Reversible stand-in for Electron safeStorage (which is unavailable in tests).
 const fakeCodec: SecretCodec = {
@@ -160,8 +160,24 @@ describe('sanitizeSettingsInput', () => {
     expect(out.extractionMode).toBe('full');
   });
 
+  it('drops unknown pass keys and blank override values, trims the rest', () => {
+    const out = sanitizeSettingsInput({
+      modelOverrides: { grader: '  claude-x  ', lazy_tasks: '   ', ask: 'qwen', bogus: 'm' } as never,
+    }, current);
+    expect(out.modelOverrides).toEqual({ grader: 'claude-x' });
+  });
+
+  it('an override for the current provider wins over the class default; others are ignored', () => {
+    const anthropic = MODEL_CHOICES.anthropic;
+    const pick = [...anthropic.heavy, ...anthropic.light].find(m => m !== anthropic.heavy[0])!;
+    const s = base({ provider: 'anthropic', anthropicApiKey: 'k', heavyModel: anthropic.heavy[0], modelOverrides: { grader: pick, lazy_tasks: MODEL_CHOICES.groq.heavy[0] } });
+    expect(resolveProviderConfig(s, 'grader').model).toBe(pick);
+    expect(resolveProviderConfig(s, 'lazy_tasks').model).toBe(anthropic.heavy[0]);
+  });
+
   it('leaves absent fields absent so the caller merge is unaffected', () => {
     const out = sanitizeSettingsInput({ groqApiKey: 'gsk_x' }, current);
+    expect('modelOverrides' in out).toBe(false);
     expect('provider' in out).toBe(false);
     expect('extractionMode' in out).toBe(false);
     expect(out.groqApiKey).toBe('gsk_x');
