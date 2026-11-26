@@ -21,6 +21,7 @@ import type { ProviderConfig } from '../core/llm';
 import type { Embedder } from '../core/embeddings';
 import { chatStructured } from '../core/structured';
 import { retrieveChunks, type RetrievalMode, type RetrievedChunk } from './retrieval';
+import { getNextChunksInSection } from './repos/rag_chunks';
 
 export type AnswerStatus =
   | 'grounded'        // every cited marker verified
@@ -89,7 +90,17 @@ export interface AskOptions {
   // the question already contains it). Never added to the model prompt, so it
   // cannot change what counts as a verified citation.
   focus?: string | null;
+  // Neighbor expansion (default on): spend NEIGHBOR_ANCHORS of the k slots on
+  // the passage that follows each of the top hits in the same section.
+  neighbors?: boolean;
 }
+
+// Measured on the retrieval golden set at the same 6-passage budget: top-4 +
+// the in-section follower of the top-2 raised recall of labelled passages
+// from 0.715 to 0.756 overall and 0.604 to 0.750 on multi-passage questions,
+// with no category lower. Diversity heuristics (per-section caps, skipping
+// adjacent chunks) lowered recall and were not shipped.
+export const NEIGHBOR_ANCHORS = 2;
 
 export function retrievalQuery(question: string, focus?: string | null): string {
   const f = focus?.trim();
@@ -264,6 +275,34 @@ export function validateAnswer(out: AskOutput, passages: AskPassage[]): {
   return { status, answer: text, citations, dropped };
 }
 
+// Choose the k passages to send: the top k - NEIGHBOR_ANCHORS hits, each of
+// the top NEIGHBOR_ANCHORS followed directly by its in-section follower (so
+// the model reads them contiguously), then remaining hits to fill k. A
+// follower that is already a top hit keeps its own rank.
+export function withNeighbors(db: DatabaseSync, hits: RetrievedChunk[], k: number): RetrievedChunk[] {
+  const anchors = k >= 4 ? Math.min(NEIGHBOR_ANCHORS, hits.length) : 0;
+  if (anchors === 0) return hits.slice(0, k);
+  const base = hits.slice(0, k - anchors);
+  const next = getNextChunksInSection(db, hits.slice(0, anchors).map(h => h.chunk_id));
+  const chosen = new Set<number>();
+  const out: RetrievedChunk[] = [];
+  const push = (c: RetrievedChunk) => { if (!chosen.has(c.chunk_id) && out.length < k) { chosen.add(c.chunk_id); out.push(c); } };
+  const baseIds = new Set(base.map(h => h.chunk_id));
+  base.forEach((h, i) => {
+    push(h);
+    const n = i < anchors ? next.get(h.chunk_id) : undefined;
+    if (n && !baseIds.has(n.id)) {
+      push({
+        ...h, chunk_id: n.id, chunk_key: n.chunk_key, text: n.text, heading: n.heading, section_path: n.section_path,
+        page_start: n.page_start, page_end: n.page_end, has_formula: n.has_formula,
+        keyword_rank: null, keyword_score: null, vector_rank: null, vector_similarity: null,
+      });
+    }
+  });
+  for (const h of hits) push(h);
+  return out;
+}
+
 export function toPassages(hits: RetrievedChunk[]): AskPassage[] {
   return hits.map((h, i) => ({
     n: i + 1, chunk_id: h.chunk_id, source_id: h.source_id, source_title: h.source_title,
@@ -286,10 +325,11 @@ export function buildAskUserPrompt(question: string, passages: AskPassage[], max
 
 export async function askSources(db: DatabaseSync, opts: AskOptions): Promise<AskResult> {
   const question = opts.question.trim();
+  const k = opts.k ?? 6;
   const retrieval = await retrieveChunks(db, {
-    query: retrievalQuery(question, opts.focus), mode: 'hybrid', k: opts.k ?? 6, sourceIds: opts.sourceIds, embedder: opts.embedder ?? null,
+    query: retrievalQuery(question, opts.focus), mode: 'hybrid', k, sourceIds: opts.sourceIds, embedder: opts.embedder ?? null,
   });
-  const passages = toPassages(retrieval.hits);
+  const passages = toPassages(opts.neighbors === false ? retrieval.hits : withNeighbors(db, retrieval.hits, k));
   const base = {
     question,
     passages,

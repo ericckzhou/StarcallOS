@@ -6,11 +6,12 @@ import { chatJSON, type ProviderConfig, type UsageStats } from '../core/llm';
 import { openDb } from '../core/infra/db';
 import { resolveAskConfig, type LLMSettings } from '../core/settings';
 import type { BlockHint, SegmentedBlock } from '../ingestion/layout';
+import type { RetrievedChunk } from './retrieval';
 import { chunkBlocks } from '../ingestion/chunker';
 import { createSource } from './repos/sources';
-import { syncSourceChunks } from './repos/rag_chunks';
+import { listSourceChunks, syncSourceChunks } from './repos/rag_chunks';
 import {
-  askSources, buildAskUserPrompt, quoteInPassage, retrievalQuery, rewriteMarkers, validateAnswer, type AskPassage,
+  askSources, buildAskUserPrompt, quoteInPassage, retrievalQuery, rewriteMarkers, validateAnswer, withNeighbors, type AskPassage,
 } from './ask';
 
 const mockChat = vi.mocked(chatJSON);
@@ -222,5 +223,53 @@ describe('resolveAskConfig', () => {
     expect(resolveAskConfig({ ...base, localModel: 'qwen3:8b' })).toMatchObject({ provider: 'local', model: 'qwen3:8b', apiKey: '' });
     expect(resolveAskConfig(base)).toBeNull();
     expect(resolveAskConfig({ ...base, provider: 'local' })?.provider).toBe('local');
+  });
+});
+
+describe('withNeighbors', () => {
+  // Two sections; long blocks so each section splits into several chunks.
+  function seedLong() {
+    const db = openDb(':memory:');
+    const s = createSource(db, { filename: 'n.pdf', file_path: 'n.pdf', title: 'N' });
+    order = 0;
+    const para = (w: string) => `${w} `.repeat(160).trim() + '.';
+    syncSourceChunks(db, s.id, chunkBlocks([
+      blk('Section A', 1, 'heading'), blk(para('alpha'), 1), blk(para('beta'), 1), blk(para('gamma'), 2),
+      blk('Section B', 3, 'heading'), blk(para('delta'), 3), blk(para('epsilon'), 3),
+    ]).chunks);
+    return { db, rows: listSourceChunks(db, s.id) };
+  }
+  const hit = (c: { id: number; chunk_key: string; text: string; source_id: number }, score: number): RetrievedChunk => ({
+    chunk_id: c.id, chunk_key: c.chunk_key, source_id: c.source_id, source_title: 'N', text: c.text, heading: null,
+    section_path: [], page_start: 1, page_end: 1, has_formula: false, score,
+    keyword_rank: 1, keyword_score: 1, vector_rank: 1, vector_similarity: 0.9,
+  });
+
+  it('inserts the in-section follower of the top hits right after them', () => {
+    const { db, rows } = seedLong();
+    const a = rows.filter(r => r.section_text.includes('Section A'));
+    const b = rows.filter(r => r.section_text.includes('Section B'));
+    expect(a.length).toBeGreaterThanOrEqual(3);
+    expect(b.length).toBeGreaterThanOrEqual(2);
+    // top hits: A0, B0, then the rest of B / A in some order
+    const hits = [hit(a[0], 0.9), hit(b[0], 0.8), hit(b[1], 0.7), hit(a[2], 0.6), hit(a[1], 0.5)];
+    const out = withNeighbors(db, hits, 4).map(h => h.chunk_id);
+    // base = top 2 (k - 2 anchors): A0 + its follower A1, B0 + its follower B1
+    expect(out).toEqual([a[0].id, a[1].id, b[0].id, b[1].id]);
+  });
+
+  it('never crosses a section boundary or duplicates a passage', () => {
+    const { db, rows } = seedLong();
+    const a = rows.filter(r => r.section_text.includes('Section A'));
+    const last = a[a.length - 1];
+    const out = withNeighbors(db, [hit(last, 0.9), hit(a[0], 0.8)], 6);
+    expect(out.map(h => h.chunk_id)).toEqual([last.id, a[0].id, a[1].id]);
+    expect(new Set(out.map(h => h.chunk_id)).size).toBe(out.length);
+  });
+
+  it('is a plain top-k cut for small k', () => {
+    const { db, rows } = seedLong();
+    const hits = rows.slice(0, 3).map((r, i) => hit(r, 1 - i / 10));
+    expect(withNeighbors(db, hits, 3).map(h => h.chunk_id)).toEqual(rows.slice(0, 3).map(r => r.id));
   });
 });

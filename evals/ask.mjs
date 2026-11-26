@@ -9,6 +9,7 @@
 //   pnpm eval:ask -- --pdf <path-to-b36-txtbook.pdf> --model qwen3.5:4b
 //   pnpm eval:ask -- --pdf <path> --model <m> --limit 5        # smoke run
 //   pnpm eval:ask -- --pdf <path> --model <m> --save-baseline
+//   pnpm eval:ask -- --pdf <path> --model <m> --no-neighbors   # A/B without neighbor expansion
 //
 // Env: RETRIEVAL_EVAL_PDF (instead of --pdf), EVAL_ASK_MODEL (instead of
 // --model), EVAL_BASE_URL (default Ollama's 127.0.0.1:11434/v1, used for both
@@ -45,6 +46,7 @@ if (!model) die('Pass --model <local chat model> (or set EVAL_ASK_MODEL), e.g. -
 const baseUrl = process.env.EVAL_BASE_URL ?? svc.DEFAULT_LOCAL_BASE_URL;
 const config = { provider: 'local', apiKey: '', model, baseUrl };
 const limit = opt('limit') ? Number(opt('limit')) : Infinity;
+const neighbors = !flag('no-neighbors');
 
 // ─── inputs / index / labels ─────────────────────────────────────────────────
 
@@ -65,7 +67,7 @@ console.log(`[ask-eval] ${cases.length} questions · model ${model} @ ${baseUrl}
 const results = [];
 for (const c of cases) {
   const t0 = Date.now();
-  const r = await svc.askSources(db, { question: c.question, sourceIds: [sourceId], config, embedder });
+  const r = await svc.askSources(db, { question: c.question, sourceIds: [sourceId], config, embedder, neighbors });
   const latency_ms = Date.now() - t0;
   if (r.retrieval.mode_used !== 'hybrid') die(`${c.id}: retrieval degraded to ${r.retrieval.mode_used} (${r.retrieval.vector_error})`);
   const rel = new Set(c.relevantKeys);
@@ -112,7 +114,7 @@ fs.mkdirSync(path.join(here, 'baselines'), { recursive: true });
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const runConfig = {
   document_sha256: sha, chunker_version: svc.CHUNKER_VERSION, layout_version: svc.LAYOUT_VERSION, chunks: chunks.length,
-  model, embed_model: embedder.model, k: 6, max_passage_chars: 1600, cases: cases.length,
+  model, embed_model: embedder.model, k: 6, neighbors, max_passage_chars: 1600, cases: cases.length,
 };
 const out = { at: new Date().toISOString(), config: runConfig, label_status: statusCounts, unresolved, metrics: m, results };
 const resFile = path.join(here, 'results', `${stamp}-ask-${model.replace(/[^\w.-]+/g, '_')}.json`);
