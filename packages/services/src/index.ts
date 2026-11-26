@@ -39,7 +39,6 @@ export * from './knowledge/prerequisites';
 export * from './knowledge/prerequisite_suggestions';
 
 // Ingestion pipeline
-export * from './ingestion/pdf';
 export * from './ingestion/html_text';
 export * from './ingestion/readability';
 export * from './ingestion/docx';
