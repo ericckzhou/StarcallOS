@@ -96,7 +96,8 @@ Remember these as the active state of the repo:
   `contracts/grader.md`. Grader 1.3.0 adds per-stage calibration
   examples to `GRADER_SYSTEM`, optional self-consistency (Settings → Grading,
   `effectiveSelfConsistency`: default on for Anthropic, off for Groq) that
-  re-grades `isBorderlineGrade` answers twice at T=0.7 and merges via
+  re-grades `isBorderlineGrade` answers twice at T=0.7 (temperature applies to Groq/local only: Anthropic SDK 1.x / API
+  2026-10-21 removed sampling controls, so Anthropic calls never send it) and merges via
   `aggregateGrades` (majority score, ties → conservative; lower-median stage).
   Graded attempts persist via `persistGradedAttempt` (record + mastery + SRS in
   one transaction),
