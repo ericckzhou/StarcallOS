@@ -8,8 +8,9 @@
   },
   "labelled_with": {
     "chunker_version": "0.1.0",
-    "layout_version": "0.5.2",
-    "chunks": 663,
-    "date": "2026-11-23"
+    "layout_version": "0.5.3",
+    "chunks": 657,
+    "date": "2026-11-26",
+    "note": "Relabelled from the pooled review sheet (top 10 of keyword/vector/hybrid) by an independent model pass. Not a human audit."
   }
 }

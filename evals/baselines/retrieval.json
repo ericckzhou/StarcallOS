@@ -1,319 +1,320 @@
 {
-  "at": "2026-11-23T23:50:58.418Z",
+  "at": "2026-11-26T15:27:47.801Z",
   "config": {
     "document_sha256": "0779dd3e3c6951e9f8a30bcc9d6d0cb0da8bc7655e8487cd500601227fcaa9ae",
+    "parser": "builtin",
     "chunker_version": "0.1.0",
-    "layout_version": "0.5.2",
-    "chunks": 663,
+    "layout_version": "0.5.3",
+    "chunks": 657,
     "embed_model": "nomic-embed-text",
     "rrf_k": 60,
     "candidate_pool": 50
   },
   "label_status": {
-    "proposed": 30
+    "independent-reviewed": 30
   },
   "flat": {
-    "keyword.precision_at_k@5": 0.237,
-    "keyword.recall_at_k@5": 0.651,
-    "keyword.mrr@5": 0.574,
-    "keyword.coverage@5": 0.778,
-    "keyword.precision_at_k@10": 0.148,
-    "keyword.recall_at_k@10": 0.769,
-    "keyword.mrr@10": 0.592,
-    "keyword.coverage@10": 0.889,
-    "vector.precision_at_k@5": 0.23,
-    "vector.recall_at_k@5": 0.627,
-    "vector.mrr@5": 0.58,
-    "vector.coverage@5": 0.741,
-    "vector.precision_at_k@10": 0.148,
-    "vector.recall_at_k@10": 0.762,
-    "vector.mrr@10": 0.601,
-    "vector.coverage@10": 0.889,
-    "hybrid.precision_at_k@5": 0.259,
-    "hybrid.recall_at_k@5": 0.694,
-    "hybrid.mrr@5": 0.66,
-    "hybrid.coverage@5": 0.852,
-    "hybrid.precision_at_k@10": 0.156,
-    "hybrid.recall_at_k@10": 0.799,
-    "hybrid.mrr@10": 0.671,
-    "hybrid.coverage@10": 0.926
+    "keyword.precision_at_k@5": 0.341,
+    "keyword.recall_at_k@5": 0.66,
+    "keyword.mrr@5": 0.731,
+    "keyword.coverage@5": 0.889,
+    "keyword.precision_at_k@10": 0.211,
+    "keyword.recall_at_k@10": 0.804,
+    "keyword.mrr@10": 0.74,
+    "keyword.coverage@10": 0.963,
+    "vector.precision_at_k@5": 0.348,
+    "vector.recall_at_k@5": 0.698,
+    "vector.mrr@5": 0.719,
+    "vector.coverage@5": 0.926,
+    "vector.precision_at_k@10": 0.222,
+    "vector.recall_at_k@10": 0.845,
+    "vector.mrr@10": 0.731,
+    "vector.coverage@10": 1,
+    "hybrid.precision_at_k@5": 0.378,
+    "hybrid.recall_at_k@5": 0.741,
+    "hybrid.mrr@5": 0.797,
+    "hybrid.coverage@5": 1,
+    "hybrid.precision_at_k@10": 0.226,
+    "hybrid.recall_at_k@10": 0.862,
+    "hybrid.mrr@10": 0.797,
+    "hybrid.coverage@10": 1
   },
   "metrics": {
     "keyword": {
       "5": {
         "k": 5,
         "n": 27,
-        "precision_at_k": 0.237,
-        "recall_at_k": 0.651,
-        "mrr": 0.574,
-        "coverage": 0.778,
-        "n_unanswerable": 3,
-        "by_category": {
-          "ambiguous": {
-            "n": 3,
-            "precision_at_k": 0.267,
-            "recall_at_k": 0.667,
-            "mrr": 0.278,
-            "coverage": 0.667
-          },
-          "conceptual": {
-            "n": 6,
-            "precision_at_k": 0.233,
-            "recall_at_k": 0.667,
-            "mrr": 0.556,
-            "coverage": 1
-          },
-          "equation": {
-            "n": 5,
-            "precision_at_k": 0.2,
-            "recall_at_k": 0.567,
-            "mrr": 0.567,
-            "coverage": 0.8
-          },
-          "exact_term": {
-            "n": 6,
-            "precision_at_k": 0.267,
-            "recall_at_k": 1,
-            "mrr": 0.917,
-            "coverage": 1
-          },
-          "false_premise": {
-            "n": 3,
-            "precision_at_k": 0.2,
-            "recall_at_k": 0.333,
-            "mrr": 0.333,
-            "coverage": 0.333
-          },
-          "multi_passage": {
-            "n": 4,
-            "precision_at_k": 0.25,
-            "recall_at_k": 0.438,
-            "mrr": 0.5,
-            "coverage": 0.5
-          }
-        },
-        "mean_top_score_answerable": 16.157,
-        "mean_top_score_unanswerable": 9.597
-      },
-      "10": {
-        "k": 10,
-        "n": 27,
-        "precision_at_k": 0.148,
-        "recall_at_k": 0.769,
-        "mrr": 0.592,
+        "precision_at_k": 0.341,
+        "recall_at_k": 0.66,
+        "mrr": 0.731,
         "coverage": 0.889,
         "n_unanswerable": 3,
         "by_category": {
           "ambiguous": {
             "n": 3,
-            "precision_at_k": 0.2,
-            "recall_at_k": 0.833,
-            "mrr": 0.325,
+            "precision_at_k": 0.333,
+            "recall_at_k": 0.5,
+            "mrr": 0.778,
             "coverage": 1
           },
           "conceptual": {
             "n": 6,
-            "precision_at_k": 0.15,
-            "recall_at_k": 0.833,
-            "mrr": 0.556,
+            "precision_at_k": 0.367,
+            "recall_at_k": 0.681,
+            "mrr": 0.806,
             "coverage": 1
           },
           "equation": {
             "n": 5,
-            "precision_at_k": 0.16,
-            "recall_at_k": 0.833,
-            "mrr": 0.6,
-            "coverage": 1
+            "precision_at_k": 0.2,
+            "recall_at_k": 0.5,
+            "mrr": 0.367,
+            "coverage": 0.6
           },
           "exact_term": {
             "n": 6,
-            "precision_at_k": 0.133,
+            "precision_at_k": 0.367,
             "recall_at_k": 1,
             "mrr": 0.917,
             "coverage": 1
           },
           "false_premise": {
             "n": 3,
-            "precision_at_k": 0.1,
-            "recall_at_k": 0.333,
-            "mrr": 0.333,
-            "coverage": 0.333
+            "precision_at_k": 0.333,
+            "recall_at_k": 0.467,
+            "mrr": 0.667,
+            "coverage": 0.667
           },
           "multi_passage": {
             "n": 4,
-            "precision_at_k": 0.15,
-            "recall_at_k": 0.521,
-            "mrr": 0.542,
-            "coverage": 0.75
+            "precision_at_k": 0.45,
+            "recall_at_k": 0.588,
+            "mrr": 0.813,
+            "coverage": 1
           }
         },
-        "mean_top_score_answerable": 16.157,
-        "mean_top_score_unanswerable": 9.597
+        "mean_top_score_answerable": 15.994,
+        "mean_top_score_unanswerable": 9.535
+      },
+      "10": {
+        "k": 10,
+        "n": 27,
+        "precision_at_k": 0.211,
+        "recall_at_k": 0.804,
+        "mrr": 0.74,
+        "coverage": 0.963,
+        "n_unanswerable": 3,
+        "by_category": {
+          "ambiguous": {
+            "n": 3,
+            "precision_at_k": 0.267,
+            "recall_at_k": 0.75,
+            "mrr": 0.778,
+            "coverage": 1
+          },
+          "conceptual": {
+            "n": 6,
+            "precision_at_k": 0.25,
+            "recall_at_k": 0.875,
+            "mrr": 0.806,
+            "coverage": 1
+          },
+          "equation": {
+            "n": 5,
+            "precision_at_k": 0.14,
+            "recall_at_k": 0.8,
+            "mrr": 0.412,
+            "coverage": 1
+          },
+          "exact_term": {
+            "n": 6,
+            "precision_at_k": 0.183,
+            "recall_at_k": 1,
+            "mrr": 0.917,
+            "coverage": 1
+          },
+          "false_premise": {
+            "n": 3,
+            "precision_at_k": 0.167,
+            "recall_at_k": 0.467,
+            "mrr": 0.667,
+            "coverage": 0.667
+          },
+          "multi_passage": {
+            "n": 4,
+            "precision_at_k": 0.275,
+            "recall_at_k": 0.7,
+            "mrr": 0.813,
+            "coverage": 1
+          }
+        },
+        "mean_top_score_answerable": 15.994,
+        "mean_top_score_unanswerable": 9.535
       }
     },
     "vector": {
       "5": {
         "k": 5,
         "n": 27,
-        "precision_at_k": 0.23,
-        "recall_at_k": 0.627,
-        "mrr": 0.58,
-        "coverage": 0.741,
+        "precision_at_k": 0.348,
+        "recall_at_k": 0.698,
+        "mrr": 0.719,
+        "coverage": 0.926,
         "n_unanswerable": 3,
         "by_category": {
           "ambiguous": {
             "n": 3,
-            "precision_at_k": 0.133,
-            "recall_at_k": 0.333,
-            "mrr": 0.167,
-            "coverage": 0.333
-          },
-          "conceptual": {
-            "n": 6,
             "precision_at_k": 0.267,
-            "recall_at_k": 0.75,
-            "mrr": 0.528,
-            "coverage": 0.833
-          },
-          "equation": {
-            "n": 5,
-            "precision_at_k": 0.28,
-            "recall_at_k": 0.7,
-            "mrr": 0.9,
-            "coverage": 1
-          },
-          "exact_term": {
-            "n": 6,
-            "precision_at_k": 0.233,
-            "recall_at_k": 0.917,
-            "mrr": 0.75,
-            "coverage": 1
-          },
-          "false_premise": {
-            "n": 3,
-            "precision_at_k": 0.133,
-            "recall_at_k": 0.222,
-            "mrr": 0.333,
-            "coverage": 0.333
-          },
-          "multi_passage": {
-            "n": 4,
-            "precision_at_k": 0.25,
-            "recall_at_k": 0.438,
-            "mrr": 0.5,
-            "coverage": 0.5
-          }
-        },
-        "mean_top_score_answerable": 0.787,
-        "mean_top_score_unanswerable": 0.662
-      },
-      "10": {
-        "k": 10,
-        "n": 27,
-        "precision_at_k": 0.148,
-        "recall_at_k": 0.762,
-        "mrr": 0.601,
-        "coverage": 0.889,
-        "n_unanswerable": 3,
-        "by_category": {
-          "ambiguous": {
-            "n": 3,
-            "precision_at_k": 0.133,
-            "recall_at_k": 0.583,
-            "mrr": 0.256,
-            "coverage": 1
-          },
-          "conceptual": {
-            "n": 6,
-            "precision_at_k": 0.167,
-            "recall_at_k": 0.917,
-            "mrr": 0.549,
-            "coverage": 1
-          },
-          "equation": {
-            "n": 5,
-            "precision_at_k": 0.18,
-            "recall_at_k": 0.9,
-            "mrr": 0.9,
-            "coverage": 1
-          },
-          "exact_term": {
-            "n": 6,
-            "precision_at_k": 0.117,
-            "recall_at_k": 0.917,
-            "mrr": 0.75,
-            "coverage": 1
-          },
-          "false_premise": {
-            "n": 3,
-            "precision_at_k": 0.1,
             "recall_at_k": 0.333,
-            "mrr": 0.333,
-            "coverage": 0.333
-          },
-          "multi_passage": {
-            "n": 4,
-            "precision_at_k": 0.175,
-            "recall_at_k": 0.583,
-            "mrr": 0.542,
-            "coverage": 0.75
-          }
-        },
-        "mean_top_score_answerable": 0.787,
-        "mean_top_score_unanswerable": 0.662
-      }
-    },
-    "hybrid": {
-      "5": {
-        "k": 5,
-        "n": 27,
-        "precision_at_k": 0.259,
-        "recall_at_k": 0.694,
-        "mrr": 0.66,
-        "coverage": 0.852,
-        "n_unanswerable": 3,
-        "by_category": {
-          "ambiguous": {
-            "n": 3,
-            "precision_at_k": 0.2,
-            "recall_at_k": 0.5,
-            "mrr": 0.278,
+            "mrr": 0.444,
             "coverage": 0.667
           },
           "conceptual": {
             "n": 6,
-            "precision_at_k": 0.267,
-            "recall_at_k": 0.75,
-            "mrr": 0.672,
+            "precision_at_k": 0.4,
+            "recall_at_k": 0.722,
+            "mrr": 0.597,
             "coverage": 1
           },
           "equation": {
             "n": 5,
             "precision_at_k": 0.32,
-            "recall_at_k": 0.833,
-            "mrr": 0.85,
+            "recall_at_k": 0.9,
+            "mrr": 0.8,
             "coverage": 1
           },
           "exact_term": {
             "n": 6,
-            "precision_at_k": 0.233,
+            "precision_at_k": 0.333,
             "recall_at_k": 0.917,
             "mrr": 0.917,
             "coverage": 1
           },
           "false_premise": {
             "n": 3,
-            "precision_at_k": 0.2,
-            "recall_at_k": 0.333,
-            "mrr": 0.333,
-            "coverage": 0.333
+            "precision_at_k": 0.267,
+            "recall_at_k": 0.4,
+            "mrr": 0.667,
+            "coverage": 1
           },
           "multi_passage": {
             "n": 4,
-            "precision_at_k": 0.3,
-            "recall_at_k": 0.521,
-            "mrr": 0.55,
+            "precision_at_k": 0.45,
+            "recall_at_k": 0.575,
+            "mrr": 0.75,
             "coverage": 0.75
+          }
+        },
+        "mean_top_score_answerable": 0.785,
+        "mean_top_score_unanswerable": 0.664
+      },
+      "10": {
+        "k": 10,
+        "n": 27,
+        "precision_at_k": 0.222,
+        "recall_at_k": 0.845,
+        "mrr": 0.731,
+        "coverage": 1,
+        "n_unanswerable": 3,
+        "by_category": {
+          "ambiguous": {
+            "n": 3,
+            "precision_at_k": 0.233,
+            "recall_at_k": 0.75,
+            "mrr": 0.5,
+            "coverage": 1
+          },
+          "conceptual": {
+            "n": 6,
+            "precision_at_k": 0.25,
+            "recall_at_k": 0.875,
+            "mrr": 0.597,
+            "coverage": 1
+          },
+          "equation": {
+            "n": 5,
+            "precision_at_k": 0.16,
+            "recall_at_k": 0.9,
+            "mrr": 0.8,
+            "coverage": 1
+          },
+          "exact_term": {
+            "n": 6,
+            "precision_at_k": 0.167,
+            "recall_at_k": 0.917,
+            "mrr": 0.917,
+            "coverage": 1
+          },
+          "false_premise": {
+            "n": 3,
+            "precision_at_k": 0.233,
+            "recall_at_k": 0.689,
+            "mrr": 0.667,
+            "coverage": 1
+          },
+          "multi_passage": {
+            "n": 4,
+            "precision_at_k": 0.325,
+            "recall_at_k": 0.813,
+            "mrr": 0.792,
+            "coverage": 1
+          }
+        },
+        "mean_top_score_answerable": 0.785,
+        "mean_top_score_unanswerable": 0.664
+      }
+    },
+    "hybrid": {
+      "5": {
+        "k": 5,
+        "n": 27,
+        "precision_at_k": 0.378,
+        "recall_at_k": 0.741,
+        "mrr": 0.797,
+        "coverage": 1,
+        "n_unanswerable": 3,
+        "by_category": {
+          "ambiguous": {
+            "n": 3,
+            "precision_at_k": 0.333,
+            "recall_at_k": 0.5,
+            "mrr": 0.778,
+            "coverage": 1
+          },
+          "conceptual": {
+            "n": 6,
+            "precision_at_k": 0.433,
+            "recall_at_k": 0.778,
+            "mrr": 0.783,
+            "coverage": 1
+          },
+          "equation": {
+            "n": 5,
+            "precision_at_k": 0.28,
+            "recall_at_k": 0.8,
+            "mrr": 0.59,
+            "coverage": 1
+          },
+          "exact_term": {
+            "n": 6,
+            "precision_at_k": 0.333,
+            "recall_at_k": 0.917,
+            "mrr": 1,
+            "coverage": 1
+          },
+          "false_premise": {
+            "n": 3,
+            "precision_at_k": 0.333,
+            "recall_at_k": 0.511,
+            "mrr": 0.733,
+            "coverage": 1
+          },
+          "multi_passage": {
+            "n": 4,
+            "precision_at_k": 0.55,
+            "recall_at_k": 0.7,
+            "mrr": 0.833,
+            "coverage": 1
           }
         },
         "mean_top_score_answerable": 0.032,
@@ -322,52 +323,52 @@
       "10": {
         "k": 10,
         "n": 27,
-        "precision_at_k": 0.156,
-        "recall_at_k": 0.799,
-        "mrr": 0.671,
-        "coverage": 0.926,
+        "precision_at_k": 0.226,
+        "recall_at_k": 0.862,
+        "mrr": 0.797,
+        "coverage": 1,
         "n_unanswerable": 3,
         "by_category": {
           "ambiguous": {
             "n": 3,
-            "precision_at_k": 0.167,
-            "recall_at_k": 0.75,
-            "mrr": 0.333,
+            "precision_at_k": 0.2,
+            "recall_at_k": 0.667,
+            "mrr": 0.778,
             "coverage": 1
           },
           "conceptual": {
             "n": 6,
-            "precision_at_k": 0.167,
-            "recall_at_k": 0.917,
-            "mrr": 0.672,
+            "precision_at_k": 0.267,
+            "recall_at_k": 0.958,
+            "mrr": 0.783,
             "coverage": 1
           },
           "equation": {
             "n": 5,
-            "precision_at_k": 0.16,
-            "recall_at_k": 0.833,
-            "mrr": 0.85,
+            "precision_at_k": 0.14,
+            "recall_at_k": 0.8,
+            "mrr": 0.59,
             "coverage": 1
           },
           "exact_term": {
             "n": 6,
-            "precision_at_k": 0.133,
+            "precision_at_k": 0.183,
             "recall_at_k": 1,
-            "mrr": 0.917,
+            "mrr": 1,
             "coverage": 1
           },
           "false_premise": {
             "n": 3,
-            "precision_at_k": 0.1,
-            "recall_at_k": 0.333,
-            "mrr": 0.333,
-            "coverage": 0.333
+            "precision_at_k": 0.267,
+            "recall_at_k": 0.756,
+            "mrr": 0.733,
+            "coverage": 1
           },
           "multi_passage": {
             "n": 4,
-            "precision_at_k": 0.2,
-            "recall_at_k": 0.667,
-            "mrr": 0.581,
+            "precision_at_k": 0.325,
+            "recall_at_k": 0.813,
+            "mrr": 0.833,
             "coverage": 1
           }
         },
