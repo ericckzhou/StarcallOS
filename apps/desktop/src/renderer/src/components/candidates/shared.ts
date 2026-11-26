@@ -170,12 +170,27 @@ export function parseTopicFitJson(raw: string): TopicFitResponse | null {
     if (start >= 0 && end > start) body = body.slice(start, end + 1);
   }
   try {
-    const obj = JSON.parse(body) as TopicFitResponse;
+    const obj = JSON.parse(body) as TopicFitResponse & { keep?: unknown };
+    // Keep-list form {"keep":[...]} (what the configured API prompt asks for)
+    // is accepted too, so pasting a model's keep-list reply also works.
+    if (!Array.isArray(obj.decisions) && Array.isArray(obj.keep)) {
+      return {
+        decisions: obj.keep
+          .filter((t): t is string => typeof t === 'string')
+          .map(term => ({ term, keep: true })),
+      };
+    }
     if (!Array.isArray(obj.decisions)) return null;
     return obj;
   } catch {
     return null;
   }
+}
+
+// Match key for topic-fit terms: case-, edge- and inner-whitespace-insensitive,
+// so a reply term like "Gradient  descent " still maps to its candidate.
+export function topicFitKey(term: string): string {
+  return term.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 // Contract: contracts/topic_filter.md (CONTRACT_VERSION). Keep/reject by source

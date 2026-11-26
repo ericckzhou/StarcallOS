@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCandidateLlmFilterPrompt, parseCandidateLlmFilterResponse } from './topic_filter';
+import { buildCandidateLlmFilterPrompt, extractJsonObject, keptBatchTerms, parseCandidateLlmFilterResponse, topicFilterKey } from './topic_filter';
 
 describe('topic_filter', () => {
   it('builds a term-per-line prompt with the title', () => {
@@ -20,5 +20,31 @@ describe('topic_filter', () => {
 
   it('throws when neither array is present', () => {
     expect(() => parseCandidateLlmFilterResponse('{"x":1}')).toThrow();
+  });
+
+  it('falls back to a placeholder title', () => {
+    expect(buildCandidateLlmFilterPrompt(undefined, [])).toContain('Book title: "(unknown source title)"');
+  });
+
+  it('extracts unfenced JSON surrounded by prose', () => {
+    expect(extractJsonObject('Here is the result: {"keep":["a"]} Hope that helps.')).toBe('{"keep":["a"]}');
+    expect(parseCandidateLlmFilterResponse('{"keep":[]}')).toEqual([]);
+  });
+
+  it('throws on non-JSON output', () => {
+    expect(() => parseCandidateLlmFilterResponse('I cannot help with that.')).toThrow();
+  });
+
+  it('keptBatchTerms matches loosely, drops unsent terms and rejects, and dedupes', () => {
+    const batch = [{ normalized: 'gradient descent' }, { normalized: 'Learning Rate' }, { normalized: 'basis' }];
+    const kept = keptBatchTerms(batch, [
+      { term: ' Gradient  Descent ', keep: true },
+      { term: 'gradient descent', keep: true },
+      { term: 'learning rate', keep: true },
+      { term: 'basis', keep: false },
+      { term: 'hallucinated term', keep: true },
+    ]);
+    expect(kept).toEqual(['gradient descent', 'learning rate']);
+    expect(topicFilterKey('A\n b')).toBe('a b');
   });
 });

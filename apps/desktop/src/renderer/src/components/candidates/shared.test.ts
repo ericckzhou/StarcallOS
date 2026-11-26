@@ -3,6 +3,7 @@ import {
   buildTopicFitPrompt,
   classifyBucket,
   parseTopicFitJson,
+  topicFitKey,
   passesBulkPromoteGate,
   type ConceptCandidate,
 } from './shared';
@@ -58,6 +59,17 @@ describe('candidate shared helpers', () => {
     expect(parseTopicFitJson('Here you go: {"decisions":[{"id":12,"keep":false}]} thanks')?.decisions?.[0].id)
       .toBe(12);
     expect(parseTopicFitJson('not json')).toBeNull();
+  });
+
+  it('accepts a pasted keep-list reply as keep:true decisions', () => {
+    expect(parseTopicFitJson('```json\n{"keep":["eigenvalue", 3, "basis"]}\n```')?.decisions)
+      .toEqual([{ term: 'eigenvalue', keep: true }, { term: 'basis', keep: true }]);
+    expect(parseTopicFitJson('{"other":[]}')).toBeNull();
+  });
+
+  it('topicFitKey ignores case and edge/inner whitespace', () => {
+    expect(topicFitKey('  Gradient \t Descent ')).toBe('gradient descent');
+    expect(topicFitKey('gradient descent')).toBe(topicFitKey('GRADIENT\nDESCENT'));
   });
 
   it('builds term-keyed topic-fit prompts', () => {

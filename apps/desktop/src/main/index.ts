@@ -75,7 +75,7 @@ import {
   planOutdatedSources, runReextractOutdated, currentReextractVersions, type ReextractProgress, type ReextractSummary,
   doclingServerInfo, DEFAULT_DOCLING_BASE_URL, LAYOUT_VERSION, CHUNKER_VERSION,
   resolveAskConfig, askSources, saveAskHistory, listAskHistory, deleteAskHistory, chunkIndexStats, indexSourceChunkEmbeddings, RagAskArgsSchema, RagSourceSearchArgsSchema, searchSourcePassages,
-  type Embedder, buildCandidateLlmFilterPrompt, parseCandidateLlmFilterResponse, createLlmCallSink, summarizeLlmCalls,
+  type Embedder, buildCandidateLlmFilterPrompt, parseCandidateLlmFilterResponse, keptBatchTerms, createLlmCallSink, summarizeLlmCalls,
 } from '@starcall/services';
 import { IPC } from '@starcall/shared';
 import { expectedLayoutFor, segmentPdfConfigured, stopPdfParser } from './pdf_parser';
@@ -1661,11 +1661,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         ],
       }, 'topic_filter');
       const decisions = parseCandidateLlmFilterResponse(content);
-      const terms = new Set(batch.map(c => c.normalized.toLowerCase()));
-      const keepTerms = decisions
-        .filter(d => d.keep && terms.has(d.term.toLowerCase()))
-        .map(d => d.term.toLowerCase());
-      return { decisions, keepTerms };
+      return { decisions, keepTerms: keptBatchTerms(batch, decisions) };
     }
 
     // Fast default: one compact 75-candidate call (well under low Groq TPM

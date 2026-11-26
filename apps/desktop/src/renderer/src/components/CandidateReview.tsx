@@ -11,6 +11,7 @@ import {
   classifyBucket,
   confColor,
   parseTopicFitJson,
+  topicFitKey,
   passesBulkPromoteGate,
   type Bucket,
   type Bundle,
@@ -151,7 +152,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
     const termToCandidate = new Map<string, ConceptCandidate>();
     const idToCandidate   = new Map<number, ConceptCandidate>();
     for (const c of bundle.concepts) {
-      termToCandidate.set(c.normalized.toLowerCase(), c);
+      termToCandidate.set(topicFitKey(c.normalized), c);
       idToCandidate.set(c.id, c);
     }
     const keptTerms = new Set<string>();
@@ -163,7 +164,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
       totalKept += 1;
       let c: ConceptCandidate | undefined;
       if (typeof d.term === 'string') {
-        c = termToCandidate.get(d.term.toLowerCase());
+        c = termToCandidate.get(topicFitKey(d.term));
       }
       if (!c && typeof d.id === 'number') {
         c = idToCandidate.get(d.id);
