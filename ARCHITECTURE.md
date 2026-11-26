@@ -153,7 +153,7 @@ layout blocks (segmentPdf / segmentText, unchanged)
   per-source backfill for pre-0036 sources is the Ask rail's **Index** button.
 - **Decided follow-ups (not built)**:
 - **Eval**: `pnpm eval:retrieval -- --pdf <b36-txtbook.pdf>` (see
-  `evals/README.md`). Labels are Claude-proposed until a human reviews them.
+  `evals/README.md`). Labels are `reviewed` (signed off 2026-11-26).
 
 ## Library passage index
 

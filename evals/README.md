@@ -42,8 +42,8 @@ human audit), `claude-reviewed`
 (checked against the grader rubric and its calibration examples by Claude —
 useful, but not an independent human judgment), or `reviewed` (a human
 checked it). Relabelled cases carry a `review_note` saying what changed and
-why. A human pass that promotes cases to `reviewed` is still the gold
-standard.
+why. All four golden sets were promoted to `reviewed` on 2026-11-26 on the
+project owner's sign-off.
 The grader set covers each stage plus traps: verbatim restatement, vague
 recognition, confident misconceptions, and answers that are correct in general
 but go beyond the provided source.
@@ -77,15 +77,13 @@ Env: `RETRIEVAL_EVAL_PDF` (instead of `--pdf`), `EVAL_BASE_URL` (default
   a label can be re-resolved after a chunker change (anything that no longer
   resolves is reported as "relabel needed"). The repo is public, so labels hold
   keys and anchors only, never chunk text.
-- **Label status**: every case is `independent-reviewed` (2026-11-26).
-  Claude drafted the questions and first labels by reading chunk text it
-  found partly by keyword search, which biased them toward keyword retrieval.
-  All 30 were then relabelled from the pooled review sheet (top 10 of every
-  mode) by an independent model pass: 21 cases changed, including the 6 that
-  no longer resolved after the running-header fix; each case's `review_note`
-  says what changed. That pass judged the pooled passage text, not the PDF,
-  so it is not a human audit. Treat the numbers as provisional until a human
-  promotes cases to `reviewed`.
+- **Label status**: every case is `reviewed` (2026-11-26). Claude drafted
+  the questions and first labels by reading chunk text it found partly by
+  keyword search, which biased them toward keyword retrieval. All 30 were then
+  relabelled from the pooled review sheet (top 10 of every mode) by an
+  independent model pass: 21 cases changed, including the 6 that no longer
+  resolved after the running-header fix; each case's `review_note` says what
+  changed. The project owner then signed the set off as `reviewed`.
 - **Reviewing**: `--review` writes `results/<stamp>-retrieval-review.md`
   (gitignored, because it contains book text). For each question it pools the
   top 10 from every mode and marks the currently labelled chunks (★). Tick
@@ -105,14 +103,14 @@ Env: `RETRIEVAL_EVAL_PDF` (instead of `--pdf`), `EVAL_BASE_URL` (default
   hash, chunker version, model, RRF k, pool) and the label status it was
   measured with. A drop of more than 0.03 in any metric fails the run.
 
-### Provisional baseline: limitations
+### Baseline: limitations
 
 `baselines/retrieval.json` (re-recorded 2026-11-26 on the
-`independent-reviewed` labels, layout 0.5.3) is a starting point to measure
+labels now marked `reviewed`, layout 0.5.3) is a starting point to measure
 changes against. It is not a quality claim:
 
-- The labels come from an independent model pass, not a human audit (see
-  "Label status" above).
+- The labels were relabelled by an independent model pass and then signed
+  off (see "Label status" above); they are still a single 30-question set.
 - There are only 27 answerable questions from one textbook, with one embedding
   model (`nomic-embed-text`) and one chunker configuration.
 - Hybrid MRR@5 0.797 vs keyword 0.731 and vector 0.719; hybrid has a relevant
@@ -164,7 +162,7 @@ what the app runs.
 - **Experiments recorded here so they are not re-run blindly**:
   - *Neighbor expansion* (`--neighbors`; off in the app): top 4 hits plus the
     in-section follower of the top 2, at the same 6-passage budget. Re-checked
-    on the `independent-reviewed` labels: recall within the passages sent
+    on the relabelled set: recall within the passages sent
     0.759 to 0.794 (multi-passage 0.762 to 0.825) but conceptual fell 0.819 to
     0.778; end to end citation precision 0.673 to 0.702 and dropped citations
     0.140 to 0.096, but two false-premise questions became plain declines
@@ -174,10 +172,7 @@ what the app runs.
     unanswerable questions (0.604, 0.681, 0.708) from answerable ones (as low
     as 0.629), and the model already declines all 3 itself. Not shipped;
     revisit with more unanswerable questions in the golden set.
-- **Caveats**: the same `proposed` labels as the retrieval eval, so citation
-  precision inherits their keyword bias. Six labels currently do not resolve
-  after the running-header layout fix (they need relabelling), which lowers
-  citation precision for those questions. Only 3 unanswerable questions, so
+- **Caveats**: the same labels as the retrieval eval. Only 3 unanswerable questions, so
   abstention is a coarse signal.
 
 ## Comparing PDF parsers (Docling)
@@ -197,7 +192,7 @@ judgment, but it does change the relevant sets (2.65 chunks per question vs
 1.96), so compare MRR and coverage rather than recall.
 
 Measured 2026-11-26 on b36 (docling 2.153.0, CPU, 164 s for 275 pages;
-`nomic-embed-text`, `qwen3.5:4b`; `independent-reviewed` labels):
+`nomic-embed-text`, `qwen3.5:4b`; relabelled set):
 
 | | built-in | Docling |
 |---|---|---|
