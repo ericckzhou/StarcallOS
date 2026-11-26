@@ -4,7 +4,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { DEFAULT_MODELS, type ProviderConfig, type ProviderId } from './llm';
+import { DEFAULT_LOCAL_BASE_URL, DEFAULT_MODELS, normalizeLocalBaseUrl, type ProviderConfig, type ProviderId } from './llm';
 
 export type PassName =
   | 'enrich'
@@ -16,13 +16,14 @@ export type PassName =
   | 'tasks'
   | 'lazy_tasks'
   | 'prereq_suggest'
-  | 'grader';
+  | 'grader'
+  | 'ask';
 
 // Each pass falls into a "weight class". heavy = quality matters (enrich,
 // concepts, misconceptions, grader). light = mechanical/cheap (structure,
 // graph). The setting picks one model per class per provider.
 const HEAVY_PASSES: PassName[] = [
-  'enrich', 'chunker', 'concepts', 'misconceptions', 'tasks', 'lazy_tasks', 'prereq_suggest', 'grader',
+  'enrich', 'chunker', 'concepts', 'misconceptions', 'tasks', 'lazy_tasks', 'prereq_suggest', 'grader', 'ask',
 ];
 
 export type ExtractionMode = 'deterministic' | 'candidate_gated' | 'full';
@@ -41,6 +42,28 @@ export interface LLMSettings {
   // candidate_gated   = enrich only blocks near top-N candidate pages.
   // full              = send every block through the enricher (legacy).
   extractionMode?: ExtractionMode;
+  // Re-grade borderline answers (up to 3 grader calls) and aggregate.
+  // undefined → provider default (see effectiveSelfConsistency).
+  gradeSelfConsistency?: boolean;
+  // provider === 'local': OpenAI-compatible server + model id (free text).
+  localBaseUrl?: string;
+  localModel?: string;
+  // Opt-in local embeddings (OpenAI-compatible /embeddings at localBaseUrl,
+  // independent of the chat provider). Off by default.
+  embeddingsEnabled?: boolean;
+  embeddingModel?: string;
+  // Review scheduler. undefined → 'sm2'.
+  srsScheduler?: 'sm2' | 'fsrs';
+  // PDF parser. undefined → 'builtin'. 'docling' sends PDFs to the user's own
+  // docling-serve at doclingBaseUrl and falls back to builtin on any failure.
+  pdfParser?: 'builtin' | 'docling';
+  doclingBaseUrl?: string;
+}
+
+// Default ON for Anthropic (cheap per call, no tight TPM), OFF for Groq (extra
+// samples would eat low free-tier TPM budgets). An explicit user choice wins.
+export function effectiveSelfConsistency(s: LLMSettings): boolean {
+  return s.gradeSelfConsistency ?? s.provider === 'anthropic';
 }
 
 function defaults(): LLMSettings {
@@ -139,7 +162,7 @@ export function migrateSecretsAtRest(userDataDir: string, codec: SecretCodec): b
 const EXTRACTION_MODES: ExtractionMode[] = ['deterministic', 'candidate_gated', 'full'];
 
 function isProviderId(v: unknown): v is ProviderId {
-  return v === 'groq' || v === 'anthropic';
+  return v === 'groq' || v === 'anthropic' || v === 'local';
 }
 
 // Defensive clamp for renderer-supplied settings before they are persisted.
@@ -158,12 +181,50 @@ export function sanitizeSettingsInput(
   if (input.provider !== undefined) {
     out.provider = isProviderId(input.provider) ? input.provider : current.provider;
   }
+  if (input.localBaseUrl !== undefined) {
+    // Empty string clears back to the default; an invalid URL keeps the saved one.
+    out.localBaseUrl = input.localBaseUrl.trim() === ''
+      ? ''
+      : (normalizeLocalBaseUrl(input.localBaseUrl) ?? current.localBaseUrl ?? '');
+  }
+  if (input.localModel !== undefined) {
+    out.localModel = input.localModel.trim().slice(0, 200);
+  }
+  if (input.pdfParser !== undefined) {
+    out.pdfParser = input.pdfParser === 'docling' ? 'docling' : 'builtin';
+  }
+  if (input.doclingBaseUrl !== undefined) {
+    out.doclingBaseUrl = input.doclingBaseUrl.trim() === ''
+      ? ''
+      : (normalizeLocalBaseUrl(input.doclingBaseUrl) ?? current.doclingBaseUrl ?? '');
+  }
+  if (input.srsScheduler !== undefined) {
+    out.srsScheduler = input.srsScheduler === 'fsrs' ? 'fsrs' : 'sm2';
+  }
+  if (input.embeddingModel !== undefined) {
+    out.embeddingModel = input.embeddingModel.trim().slice(0, 200);
+  }
   if (input.extractionMode !== undefined) {
     out.extractionMode = EXTRACTION_MODES.includes(input.extractionMode)
       ? input.extractionMode
       : (current.extractionMode ?? 'deterministic');
   }
   return out;
+}
+
+// Merge a validated + sanitized patch onto the saved settings. Every field the
+// patch carries wins; absent fields keep their saved value. (An earlier inline
+// merge in main listed fields one by one and silently dropped any new setting.)
+export function mergeSettingsPatch(current: LLMSettings, input: Partial<LLMSettings>): LLMSettings {
+  const defined = Object.fromEntries(
+    Object.entries(input).filter(([, v]) => v !== undefined),
+  ) as Partial<LLMSettings>;
+  return {
+    ...current,
+    ...defined,
+    modelOverrides: defined.modelOverrides ?? current.modelOverrides ?? {},
+    extractionMode: defined.extractionMode ?? current.extractionMode ?? 'deterministic',
+  };
 }
 
 export function applyEnvFallbacks(s: LLMSettings, env: { groq?: string; anthropic?: string }): LLMSettings {
@@ -183,7 +244,31 @@ function isModelForProvider(model: string | undefined, provider: ProviderId): bo
   return choices.heavy.includes(model) || choices.light.includes(model);
 }
 
+// Ask (local RAG answers) is LOCAL-ONLY by design: retrieved source passages
+// are sent only to the user's OpenAI-compatible server, never to a cloud
+// provider, regardless of the main provider setting. Null when no local model
+// is set and the main provider is not local (nothing to call).
+export function resolveAskConfig(s: LLMSettings): ProviderConfig | null {
+  const model = s.localModel?.trim();
+  if (!model && s.provider !== 'local') return null;
+  return {
+    provider: 'local',
+    apiKey: '',
+    model: model || DEFAULT_MODELS.local.heavy,
+    baseUrl: normalizeLocalBaseUrl(s.localBaseUrl) ?? DEFAULT_LOCAL_BASE_URL,
+  };
+}
+
 export function resolveProviderConfig(s: LLMSettings, pass: PassName): ProviderConfig {
+  if (s.provider === 'local') {
+    // One model for every pass: local setups rarely run two models at once.
+    return {
+      provider: 'local',
+      apiKey: '',
+      model: s.localModel?.trim() || DEFAULT_MODELS.local.heavy,
+      baseUrl: normalizeLocalBaseUrl(s.localBaseUrl) ?? DEFAULT_LOCAL_BASE_URL,
+    };
+  }
   const apiKey = s.provider === 'groq' ? s.groqApiKey : s.anthropicApiKey;
   if (!apiKey) {
     throw new Error(
@@ -231,4 +316,6 @@ export const MODEL_CHOICES: Record<ProviderId, { heavy: string[]; light: string[
       'claude-haiku-4-5-20251001',
     ],
   },
+  // Local models are free text (Settings → Local model); no curated roster.
+  local: { heavy: [], light: [] },
 };

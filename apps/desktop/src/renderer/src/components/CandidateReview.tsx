@@ -1,4 +1,5 @@
 ﻿import React, { useEffect, useRef, useState, useCallback } from 'react';
+import type { CandidateNearDuplicates } from '@starcall/shared';
 import {
   BUCKET_COLOR,
   BUCKET_LABEL,
@@ -66,6 +67,18 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
   // Single combined refresh â€” loads bundle and saved filter in parallel,
   // sets both atomically. Kills the source-switch flicker where one races
   // ahead of the other and briefly shows "All candidates filtered out".
+  // Embedding near-duplicate hints ({} when embeddings are off). Loaded after
+  // the bundle so the list never waits on the embedding server.
+  const [nearDuplicates, setNearDuplicates] = useState<CandidateNearDuplicates>({});
+  useEffect(() => {
+    let live = true;
+    setNearDuplicates({});
+    window.api.candidates.nearDuplicates(sourceId)
+      .then(r => { if (live) setNearDuplicates(r); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [sourceId]);
+
   const refresh = useCallback(() => {
     setLoading(true);
     void Promise.all([
@@ -865,6 +878,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
             equationsByTerm={equationsByTerm}
             act={act}
             llmKeepIds={llmFilterEnabled ? llmKeepIds : null}
+            nearDuplicates={nearDuplicates}
           />
         )}
 

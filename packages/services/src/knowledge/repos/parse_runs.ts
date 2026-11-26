@@ -24,6 +24,9 @@ export interface ParseRunInput {
   llm_output_tokens: number;
   diagnostics: Record<string, unknown>;
   completed_at?: string | null;
+  // Layout version actually used (e.g. the Docling adapter's stamp); defaults
+  // to the built-in LAYOUT_VERSION.
+  layout_version?: string;
 }
 
 export interface ParseRun extends Omit<ParseRunInput, 'diagnostics'> {
@@ -110,7 +113,7 @@ export function createParseRun(db: DatabaseSync, input: ParseRunInput): ParseRun
       input.mode,
       v.parser_version,
       v.grammar_version,
-      v.layout_version,
+      input.layout_version ?? v.layout_version,
       v.contract_version,
       input.page_count,
       input.block_count,

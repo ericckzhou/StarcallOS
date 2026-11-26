@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { parseGradeResult, gradeResponse, type GradeInput } from './grader';
+import { parseGradeResult, gradeResponse, aggregateGrades, GraderOutputSchema, isBorderlineGrade, GRADER_PROMPT_HASH, type GradeInput } from './grader';
+import { CONTRACT_VERSION } from '../core/version';
 import type { ProviderConfig } from '../core/llm';
+import { LlmParseError } from '../core/structured';
 
 // ─── parseGradeResult (no LLM, pure parsing) ─────────────────────────────────
 
@@ -83,7 +85,8 @@ describe('parseGradeResult', () => {
 
 // ─── gradeResponse (mocked chatJSON) ─────────────────────────────────────────
 
-vi.mock('../core/llm', () => ({
+vi.mock('../core/llm', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../core/llm')>()),
   chatJSON: vi.fn(),
 }));
 
@@ -111,7 +114,7 @@ describe('gradeResponse', () => {
         misconceptions_detected: [],
         reasoning: 'Accurate but definition-level.',
       }),
-      usage: { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 10, completionTokens: 20, totalTokens: 30, durationMs: 100 },
+      usage: { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 10, completionTokens: 20, totalTokens: 30, durationMs: 100, retries: 0, cacheReadTokens: 0 },
     });
 
     await gradeResponse(config, input);
@@ -125,7 +128,7 @@ describe('gradeResponse', () => {
   it('uses temperature 0.1 for strict, consistent grading', async () => {
     mockChatJSON.mockResolvedValue({
       content: JSON.stringify({ score: 'gap', compression_stage: 1, gaps_detected: ['Missing ring metaphor.'], misconceptions_detected: [], reasoning: '' }),
-      usage: { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 10, completionTokens: 5, totalTokens: 15, durationMs: 50 },
+      usage: { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 10, completionTokens: 5, totalTokens: 15, durationMs: 50, retries: 0, cacheReadTokens: 0 },
     });
 
     await gradeResponse(config, input);
@@ -137,13 +140,13 @@ describe('gradeResponse', () => {
   it('includes concept name, definition, task kind, prompt, and user response in the user message', async () => {
     mockChatJSON.mockResolvedValue({
       content: JSON.stringify({ score: 'understood', compression_stage: 3, gaps_detected: ['Could name a failure mode.'], misconceptions_detected: [], reasoning: '' }),
-      usage: { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 100, completionTokens: 30, totalTokens: 130, durationMs: 200 },
+      usage: { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 100, completionTokens: 30, totalTokens: 130, durationMs: 200, retries: 0, cacheReadTokens: 0 },
     });
 
     await gradeResponse(config, input);
 
     const [, req] = mockChatJSON.mock.calls[0];
-    const userMsg = req.messages.find((m: { role: string }) => m.role === 'user')?.content ?? '';
+    const userMsg = req.messages.filter((m: { role: string }) => m.role === 'user').map((m: { content: string }) => m.content).join('\n\n');
     expect(userMsg).toContain('Consistent Hashing');
     expect(userMsg).toContain('A technique that maps keys');
     expect(userMsg).toContain('definition');
@@ -159,7 +162,7 @@ describe('gradeResponse', () => {
         misconceptions_detected: [],
         reasoning: 'Concise and accurate.',
       }),
-      usage: { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 80, completionTokens: 25, totalTokens: 105, durationMs: 180 },
+      usage: { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 80, completionTokens: 25, totalTokens: 105, durationMs: 180, retries: 0, cacheReadTokens: 0 },
     });
 
     const result = await gradeResponse(config, input);
@@ -173,34 +176,52 @@ describe('gradeResponse', () => {
   it('never returns empty gaps_detected even when LLM returns []', async () => {
     mockChatJSON.mockResolvedValue({
       content: JSON.stringify({ score: 'understood', compression_stage: 5, gaps_detected: [], misconceptions_detected: [], reasoning: '' }),
-      usage: { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 10, completionTokens: 5, totalTokens: 15, durationMs: 50 },
+      usage: { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 10, completionTokens: 5, totalTokens: 15, durationMs: 50, retries: 0, cacheReadTokens: 0 },
     });
 
     const result = await gradeResponse(config, input);
     expect(result.gaps_detected.length).toBeGreaterThan(0);
   });
 
-  it('handles malformed JSON from the LLM without throwing', async () => {
-    mockChatJSON.mockResolvedValue({
-      content: 'not valid json at all',
-      usage: { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 5, completionTokens: 5, totalTokens: 10, durationMs: 30 },
-    });
+  it('repairs malformed JSON with one follow-up call instead of fabricating a grade', async () => {
+    const usage = { pass: 'grader', provider: 'groq' as const, model: 'llama-test', promptTokens: 5, completionTokens: 5, totalTokens: 10, durationMs: 30, retries: 0, cacheReadTokens: 0 };
+    mockChatJSON
+      .mockResolvedValueOnce({ content: 'not valid json at all', usage })
+      .mockResolvedValueOnce({
+        content: JSON.stringify({ score: 'recognizes', compression_stage: 2, gaps_detected: ['x'], reasoning: 'r' }),
+        usage,
+      });
 
     const result = await gradeResponse(config, input);
-    expect(result.score).toBe('gap');
-    expect(result.gaps_detected.length).toBeGreaterThan(0);
+    expect(result.score).toBe('recognizes');
+    expect(mockChatJSON).toHaveBeenCalledTimes(2);
+    const [, repairReq, repairPass] = mockChatJSON.mock.calls[1];
+    expect(repairPass).toBe('grader:repair');
+    const last = repairReq.messages[repairReq.messages.length - 1].content as string;
+    expect(last).toContain('invalid JSON');
   });
 
-  it('handles empty content from the LLM without throwing', async () => {
+  it('rejects an out-of-enum score and repairs it', async () => {
+    const usage = { pass: 'grader', provider: 'groq' as const, model: 'llama-test', promptTokens: 5, completionTokens: 5, totalTokens: 10, durationMs: 30, retries: 0, cacheReadTokens: 0 };
+    mockChatJSON
+      .mockResolvedValueOnce({ content: JSON.stringify({ score: 'excellent', compression_stage: 9 }), usage })
+      .mockResolvedValueOnce({ content: JSON.stringify({ score: 'understood', compression_stage: 4, gaps_detected: ['next'] }), usage });
+
+    const result = await gradeResponse(config, input);
+    expect(result.score).toBe('understood');
+    const last = mockChatJSON.mock.calls[1][1].messages.at(-1)!.content as string;
+    expect(last).toContain('score');
+    expect(last).toContain('compression_stage');
+  });
+
+  it('throws LlmParseError (never records a fake gap) when the repair also fails', async () => {
     mockChatJSON.mockResolvedValue({
       content: '',
-      usage: { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 5, completionTokens: 0, totalTokens: 5, durationMs: 20 },
+      usage: { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 5, completionTokens: 0, totalTokens: 5, durationMs: 20, retries: 0, cacheReadTokens: 0 },
     });
 
-    const result = await gradeResponse(config, input);
-    expect(result.score).toBe('gap');
-    expect(result.compression_stage).toBe(0);
-    expect(result.gaps_detected.length).toBeGreaterThan(0);
+    await expect(gradeResponse(config, input)).rejects.toBeInstanceOf(LlmParseError);
+    expect(mockChatJSON).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -282,13 +303,13 @@ describe('gradeResponse — grounding context wiring', () => {
     unsupported_claims: [{ claim: 'c', reason: 'r', severity: 'minor' }],
     reasoning: '',
   });
-  const usage = { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 1, completionTokens: 1, totalTokens: 2, durationMs: 1 } as const;
+  const usage = { pass: 'grader', provider: 'groq', model: 'llama-test', promptTokens: 1, completionTokens: 1, totalTokens: 2, durationMs: 1, retries: 0, cacheReadTokens: 0 } as const;
 
   it('includes the source context block and assesses grounding when source_context is provided', async () => {
     mockChatJSON.mockResolvedValue({ content: groundedPayload, usage });
     const result = await gradeResponse(config, { ...input, source_context: 'Definition (from source): a ring of keys with minimal remap on membership change.' });
     const [, req] = mockChatJSON.mock.calls[0];
-    const userMsg = req.messages.find((m: { role: string }) => m.role === 'user')?.content ?? '';
+    const userMsg = req.messages.filter((m: { role: string }) => m.role === 'user').map((m: { content: string }) => m.content).join('\n\n');
     expect(userMsg).toContain('Source context');
     expect(userMsg).toContain('ring of keys');
     expect(result.grounding_context_used).toBe(true);
@@ -300,7 +321,7 @@ describe('gradeResponse — grounding context wiring', () => {
     mockChatJSON.mockResolvedValue({ content: groundedPayload, usage });
     const result = await gradeResponse(config, input);
     const [, req] = mockChatJSON.mock.calls[0];
-    const userMsg = req.messages.find((m: { role: string }) => m.role === 'user')?.content ?? '';
+    const userMsg = req.messages.filter((m: { role: string }) => m.role === 'user').map((m: { content: string }) => m.content).join('\n\n');
     expect(userMsg).not.toContain('Source context');
     expect(result.grounding_context_used).toBe(false);
     expect(result.grounding_score).toBeNull();
@@ -312,5 +333,107 @@ describe('gradeResponse — grounding context wiring', () => {
     const result = await gradeResponse(config, { ...input, source_context: '   \n  ' });
     expect(result.grounding_context_used).toBe(false);
     expect(result.grounding_score).toBeNull();
+  });
+});
+
+
+// ─── Self-consistency + audit (contract 1.3.0) ──────────────────────────────
+
+describe('isBorderlineGrade', () => {
+  const base = parseGradeResult({ score: 'recognizes', compression_stage: 2, gaps_detected: ['x'] }, false);
+  it('is false for a consistent, ungrounded grade', () => {
+    expect(isBorderlineGrade(base)).toBe(false);
+  });
+  it('flags score/stage disagreement', () => {
+    expect(isBorderlineGrade({ ...base, score: 'understood', compression_stage: 2 })).toBe(true);
+    expect(isBorderlineGrade({ ...base, score: 'recognizes', compression_stage: 4 })).toBe(true);
+  });
+  it('flags mid-band grounding only', () => {
+    expect(isBorderlineGrade({ ...base, grounding_score: 0.5 })).toBe(true);
+    expect(isBorderlineGrade({ ...base, grounding_score: 0.9 })).toBe(false);
+  });
+});
+
+describe('aggregateGrades', () => {
+  const g = (score: string, stage: number, extra: Record<string, unknown> = {}) =>
+    parseGradeResult({ score, compression_stage: stage, gaps_detected: [`gap-${score}-${stage}`], ...extra }, 'grounding_score' in extra);
+
+  it('takes the majority score and lower-median stage, with the matching sample text', () => {
+    const r = aggregateGrades([g('understood', 3), g('recognizes', 2), g('understood', 4)]);
+    expect(r.score).toBe('understood');
+    expect(r.compression_stage).toBe(3);
+    expect(r.gaps_detected).toEqual(['gap-understood-3']);
+  });
+
+  it('breaks ties toward the more conservative score', () => {
+    expect(aggregateGrades([g('understood', 3), g('gap', 1)]).score).toBe('gap');
+  });
+
+  it('takes the median grounding score when assessed', () => {
+    const r = aggregateGrades([
+      g('recognizes', 2, { grounding_score: 0.4 }),
+      g('recognizes', 2, { grounding_score: 0.9 }),
+      g('recognizes', 2, { grounding_score: 0.5 }),
+    ]);
+    expect(r.grounding_score).toBe(0.5);
+  });
+});
+
+describe('gradeResponse — self-consistency + audit', () => {
+  beforeEach(() => mockChatJSON.mockReset());
+  const usage = { pass: 'grader', provider: 'groq' as const, model: 'llama-test', promptTokens: 1, completionTokens: 1, totalTokens: 2, durationMs: 1, retries: 0, cacheReadTokens: 0 };
+  const out = (o: Record<string, unknown>) => ({ content: JSON.stringify(o), usage });
+
+  it('does not resample a clear grade, and records a 1-sample audit', async () => {
+    mockChatJSON.mockResolvedValueOnce(out({ score: 'recognizes', compression_stage: 2, gaps_detected: ['x'] }));
+    const r = await gradeResponse(config, input, { selfConsistency: true });
+    expect(mockChatJSON).toHaveBeenCalledTimes(1);
+    expect(r.audit).toMatchObject({ samples: 1, model: 'groq/llama-test', contract: CONTRACT_VERSION, prompt_hash: GRADER_PROMPT_HASH });
+    expect(r.audit.outputs).toHaveLength(1);
+  });
+
+  it('resamples a borderline grade twice at higher temperature and aggregates', async () => {
+    mockChatJSON
+      .mockResolvedValueOnce(out({ score: 'understood', compression_stage: 2, gaps_detected: ['a'] }))
+      .mockResolvedValueOnce(out({ score: 'recognizes', compression_stage: 2, gaps_detected: ['b'] }))
+      .mockResolvedValueOnce(out({ score: 'recognizes', compression_stage: 2, gaps_detected: ['c'] }));
+    const r = await gradeResponse(config, input, { selfConsistency: true });
+    expect(mockChatJSON).toHaveBeenCalledTimes(3);
+    expect(mockChatJSON.mock.calls[1][2]).toBe('grader:consistency');
+    expect(mockChatJSON.mock.calls[1][1].temperature).toBe(0.7);
+    expect(r.score).toBe('recognizes');
+    expect(r.audit.samples).toBe(3);
+  });
+
+  it('never resamples when self-consistency is off', async () => {
+    mockChatJSON.mockResolvedValueOnce(out({ score: 'understood', compression_stage: 2, gaps_detected: ['a'] }));
+    await gradeResponse(config, input);
+    expect(mockChatJSON).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the first grade when an extra sample fails', async () => {
+    mockChatJSON
+      .mockResolvedValueOnce(out({ score: 'understood', compression_stage: 2, gaps_detected: ['a'] }))
+      .mockRejectedValueOnce(new Error('429'))
+      .mockResolvedValueOnce(out({ score: 'understood', compression_stage: 3, gaps_detected: ['b'] }));
+    const r = await gradeResponse(config, input, { selfConsistency: true });
+    expect(r.audit.samples).toBe(2);
+    expect(r.score).toBe('understood');
+  });
+
+  it('puts calibration examples in the system prompt', async () => {
+    mockChatJSON.mockResolvedValueOnce(out({ score: 'gap', compression_stage: 1, gaps_detected: ['x'] }));
+    await gradeResponse(config, input);
+    const sys = mockChatJSON.mock.calls[0][1].messages[0].content as string;
+    expect(sys).toContain('CALIBRATION EXAMPLES');
+  });
+});
+
+describe('GraderOutputSchema leniency', () => {
+  it('wraps a lone string list field but still rejects a bad score', () => {
+    const ok = GraderOutputSchema.parse({ score: 'gap', compression_stage: 1, misconceptions_detected: 'confuses sunk cost', gaps_detected: '' });
+    expect(ok.misconceptions_detected).toEqual(['confuses sunk cost']);
+    expect(ok.gaps_detected).toEqual([]);
+    expect(GraderOutputSchema.safeParse({ score: 'great', compression_stage: 1 }).success).toBe(false);
   });
 });

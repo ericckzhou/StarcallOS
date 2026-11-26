@@ -5,7 +5,9 @@
 //
 // Cost: ~$0.005 on Haiku, ~$0.02 on Sonnet. Pay-per-concept.
 
-import { chatJSON, type ProviderConfig } from '../core/llm';
+import type { ProviderConfig } from '../core/llm';
+import { z } from 'zod';
+import { chatStructured } from '../core/structured';
 import type { DatabaseSync } from '../core/infra/sqlite';
 import { getConceptById } from '../knowledge/repos/concepts';
 import { getSourceById } from '../knowledge/repos/sources';
@@ -99,26 +101,19 @@ export async function enrichConceptDefinition(
     for (const q of quotes) context.push(`  • ${q}`);
   }
 
-  const { content } = await chatJSON(
+  const { data: parsed } = await chatStructured(
     config,
     {
       messages: [
-        { role: 'system', content: ENRICH_SYSTEM },
+        { role: 'system', content: ENRICH_SYSTEM, cache: true },
         { role: 'user', content: context.join('\n') },
       ],
-      responseFormat: 'json',
       temperature: 0.2,
       maxTokens: 1024,
     },
     'enrich_concept',
+    { schema: EnrichOutputSchema, name: 'record_concept_fields' },
   );
-
-  let parsed: Partial<EnrichedFields>;
-  try {
-    parsed = JSON.parse(content || '{}');
-  } catch {
-    throw new Error('enrich_concept returned invalid JSON');
-  }
 
   const definition_text = (parsed.definition_text ?? '').trim();
   const why_exists      = (parsed.why_exists      ?? '').trim();
@@ -126,9 +121,13 @@ export async function enrichConceptDefinition(
 
   // Constellations (where_reappears) are user-curated only — never written by
   // enrichment. Leave the existing value untouched.
+  // An empty field means "the model had nothing" — keep whatever the concept
+  // already has (possibly user-edited text) instead of blanking it.
   db.prepare(
     `UPDATE concepts
-     SET definition_text = ?, why_exists = ?, what_breaks = ?
+     SET definition_text = COALESCE(NULLIF(?, ''), definition_text),
+         why_exists      = COALESCE(NULLIF(?, ''), why_exists),
+         what_breaks     = COALESCE(NULLIF(?, ''), what_breaks)
      WHERE id = ?`,
   ).run(
     definition_text,
@@ -139,6 +138,19 @@ export async function enrichConceptDefinition(
 
   return getConceptById(db, conceptId)!;
 }
+
+// Wire shape for enrich_concept. Fields may be empty (the model is told to leave
+// a field blank rather than invent it); the envelope itself must be valid.
+export const EnrichOutputSchema = z.object({
+  definition_text: z.string().optional().default(''),
+  why_exists: z.string().optional().default(''),
+  what_breaks: z.string().optional().default(''),
+}).refine(
+  v => [v.definition_text, v.why_exists, v.what_breaks].some(f => f.trim() !== ''),
+  // `{}` or wrongly named keys would otherwise validate as "all empty" and
+  // never trigger the repair call.
+  { message: 'at least one of definition_text, why_exists, what_breaks must be non-empty (check the key names)' },
+);
 
 // Pulls up to 5 distinct evidence quotes anchoring the concept to its actual
 // domain. Falls through tiers in priority order so an unbackfilled concept

@@ -28,6 +28,7 @@ import {
   recordSrsReview, countDueConcepts, countNewConcepts, setConceptSrsDue, getConceptSrs,
   emitEvent,
   segmentPdf, segmentText,
+  chunkBlocks, syncSourceChunks,
   extractCandidates, buildSectionPath, persistCandidateExtraction,
   selectBudgetedBlocks,
   deriveTopicAnchors, setTopicAnchors,
@@ -68,9 +69,16 @@ import {
   runConceptExtractor, runGraphBuilder,
   runMisconceptionExtractor, runTaskGenerator, computeCentrality,
   gradeResponse,
-  resetUsageStats, getUsageStats,
+  resetUsageStats, getUsageStats, setLlmTraceSink, effectiveSelfConsistency, listLocalModels, DEFAULT_LOCAL_BASE_URL,
+  setSrsScheduler, mergeSettingsPatch, persistGradedAttempt, normalizeLocalBaseUrl, createOpenAICompatEmbedder, createCachingEmbedder, findCandidateNearDuplicates, DEFAULT_EMBEDDING_MODEL, indexSourceEmbeddings, retrieveSourceExcerpts, relatedConcepts, embeddingStats,
+  planLibraryIndex, runLibraryIndex, type LibraryIndexProgress, type LibraryIndexSummary,
+  planOutdatedSources, runReextractOutdated, currentReextractVersions, type ReextractProgress, type ReextractSummary,
+  doclingServerInfo, DEFAULT_DOCLING_BASE_URL, LAYOUT_VERSION, CHUNKER_VERSION,
+  resolveAskConfig, askSources, saveAskHistory, listAskHistory, deleteAskHistory, chunkIndexStats, indexSourceChunkEmbeddings, RagAskArgsSchema,
+  type Embedder, buildCandidateLlmFilterPrompt, parseCandidateLlmFilterResponse, createLlmCallSink, summarizeLlmCalls,
 } from '@starcall/services';
 import { IPC } from '@starcall/shared';
+import { expectedLayoutFor, segmentPdfConfigured, stopPdfParser } from './pdf_parser';
 import type {
   CandidateLlmFilterArgs,
   CandidateLlmFilterDecision,
@@ -84,6 +92,15 @@ import type {
   ProcessSourceArgs,
   SubmitEvidenceArgs,
   UpdatePdfAnnotationArgs,
+  SettingsSnapshot,
+  LlmTraceSummary,
+  RagStatus,
+  RagLibraryStatus,
+  ReextractStatus,
+  ExtractCandidatesResult,
+  RagIndexSourceResult,
+  EmbeddingsStatus,
+  CandidateNearDuplicates,
 } from '@starcall/shared';
 
 const CONCEPT_IMPORTANCE_VALUES = new Set(['foundational', 'core', 'supporting', 'peripheral', 'reference_only']);
@@ -249,22 +266,41 @@ function secretCodec(): SecretCodec {
   };
 }
 
-function cfgFor(pass: PassName): ReturnType<typeof resolveProviderConfig> {
-  const dir = app.getPath('userData');
-  const s = applyEnvFallbacks(loadSettings(dir, secretCodec()), envFallbacks());
-  return resolveProviderConfig(s, pass);
+// Saved settings as stored (no env fallbacks).
+function loadRawSettings(): LLMSettings {
+  return loadSettings(app.getPath('userData'), secretCodec());
 }
 
-function stripJsonFences(raw: string): string {
-  let body = raw.trim();
-  const fenced = body.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (fenced) body = fenced[1].trim();
-  if (!body.startsWith('{')) {
-    const start = body.indexOf('{');
-    const end = body.lastIndexOf('}');
-    if (start >= 0 && end > start) body = body.slice(start, end + 1);
+// Saved settings with env-var API key fallbacks applied — what LLM calls use.
+function loadEffectiveSettings(): LLMSettings {
+  return applyEnvFallbacks(loadRawSettings(), envFallbacks());
+}
+
+// Embedder for the opt-in local embedding index, or null when disabled.
+function getEmbedder(): Embedder | null {
+  const s = loadRawSettings();
+  if (!s.embeddingsEnabled) return null;
+  return createOpenAICompatEmbedder(s.localBaseUrl, s.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL);
+}
+
+// Embedding work must never stall or fail the feature it decorates.
+async function softTimeout<T>(p: Promise<T>, ms: number, fallback: T, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<T>(resolve => { timer = setTimeout(() => { console.warn(`[EMBED] ${label} timed out after ${ms}ms`); resolve(fallback); }, ms); }),
+    ]);
+  } catch (e) {
+    console.warn(`[EMBED] ${label} failed: ${e instanceof Error ? e.message : String(e)}`);
+    return fallback;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  return body;
+}
+
+function cfgFor(pass: PassName): ReturnType<typeof resolveProviderConfig> {
+  return resolveProviderConfig(loadEffectiveSettings(), pass);
 }
 
 // Max candidates evaluated per LLM topic-fit call. The term-only payload +
@@ -293,52 +329,27 @@ function dedupeByNormalized(candidates: CandidateLlmFilterArgs['candidates']): C
   return out;
 }
 
-// Compact prompt: one term per line (no per-candidate JSON, no context snippet —
-// the term + book title is enough signal for topic-fit, and dropping ctx roughly
-// halves input tokens so far more candidates fit per call). Output is a keep-list
-// (just the terms to keep) which is much smaller than a per-candidate decision.
-function buildCandidateLlmFilterPrompt(sourceTitle: string | undefined, candidates: CandidateLlmFilterArgs['candidates']): string {
-  const title = sourceTitle || '(unknown source title)';
-  const lines = candidates.map(c => c.normalized).join('\n');
-  return [
-    `Filter candidate concepts extracted from a book.`,
-    `Book title: "${title}"`,
-    ``,
-    `Keep only terms a reader would specifically study for THIS book's subject.`,
-    `Reject broad/generic words, boilerplate, captions, fragments, TOC/index leftovers, and off-topic terms.`,
-    ``,
-    `Candidate terms (one per line):`,
-    lines,
-    ``,
-    `Respond ONLY with compact JSON listing the terms to KEEP, copied exactly:`,
-    `{"keep":["<term>", ...]}`,
-  ].join('\n');
-}
-
-// Accepts the new keep-list form {"keep":[...]} (preferred) and the legacy
-// per-candidate {"decisions":[{term,keep}]} form (manual ChatGPT paste path).
-function parseCandidateLlmFilterResponse(raw: string): CandidateLlmFilterDecision[] {
-  const parsed = JSON.parse(stripJsonFences(raw)) as { keep?: unknown; decisions?: unknown };
-  if (Array.isArray(parsed.keep)) {
-    return parsed.keep
-      .filter((t): t is string => typeof t === 'string')
-      .map(term => ({ term, keep: true }));
+// Deterministic retrieval-chunk index (RAG foundation). Zero LLM, zero
+// embedding calls: chunks are reconciled by content key, so re-processing an
+// unchanged document writes nothing. A failure here is logged and reported in
+// the parse-run diagnostics but never fails processing — candidates are the
+// product; the chunk index is an additive derived artifact.
+function syncRetrievalChunks(
+  db: ReturnType<typeof openDb>,
+  sourceId: number,
+  blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'],
+  runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'],
+  layoutVersion: string = LAYOUT_VERSION,
+): Record<string, unknown> {
+  try {
+    const { chunks, diagnostics } = chunkBlocks(blocks, runningHeaderSections);
+    const sync = syncSourceChunks(db, sourceId, chunks, { chunker: CHUNKER_VERSION, layout: layoutVersion });
+    console.log(`[RAG_CHUNKS] source=${sourceId} chunks=${chunks.length} sync=${JSON.stringify(sync)}`);
+    return { ...diagnostics, sync };
+  } catch (e) {
+    console.error('[RAG_CHUNKS] failed for source', sourceId, e);
+    return { error: (e as Error).message };
   }
-  if (!Array.isArray(parsed.decisions)) {
-    throw new Error('LLM response did not include a keep or decisions array.');
-  }
-  return parsed.decisions
-    .map((d): CandidateLlmFilterDecision | null => {
-      if (!d || typeof d !== 'object') return null;
-      const obj = d as { term?: unknown; keep?: unknown; reason?: unknown };
-      if (typeof obj.term !== 'string' || typeof obj.keep !== 'boolean') return null;
-      return {
-        term: obj.term,
-        keep: obj.keep,
-        reason: typeof obj.reason === 'string' ? obj.reason : undefined,
-      };
-    })
-    .filter((d): d is CandidateLlmFilterDecision => d !== null);
 }
 
 function registerIpc(db: ReturnType<typeof openDb>): void {
@@ -382,6 +393,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     let equationCount = 0;
     let misconceptionCount = 0;
     let layoutDiagnostics: Record<string, unknown> = {};
+    let layoutVersionUsed = LAYOUT_VERSION;
 
     const logTotals = (label: string): void => {
       const s = getUsageStats();
@@ -410,6 +422,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
           llm_input_tokens: Object.values(usage.byPass).reduce((a, p) => a + p.prompt, 0),
           llm_output_tokens: Object.values(usage.byPass).reduce((a, p) => a + p.completion, 0),
           diagnostics: { ...layoutDiagnostics, llm_by_pass: usage.byPass },
+          layout_version: layoutVersionUsed,
         });
       } catch (e) {
         console.error('[PARSE_RUN] failed to record parse_runs row:', e);
@@ -417,6 +430,15 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     };
 
     try {
+      // Parse the PDF BEFORE wiping anything: a Docling conversion can take
+      // minutes, and a parse that fails or is interrupted (app closed) must
+      // not leave the source with its candidates already deleted.
+      updateSourceStatus(db, sourceId, 'processing');
+      const preSource = getSourceById(db, sourceId)!;
+      const preSeg = preSource.file_path.endsWith('.txt')
+        ? null
+        : await segmentPdfConfigured(preSource.file_path, loadRawSettings());
+
       // Idempotent retry: wipe derived artifacts before rebuilding. Keeps
       // the source row, file path, and events lineage intact.
       const wiped = clearDerivedDataForSource(db, sourceId);
@@ -444,10 +466,12 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         updateSourceStatus(db, sourceId, 'processing', { page_count: pageCount });
         console.log(`[EXTRACT] text blocks: ${blocksForLLM.length}`);
       } else {
-        const { blocks: allBlocks, pageCount: pc, diagnostics: diag, runningHeaderSections: rhSections } = await segmentPdf(source.file_path);
+        const seg = preSeg!;
+        const { blocks: allBlocks, pageCount: pc, diagnostics: diag, runningHeaderSections: rhSections } = seg;
         pageCount = pc;
         runningHeaderSections = rhSections;
-        layoutDiagnostics = { ...diag };
+        layoutVersionUsed = seg.layoutVersion;
+        layoutDiagnostics = { ...diag, parser: seg.parser, parser_fallback: seg.fallback };
         updateSourceStatus(db, sourceId, 'processing', { page_count: pageCount });
         blocksForLLM = allBlocks.filter(b =>
           (args.pageStart == null || b.page >= args.pageStart) &&
@@ -485,12 +509,16 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       } catch (e) {
         console.error('[CANDIDATES] failed for source', sourceId, e);
       }
+      layoutDiagnostics = {
+        ...layoutDiagnostics,
+        rag_chunks: syncRetrievalChunks(db, sourceId, blocksForLLM, runningHeaderSections, layoutVersionUsed),
+      };
 
       // ─── Mode dispatch ──────────────────────────────────────────────────────
       // deterministic = no LLM. Candidates are the product.
       // candidate_gated = LLM enriches only blocks near top-N candidate pages.
       // full = legacy / benchmark.
-      const settingsForBudget = applyEnvFallbacks(loadSettings(app.getPath('userData'), secretCodec()), envFallbacks());
+      const settingsForBudget = loadEffectiveSettings();
       mode = settingsForBudget.extractionMode ?? 'deterministic';
 
       if (mode === 'deterministic') {
@@ -1117,10 +1145,291 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     return new Uint8Array(buf).buffer;
   });
 
-  ipcMain.handle(IPC.SETTINGS_GET, () => {
-    const dir = app.getPath('userData');
-    const fb  = envFallbacks();
-    const s   = applyEnvFallbacks(loadSettings(dir, secretCodec()), fb);
+  ipcMain.handle(IPC.LLM_TRACE_SUMMARY, (_e, rawDays: unknown): LlmTraceSummary => {
+    const days = typeof rawDays === 'number' && Number.isFinite(rawDays)
+      ? Math.min(365, Math.max(1, Math.floor(rawDays)))
+      : 30;
+    return summarizeLlmCalls(db, days);
+  });
+
+  ipcMain.handle(IPC.EMBEDDINGS_STATUS, (): EmbeddingsStatus => {
+    const s = loadRawSettings();
+    const model = s.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
+    return {
+      enabled: !!s.embeddingsEnabled,
+      model,
+      ...embeddingStats(db, model),
+      totalSources: listSources(db).length,
+    };
+  });
+
+  let libraryIndexing: Promise<unknown> | null = null;
+  ipcMain.handle(IPC.EMBEDDINGS_INDEX_LIBRARY, async () => {
+    const embedder = getEmbedder();
+    if (!embedder) return { ok: false as const, error: 'Embeddings are turned off.' };
+    if (libraryIndexing) return { ok: false as const, error: 'Indexing is already running.' };
+    const run = (async () => {
+      let embedded = 0;
+      const sources = listSources(db);
+      for (const src of sources) {
+        embedded += (await indexSourceEmbeddings(db, embedder, src.id)).embedded;
+      }
+      return { ok: true as const, sources: sources.length, embedded };
+    })();
+    libraryIndexing = run;
+    try {
+      return await run;
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      libraryIndexing = null;
+    }
+  });
+
+  // Memoized per model: candidate terms are derived and not persisted, so the
+  // in-memory cache is what keeps re-opening Candidate Review cheap.
+  const cachedEmbedders = new Map<string, Embedder>();
+  ipcMain.handle(IPC.CANDIDATES_NEAR_DUPLICATES, async (_e, rawId: unknown): Promise<CandidateNearDuplicates> => {
+    const sourceId = validateIpc(PositiveIntSchema, rawId, IPC.CANDIDATES_NEAR_DUPLICATES);
+    const base = getEmbedder();
+    if (!base) return {};
+    // Keyed by server AND model: changing the base URL must not keep hitting
+    // the old server through a stale cached wrapper.
+    const cacheKey = `${base.baseUrl ?? ''}|${base.model}`;
+    const embedder = cachedEmbedders.get(cacheKey) ?? createCachingEmbedder(base);
+    cachedEmbedders.set(cacheKey, embedder);
+    const candidates = listConceptCandidatesBySource(db, sourceId).map(c => ({
+      id: c.id, term: c.term, normalized: c.normalized,
+    }));
+    return softTimeout(findCandidateNearDuplicates(embedder, candidates), 60_000, {}, 'candidate near-duplicates');
+  });
+
+  ipcMain.handle(IPC.CONCEPTS_RELATED, async (_e, rawId: unknown) => {
+    const conceptId = validateIpc(PositiveIntSchema, rawId, IPC.CONCEPTS_RELATED);
+    const embedder = getEmbedder();
+    const concept = getConceptById(db, conceptId);
+    if (!embedder || !concept) return [];
+    // Keep this concept's own source fresh; other sources come from the last
+    // library index (Settings → Embeddings), so this stays fast.
+    await softTimeout(indexSourceEmbeddings(db, embedder, concept.source_id), 8_000, null, 'related index');
+    const linked = new Set(
+      (concept.where_reappears as Array<string | { name: string }>).map(l => (typeof l === 'string' ? l : l.name).toLowerCase()),
+    );
+    return relatedConcepts(db, embedder.model, conceptId, 10).filter(r => !linked.has(r.name.toLowerCase())).slice(0, 6);
+  });
+
+  // ─── Local Ask (RAG) ──────────────────────────────────────────────────────
+  // Answers come only from the local model (resolveAskConfig). Embeddings are
+  // local too and generated lazily here, on Ask, per selected source — each
+  // batch is persisted, so an interrupted run resumes where it stopped and
+  // compatible vectors (same model + text hash) are never recomputed.
+  ipcMain.handle(IPC.RAG_STATUS, (): RagStatus => {
+    const s = loadRawSettings();
+    const model = s.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
+    const ask = resolveAskConfig(s);
+    const stale = new Set(planLibraryIndex(db, { embeddingModel: null, expectLayout: expectedLayoutFor(loadRawSettings()) }).items.filter(i => i.action === 'rechunk').map(i => i.source_id));
+    return {
+      askModel: ask?.model ?? null,
+      askBaseUrl: ask?.baseUrl ?? null,
+      embeddingsEnabled: !!s.embeddingsEnabled,
+      embeddingModel: model,
+      sources: listSources(db).map(src => {
+        const st = chunkIndexStats(db, s.embeddingsEnabled ? model : undefined, src.id);
+        return {
+          source_id: src.id, title: src.title ?? src.filename, chunks: st.chunks, embedded: st.embedded,
+          stale: stale.has(src.id),
+        };
+      }),
+    };
+  });
+
+  // ─── Per-source RAG lock ────────────────────────────────────────────────
+  // Serializes chunk/embedding work on one source across the library job, the
+  // per-source Index button and Ask's lazy embedding. Ask never WAITS on a busy
+  // source (it skips its embedding and says so); Index refuses; the library job
+  // queues behind whoever holds it.
+  const sourceLocks = new Map<number, Promise<unknown>>();
+  function withSourceLock<T>(sourceId: number, fn: () => Promise<T>): Promise<T> {
+    const prev = sourceLocks.get(sourceId) ?? Promise.resolve();
+    const run = prev.catch(() => undefined).then(fn);
+    const tail = run.catch(() => undefined);
+    sourceLocks.set(sourceId, tail);
+    void tail.then(() => { if (sourceLocks.get(sourceId) === tail) sourceLocks.delete(sourceId); });
+    return run;
+  }
+  const isSourceBusy = (sourceId: number) => sourceLocks.has(sourceId);
+
+  // Re-segment a source file and reconcile its chunks only (candidates,
+  // concepts and user data are untouched). Throws with a user-facing message.
+  async function rebuildChunksForSource(sourceId: number): Promise<void> {
+    const source = getSourceById(db, sourceId);
+    if (!source) throw new Error('Source not found.');
+    if (!fs.existsSync(source.file_path)) throw new Error('The source file no longer exists.');
+    let blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
+    let runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'] = [];
+    let layoutVersion = LAYOUT_VERSION;
+    if (source.file_path.endsWith('.txt')) {
+      blocks = segmentText(fs.readFileSync(source.file_path, 'utf-8'));
+    } else {
+      const out = await segmentPdfConfigured(source.file_path, loadRawSettings());
+      blocks = out.blocks;
+      runningHeaderSections = out.runningHeaderSections;
+      layoutVersion = out.layoutVersion;
+    }
+    const diag = syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections, layoutVersion);
+    if (typeof diag.error === 'string') throw new Error(diag.error);
+  }
+
+  // Backfill one source (Ask rail "Index" button).
+  ipcMain.handle(IPC.RAG_INDEX_SOURCE, async (_e, rawId: unknown): Promise<RagIndexSourceResult> => {
+    const sourceId = validateIpc(PositiveIntSchema, rawId, IPC.RAG_INDEX_SOURCE);
+    if (isSourceBusy(sourceId)) return { ok: false, error: 'This source is already being indexed.' };
+    try {
+      await withSourceLock(sourceId, () => rebuildChunksForSource(sourceId));
+      return { ok: true, chunks: chunkIndexStats(db, undefined, sourceId).chunks };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  // ─── Whole-library index (user-started background job, never at startup) ──
+  // Resumable by construction: chunks commit per source and vectors per batch,
+  // so Stop (or quitting) keeps finished work and the next run skips it.
+  let libraryJob: { stop: boolean; progress: LibraryIndexProgress | null } | null = null;
+  let lastLibrarySummary: LibraryIndexSummary | null = null;
+  const broadcast = (channel: string, payload: unknown) => {
+    for (const w of BrowserWindow.getAllWindows()) if (!w.webContents.isDestroyed()) w.webContents.send(channel, payload);
+  };
+
+  ipcMain.handle(IPC.RAG_LIBRARY_STATUS, (): RagLibraryStatus => {
+    const s = loadRawSettings();
+    const model = s.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
+    const { items: _items, ...plan } = planLibraryIndex(db, { embeddingModel: s.embeddingsEnabled ? model : null, expectLayout: expectedLayoutFor(s) });
+    return { running: libraryJob != null, progress: libraryJob?.progress ?? null, plan, last: lastLibrarySummary };
+  });
+
+  ipcMain.handle(IPC.RAG_LIBRARY_START, (): { ok: true } | { ok: false; error: string } => {
+    if (libraryJob) return { ok: false, error: 'Library indexing is already running.' };
+    const job: { stop: boolean; progress: LibraryIndexProgress | null } = { stop: false, progress: null };
+    libraryJob = job;
+    void runLibraryIndex(db, {
+      rebuildChunks: rebuildChunksForSource,
+      embedder: getEmbedder(),
+      expectLayout: expectedLayoutFor(loadRawSettings()),
+      withSourceLock,
+      shouldStop: () => job.stop,
+      onProgress: p => { job.progress = p; broadcast(IPC.RAG_LIBRARY_PROGRESS, p); },
+    })
+      .then(summary => {
+        console.log(`[RAG_LIBRARY] ${JSON.stringify({ ...summary, failures: summary.failures.length })}`);
+        lastLibrarySummary = summary;
+      })
+      .catch(err => {
+        console.error('[RAG_LIBRARY] failed:', err);
+        lastLibrarySummary = {
+          stopped: true, sources_processed: 0, chunked: 0, rechunked: 0, embedded_chunks: 0,
+          failures: [{ source_id: 0, title: '(library index)', stage: 'chunk', error: err instanceof Error ? err.message : String(err) }],
+          embed_error: null,
+        };
+      })
+      .finally(() => {
+        libraryJob = null;
+        broadcast(IPC.RAG_LIBRARY_DONE, lastLibrarySummary);
+      });
+    return { ok: true };
+  });
+
+  ipcMain.handle(IPC.RAG_LIBRARY_STOP, () => {
+    if (libraryJob) libraryJob.stop = true;
+    return { ok: true as const };
+  });
+
+  ipcMain.handle(IPC.RAG_ASK, async (e, rawArgs: unknown) => {
+    const args = validateIpc(RagAskArgsSchema, rawArgs, IPC.RAG_ASK);
+    const concept = args.conceptId != null ? getConceptById(db, args.conceptId) : null;
+    if (args.conceptId != null && !concept) throw new Error(`concept ${args.conceptId} not found`);
+    const sourceIds = args.sourceIds?.length
+      ? args.sourceIds
+      : concept?.source_id != null ? [concept.source_id] : undefined;
+    const embedder = getEmbedder();
+    let indexWarning: string | null = null;
+    if (embedder) {
+      const ids = sourceIds ?? listSources(db).map(s => s.id);
+      const busy: string[] = [];
+      for (const id of ids) {
+        // Never wait behind the library job: skip this source's lazy
+        // embedding (its stored vectors are still searched) and say so.
+        if (isSourceBusy(id)) { busy.push(getSourceById(db, id)?.title ?? String(id)); continue; }
+        try {
+          await withSourceLock(id, () => indexSourceChunkEmbeddings(db, embedder, id, (done, total) => {
+            if (!e.sender.isDestroyed()) e.sender.send(IPC.RAG_PROGRESS, { phase: 'embedding', sourceId: id, done, total });
+          }));
+        } catch (err) {
+          // Keep going: keyword retrieval still works and vectors already
+          // stored stay usable. Stop trying further sources — the server is
+          // most likely down and each attempt would fail the same way.
+          indexWarning = `Embedding chunks failed (${err instanceof Error ? err.message : String(err)}); vector search may be partial or unavailable.`;
+          console.warn('[RAG] chunk embedding failed:', err);
+          break;
+        }
+      }
+      if (busy.length && !indexWarning) {
+        indexWarning = `Being indexed in the background: ${busy.join(', ')}. Vector search may be partial for ${busy.length === 1 ? 'it' : 'them'} until indexing finishes.`;
+      }
+    }
+    const result = await askSources(db, {
+      question: args.question,
+      sourceIds,
+      config: resolveAskConfig(loadRawSettings()),
+      embedder,
+      focus: concept?.name ?? null,
+    });
+    const full = { ...result, index_warning: indexWarning };
+    if (!concept) return full;
+    // Saving history must never cost the user the answer they just got.
+    try {
+      const entry = saveAskHistory(db, concept.id, full);
+      return { ...full, history_id: entry.id };
+    } catch (err) {
+      console.warn('[RAG] saving Ask history failed:', err);
+      return full;
+    }
+  });
+
+  ipcMain.handle(IPC.RAG_HISTORY, (_e, rawId: unknown) =>
+    listAskHistory(db, validateIpc(PositiveIntSchema, rawId, IPC.RAG_HISTORY)));
+
+  ipcMain.handle(IPC.RAG_HISTORY_DELETE, (_e, rawId: unknown) => {
+    deleteAskHistory(db, validateIpc(PositiveIntSchema, rawId, IPC.RAG_HISTORY_DELETE));
+    return { ok: true as const };
+  });
+
+  ipcMain.handle(IPC.LLM_LIST_LOCAL_MODELS, async (_e, rawBaseUrl: unknown) => {
+    if (typeof rawBaseUrl !== 'string' || rawBaseUrl.length > 300) {
+      return { ok: false as const, error: 'Base URL must be a string.' };
+    }
+    try {
+      return { ok: true as const, models: await listLocalModels(rawBaseUrl || DEFAULT_LOCAL_BASE_URL) };
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  ipcMain.handle(IPC.DOCLING_TEST, async (_e, rawBaseUrl: unknown) => {
+    if (typeof rawBaseUrl !== 'string' || rawBaseUrl.length > 300) {
+      return { ok: false as const, error: 'Base URL must be a string.' };
+    }
+    const base = rawBaseUrl.trim() ? normalizeLocalBaseUrl(rawBaseUrl) : DEFAULT_DOCLING_BASE_URL;
+    if (!base) return { ok: false as const, error: 'Docling URL must be an http:// or https:// URL, e.g. http://127.0.0.1:5001' };
+    try {
+      return { ok: true as const, ...(await doclingServerInfo(base)) };
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  ipcMain.handle(IPC.SETTINGS_GET, (): SettingsSnapshot => {
+    const s = loadEffectiveSettings();
     return {
       provider: s.provider,
       groqApiKeyConfigured:      !!s.groqApiKey,
@@ -1130,6 +1439,17 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       heavyModel: s.heavyModel ?? '',
       lightModel: s.lightModel ?? '',
       modelChoices: MODEL_CHOICES,
+      gradeSelfConsistency: effectiveSelfConsistency(s),
+      localBaseUrl: s.localBaseUrl ?? '',
+      localModel: s.localModel ?? '',
+      defaultLocalBaseUrl: DEFAULT_LOCAL_BASE_URL,
+      embeddingsEnabled: !!s.embeddingsEnabled,
+      embeddingModel: s.embeddingModel ?? '',
+      defaultEmbeddingModel: DEFAULT_EMBEDDING_MODEL,
+      srsScheduler: s.srsScheduler ?? 'sm2',
+      pdfParser: s.pdfParser ?? 'builtin',
+      doclingBaseUrl: s.doclingBaseUrl ?? '',
+      defaultDoclingBaseUrl: DEFAULT_DOCLING_BASE_URL,
     };
   });
   ipcMain.handle(IPC.SETTINGS_SET, (_e, rawInput: Partial<LLMSettings>) => {
@@ -1138,19 +1458,18 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const current = loadSettings(dir, codec);
     // Validate structure first, then clamp enum values via sanitizeSettingsInput.
     const validated = validateIpc(SettingsPatchSchema, rawInput, IPC.SETTINGS_SET);
+    // A non-empty base URL that isn't a usable http(s) URL is an error the user
+    // must see (sanitize would otherwise silently keep the old one).
+    if (validated.localBaseUrl && validated.localBaseUrl.trim() && !normalizeLocalBaseUrl(validated.localBaseUrl)) {
+      throw new Error('Server base URL must be an http:// or https:// URL, e.g. http://127.0.0.1:11434/v1');
+    }
+    if (validated.doclingBaseUrl && validated.doclingBaseUrl.trim() && !normalizeLocalBaseUrl(validated.doclingBaseUrl)) {
+      throw new Error('Docling URL must be an http:// or https:// URL, e.g. http://127.0.0.1:5001');
+    }
     const input = sanitizeSettingsInput(validated, current);
-    const next: LLMSettings = {
-      ...current,
-      provider:        input.provider        ?? current.provider,
-      // Preserve previously stored keys when the renderer omits them.
-      groqApiKey:      input.groqApiKey      !== undefined ? input.groqApiKey      : current.groqApiKey,
-      anthropicApiKey: input.anthropicApiKey !== undefined ? input.anthropicApiKey : current.anthropicApiKey,
-      modelOverrides:  input.modelOverrides  ?? current.modelOverrides ?? {},
-      extractionMode:  input.extractionMode  ?? current.extractionMode ?? 'deterministic',
-      heavyModel:      input.heavyModel      !== undefined ? input.heavyModel      : current.heavyModel,
-      lightModel:      input.lightModel      !== undefined ? input.lightModel      : current.lightModel,
-    };
+    const next = mergeSettingsPatch(current, input);
     saveSettings(dir, next, codec);
+    setSrsScheduler(next.srsScheduler ?? 'sm2');
     return { ok: true as const };
   });
   ipcMain.handle(IPC.EVIDENCE_HISTORY, (_e, conceptId: number) => listRecordsByConcept(db, conceptId));
@@ -1288,7 +1607,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
           { role: 'system', content: 'You are a precise textbook concept filter. Return valid JSON only.' },
           { role: 'user', content: buildCandidateLlmFilterPrompt(title, batch) },
         ],
-      }, 'concepts');
+      }, 'topic_filter');
       const decisions = parseCandidateLlmFilterResponse(content);
       const terms = new Set(batch.map(c => c.normalized.toLowerCase()));
       const keepTerms = decisions
@@ -1336,7 +1655,12 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     }
     return { provider: config.provider, model: config.model, sent, keepTerms: [...keepSet], decisions: allDecisions, batches: done };
   });
-  ipcMain.handle(IPC.CANDIDATES_EXTRACT, async (_e, sourceId: number) => {
+  // Deterministic candidate re-extract for one source (the Re-extract button
+  // and the bulk "re-extract outdated sources" job). Preserves promoted
+  // concepts with evidence and concepts with study history. Records a parse
+  // run (success or failure) stamped with the current parser/grammar/layout
+  // versions, which is what takes the source off the outdated list.
+  async function reextractSourceCandidates(sourceId: number): Promise<ExtractCandidatesResult & { parserFallback?: string | null }> {
     const source = getSourceById(db, sourceId);
     if (!source) throw new Error(`source ${sourceId} not found`);
     const fileExists = fs.existsSync(source.file_path);
@@ -1344,40 +1668,125 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     if (!fileExists) {
       throw new Error(`source file no longer exists: ${source.file_path}`);
     }
-    let blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
-    let runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'] = [];
-    if (source.file_path.endsWith('.txt')) {
-      blocks = segmentText(fs.readFileSync(source.file_path, 'utf-8'));
-      console.log(`[CANDIDATES] (manual) text blocks=${blocks.length}`);
-    } else {
+    const startedAt = Date.now();
+    let pageCount = 0;
+    let layoutDiagnostics: Record<string, unknown> = {};
+    let layoutVersion = LAYOUT_VERSION;
+    let parserFallback: string | null = null;
+    const recordRun = (status: 'success' | 'failed', counts: Partial<Record<'blocks' | 'concepts' | 'relations' | 'equations' | 'misconceptions', number>>, errorMsg?: string) => {
       try {
-        const out = await segmentPdf(source.file_path);
+        createParseRun(db, {
+          source_id: sourceId, status, error_msg: errorMsg ?? null, mode: 'deterministic',
+          page_count: pageCount, block_count: counts.blocks ?? 0, candidate_count: counts.concepts ?? 0,
+          relation_count: counts.relations ?? 0, equation_count: counts.equations ?? 0,
+          misconception_count: counts.misconceptions ?? 0, duration_ms: Date.now() - startedAt,
+          llm_call_count: 0, llm_input_tokens: 0, llm_output_tokens: 0,
+          diagnostics: { ...layoutDiagnostics, trigger: 'reextract' },
+          layout_version: layoutVersion,
+        });
+      } catch (e) {
+        console.error('[PARSE_RUN] failed to record parse_runs row:', e);
+      }
+    };
+    try {
+      let blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
+      let runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'] = [];
+      if (source.file_path.endsWith('.txt')) {
+        blocks = segmentText(fs.readFileSync(source.file_path, 'utf-8'));
+        console.log(`[CANDIDATES] (manual) text blocks=${blocks.length}`);
+      } else {
+        const out = await segmentPdfConfigured(source.file_path, loadRawSettings());
         blocks = out.blocks;
         runningHeaderSections = out.runningHeaderSections;
+        pageCount = out.pageCount;
+        layoutVersion = out.layoutVersion;
+        parserFallback = out.fallback;
+        layoutDiagnostics = { ...out.diagnostics, parser: out.parser, parser_fallback: out.fallback };
         console.log(`[CANDIDATES] (manual) pdf pages=${out.pageCount} blocks=${blocks.length}`);
-      } catch (e) {
-        console.error('[CANDIDATES] (manual) segmentPdf failed:', e);
-        throw e;
       }
+      const { paths: sectionPaths, sources: sectionSources } = buildSectionPath(blocks, runningHeaderSections);
+      const anchors = deriveTopicAnchors(blocks, source.title);
+      setTopicAnchors(db, sourceId, anchors);
+      const cand = extractCandidates(blocks, sectionPaths, anchors, sectionSources, runningHeaderSections);
+      persistCandidateExtraction(db, sourceId, cand);
+      syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections, layoutVersion);
+      console.log(
+        `[CANDIDATES] (manual) source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +
+        `concepts=${cand.candidates.length} relations=${cand.relations.length} ` +
+        `misconceptions=${cand.misconception_phrases.length} equations=${cand.equations.length}`,
+      );
+      const result = {
+        ok: true as const,
+        blocks: cand.diagnostics.blocks_seen,
+        concepts: cand.candidates.length,
+        relations: cand.relations.length,
+        misconceptions: cand.misconception_phrases.length,
+        equations: cand.equations.length,
+      };
+      recordRun('success', result);
+      return { ...result, parserFallback };
+    } catch (e) {
+      console.error('[CANDIDATES] (manual) re-extract failed:', e);
+      recordRun('failed', {}, e instanceof Error ? e.message : String(e));
+      throw e;
     }
-    const { paths: sectionPaths, sources: sectionSources } = buildSectionPath(blocks, runningHeaderSections);
-    const anchors = deriveTopicAnchors(blocks, source.title);
-    setTopicAnchors(db, sourceId, anchors);
-    const cand = extractCandidates(blocks, sectionPaths, anchors, sectionSources, runningHeaderSections);
-    persistCandidateExtraction(db, sourceId, cand);
-    console.log(
-      `[CANDIDATES] (manual) source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +
-      `concepts=${cand.candidates.length} relations=${cand.relations.length} ` +
-      `misconceptions=${cand.misconception_phrases.length} equations=${cand.equations.length}`,
-    );
+  }
+
+  ipcMain.handle(IPC.CANDIDATES_EXTRACT, (_e, sourceId: number) =>
+    withSourceLock(sourceId, () => reextractSourceCandidates(sourceId)));
+
+  // Bulk "re-extract outdated sources": user-started only, one source at a
+  // time under the per-source lock, Stop-able between sources, resumable
+  // (finished sources record a current parse run and drop off the plan).
+  let reextractJob: { stop: boolean; progress: ReextractProgress | null } | null = null;
+  let lastReextractSummary: ReextractSummary | null = null;
+
+  ipcMain.handle(IPC.REEXTRACT_STATUS, (): ReextractStatus => {
+    const { items, ...plan } = planOutdatedSources(db, currentReextractVersions(), expectedLayoutFor(loadRawSettings()));
     return {
-      ok: true as const,
-      blocks: cand.diagnostics.blocks_seen,
-      concepts: cand.candidates.length,
-      relations: cand.relations.length,
-      misconceptions: cand.misconception_phrases.length,
-      equations: cand.equations.length,
+      running: reextractJob != null, progress: reextractJob?.progress ?? null,
+      plan: { ...plan, items: items.map(i => ({ source_id: i.source_id, title: i.title, reasons: i.reasons })) },
+      last: lastReextractSummary,
     };
+  });
+
+  ipcMain.handle(IPC.REEXTRACT_START, (): { ok: true } | { ok: false; error: string } => {
+    if (reextractJob) return { ok: false, error: 'Re-extraction is already running.' };
+    const job: { stop: boolean; progress: ReextractProgress | null } = { stop: false, progress: null };
+    reextractJob = job;
+    void runReextractOutdated(db, {
+      reextract: async (id) => {
+        const r = await reextractSourceCandidates(id);
+        // Docling selected but unavailable: the source was re-extracted with the
+        // built-in parser and still expects Docling, so report it as skipped.
+        if (r.parserFallback) throw new Error(`Docling unavailable, used the built-in parser: ${r.parserFallback}`);
+      },
+      withSourceLock,
+      expectLayout: expectedLayoutFor(loadRawSettings()),
+      shouldStop: () => job.stop,
+      onProgress: p => { job.progress = p; broadcast(IPC.REEXTRACT_PROGRESS, p); },
+    })
+      .then(summary => {
+        console.log(`[REEXTRACT] ${JSON.stringify({ ...summary, failures: summary.failures.length })}`);
+        lastReextractSummary = summary;
+      })
+      .catch(err => {
+        console.error('[REEXTRACT] failed:', err);
+        lastReextractSummary = {
+          stopped: true, reextracted: 0,
+          failures: [{ source_id: 0, title: '(re-extract)', error: err instanceof Error ? err.message : String(err) }],
+        };
+      })
+      .finally(() => {
+        reextractJob = null;
+        broadcast(IPC.REEXTRACT_DONE, lastReextractSummary);
+      });
+    return { ok: true };
+  });
+
+  ipcMain.handle(IPC.REEXTRACT_STOP, () => {
+    if (reextractJob) reextractJob.stop = true;
+    return { ok: true as const };
   });
 
   ipcMain.handle(IPC.EVIDENCE_SUBMIT, async (_e, args: SubmitEvidenceArgs) => {
@@ -1390,12 +1799,23 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     // Assemble the concept's source material so the grader can judge whether the
     // answer is BACKED BY the source, not merely plausible. When the concept is
     // too sparse (hasContext=false) we pass nothing and grounding is skipped.
-    const grounding = buildGroundingContext(db, conceptId);
+    // Widen grounding with similar quotes from OTHER concepts in the same source
+    // (opt-in embeddings; silently skipped when off, slow, or unreachable).
+    const embedder = getEmbedder();
+    const extraExcerpts = embedder
+      ? await softTimeout((async () => {
+          await indexSourceEmbeddings(db, embedder, concept.source_id);
+          const hits = await retrieveSourceExcerpts(db, embedder, concept.source_id, userResponse, conceptId);
+          return hits.map(h => h.text);
+        })(), 8_000, [] as string[], 'grounding retrieval')
+      : [];
+    const grounding = buildGroundingContext(db, conceptId, extraExcerpts);
+    const gradeSettings = loadEffectiveSettings();
     const grade = await gradeResponse(cfgFor('grader'), {
       concept_name: concept.name, concept_definition: concept.definition_text,
       task_kind: task.kind, task_prompt: task.prompt, user_response: userResponse,
       source_context: grounding.hasContext ? grounding.context : undefined,
-    });
+    }, { selfConsistency: effectiveSelfConsistency(gradeSettings) });
     {
       const s = getUsageStats();
       const passes = Object.entries(s.byPass)
@@ -1404,7 +1824,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       console.log(`[LLM TOTALS] grade concept=${conceptId} task=${taskId} ${passes} total=${s.total} calls=${s.calls}`);
     }
 
-    const record = createEvidenceRecord(db, {
+    // Record + mastery + SRS land atomically (persistGradedAttempt), so a failure
+    // here never leaves a saved attempt behind the renderer's "nothing recorded".
+    const record = persistGradedAttempt(db, {
       task_id: taskId, concept_id: conceptId, user_response: userResponse,
       score: grade.score, compression_stage: grade.compression_stage,
       gaps_detected: grade.gaps_detected, misconceptions_detected: grade.misconceptions_detected,
@@ -1417,12 +1839,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       grounding_context_used: grade.grounding_context_used,
       unsupported_claims: grade.unsupported_claims,
       confidence_before: confidenceBefore ?? null,
-    });
-
-    upsertMastery(db, conceptId, grade.compression_stage);
-    // Advance the spaced-repetition card from the graded score so the concept's
-    // next due date reflects this attempt (mirrors the mastery upsert).
-    recordSrsReview(db, conceptId, grade.score);
+    }, grade.audit);
     emitEvent(db, 'evidence_record.graded', { recordId: record.id, score: grade.score }, { entityType: 'concept', entityId: conceptId });
     return record;
   });
@@ -1497,6 +1914,9 @@ app.whenReady().then(() => {
 
   const DB_PATH = path.join(app.getPath('userData'), 'stellaria.db');
   const db = openDb(DB_PATH);
+  // Persist every chatJSON call's metadata (never prompt text) to llm_calls.
+  setLlmTraceSink(createLlmCallSink(db));
+  setSrsScheduler(loadRawSettings().srsScheduler ?? 'sm2');
 
   // Recovery scan: anything still 'processing' was killed mid-run. Mark
   // failed so the user can retry deliberately.
@@ -1509,4 +1929,5 @@ app.whenReady().then(() => {
   createWindow();
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('will-quit', () => stopPdfParser());
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

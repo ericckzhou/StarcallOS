@@ -79,7 +79,7 @@ describe('replaySrsReviews', () => {
       state = step.next;
       dueAt = step.dueAt;
     }
-    expect(replayed.state).toEqual(state);
+    expect(replayed.state).toEqual({ ...state, stability: null, difficulty: null });
     expect(replayed.dueAt).toBe(dueAt);
     expect(replayed.lastReviewedAt).toBe('2026-05-08T00:00:00.000Z');
     expect(replayed.lastGrade).toBe('recognizes');

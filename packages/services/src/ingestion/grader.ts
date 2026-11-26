@@ -1,5 +1,8 @@
 import type { CompressionStage, EvidenceKind, EvidenceScore, UnsupportedClaim } from '../core/domain/types';
-import { chatJSON, type ProviderConfig } from '../core/llm';
+import { z } from 'zod';
+import { hashPrompt, type ProviderConfig } from '../core/llm';
+import { CONTRACT_VERSION } from '../core/version';
+import { chatStructured } from '../core/structured';
 
 export type { UnsupportedClaim };
 
@@ -52,6 +55,30 @@ Score meanings:
 
 Be strict. Restating the definition word-for-word is stage 1, not stage 2.
 
+CALIBRATION EXAMPLES (concept: opportunity cost = "the value of the next-best
+alternative given up when a choice is made")
+- "The value of the next-best alternative given up when a choice is made."
+  → recognizes, stage 1 (verbatim restatement; no evidence of understanding).
+- "Whatever you'd have done instead is what the choice really costs you; money
+  already spent doesn't count." → recognizes, stage 2 (accurate, own words).
+- "It's why sunk costs are irrelevant: the only costs that matter are forward-
+  looking, which is the same logic as marginal analysis." → understood, stage 3
+  (unprompted link to sunk cost and marginal analysis).
+- "Every choice is priced in the best thing you didn't choose." → understood,
+  stage 4 (minimal first-principles compression).
+- "...and it breaks down when the alternatives aren't comparable — you can't
+  price a friendship in hours of wages, so people misapply it." → understood,
+  stage 5 (names a limit/misuse case).
+- "The opportunity cost of the concert is the $50 ticket you already paid."
+  → misconception (confuses sunk cost with opportunity cost), stage 1.
+- "It's about opportunities and their costs in economics." → gap, stage 1
+  (vague recognition; says nothing checkable). Vague recognition is NEVER
+  "recognizes" — "recognizes" requires an accurate, checkable statement.
+- A response that is broadly correct but asserts specifics the source context
+  does not contain stays scored on correctness, AND lists those specifics in
+  unsupported_claims. A response with a single load-bearing false claim is a
+  misconception even if the rest is excellent.
+
 GAPS — ALWAYS REQUIRED, EVEN ON A FULL UNDERSTOOD SCORE
 \`gaps_detected\` must NEVER be empty. It is the "what would push this further" list,
 not just the "what's wrong" list. Even when the response is excellent ("understood",
@@ -95,39 +122,169 @@ Respond ONLY with JSON:
   "reasoning": "brief explanation"
 }`;
 
+// Self-consistency: when the first grade is borderline, draw this many extra
+// samples at a higher temperature and aggregate (majority score, median stage).
+export const SELF_CONSISTENCY_EXTRA_SAMPLES = 2;
+export const SELF_CONSISTENCY_TEMPERATURE = 0.7;
+// Mid-band grounding is where single samples disagree most.
+export const BORDERLINE_GROUNDING_BAND: [number, number] = [0.35, 0.65];
+
+export interface GradeOptions {
+  // Re-grade borderline answers and aggregate. Off by default.
+  selfConsistency?: boolean;
+}
+
+export interface GradeAudit {
+  outputs: unknown[];        // validated wire output per sample
+  prompt_hash: string;       // hashPrompt(GRADER_SYSTEM)
+  model: string;             // "<provider>/<model>"
+  contract: string;          // CONTRACT_VERSION
+  samples: number;
+}
+
+export type GradeResultWithAudit = GradeResult & { audit: GradeAudit };
+
+export const GRADER_PROMPT_HASH = hashPrompt(GRADER_SYSTEM);
+
+// A grade is borderline when the model's own outputs are internally
+// inconsistent or sit in the band where re-sampling is most likely to flip it.
+export function isBorderlineGrade(g: GradeResult): boolean {
+  const [lo, hi] = BORDERLINE_GROUNDING_BAND;
+  if (g.grounding_score !== null && g.grounding_score >= lo && g.grounding_score <= hi) return true;
+  // Score/stage disagreement per the rubric (understood ⇔ stage ≥ 3; recognizes ⇔ 1-2).
+  if (g.score === 'understood' && g.compression_stage < 3) return true;
+  if (g.score === 'recognizes' && (g.compression_stage < 1 || g.compression_stage > 2)) return true;
+  return false;
+}
+
+// Ties break toward the more conservative score (never round a split vote up
+// to mastery). Order: most → least conservative.
+const CONSERVATIVE_ORDER: EvidenceScore[] = ['misconception', 'gap', 'recognizes', 'understood'];
+
+// Aggregate several grades of the SAME answer: majority score, median stage
+// (lower median on even counts), and the text fields of the sample that best
+// matches that consensus. Grounding score is the median of assessed samples.
+export function aggregateGrades(samples: GradeResult[]): GradeResult {
+  if (samples.length === 0) throw new Error('aggregateGrades: no samples');
+  if (samples.length === 1) return samples[0];
+
+  const counts = new Map<EvidenceScore, number>();
+  for (const g of samples) counts.set(g.score, (counts.get(g.score) ?? 0) + 1);
+  const top = Math.max(...counts.values());
+  const score = CONSERVATIVE_ORDER.find(sc => counts.get(sc) === top)!;
+
+  const lowerMedian = (xs: number[]) => {
+    const v = [...xs].sort((a, b) => a - b);
+    return v[Math.floor((v.length - 1) / 2)];
+  };
+  const stage = lowerMedian(samples.map(g => g.compression_stage)) as CompressionStage;
+
+  const representative = samples
+    .filter(g => g.score === score)
+    .sort((a, b) => Math.abs(a.compression_stage - stage) - Math.abs(b.compression_stage - stage))[0];
+
+  const grounded = samples.map(g => g.grounding_score).filter((x): x is number => x !== null);
+  return {
+    ...representative,
+    score,
+    compression_stage: stage,
+    grounding_score: representative.grounding_context_used && grounded.length > 0
+      ? lowerMedian(grounded)
+      : representative.grounding_score,
+  };
+}
+
 export async function gradeResponse(
   config: ProviderConfig,
   input: GradeInput,
-): Promise<GradeResult> {
+  opts: GradeOptions = {},
+): Promise<GradeResultWithAudit> {
   const sourceContext = input.source_context?.trim();
   const hasContext = !!sourceContext;
-  const userMessage = [
+  // Stable per-concept prefix first (cacheable across attempts on the same
+  // concept), then the per-attempt task + answer.
+  const conceptBlock = [
     `Concept: ${input.concept_name}`,
     `Definition: ${input.concept_definition}`,
-    `Task (${input.task_kind}): ${input.task_prompt}`,
-    `Learner response:\n${input.user_response}`,
     hasContext
       ? `Source context (ground the answer against THIS; do not rely on outside knowledge):\n${sourceContext}`
       : null,
   ].filter(Boolean).join('\n\n');
+  const attemptBlock = [
+    `Task (${input.task_kind}): ${input.task_prompt}`,
+    `Learner response:\n${input.user_response}`,
+  ].join('\n\n');
 
-  const { content } = await chatJSON(
+  // Invalid/unparseable output is repaired once, then throws LlmParseError —
+  // it is NEVER silently recorded as a 'gap' grade (the old JSON.parse→{}
+  // fallback did exactly that, writing a fake grade into the learner's history).
+  const sample = (temperature: number, pass: string) => chatStructured(
     config,
     {
       messages: [
-        { role: 'system', content: GRADER_SYSTEM },
-        { role: 'user', content: userMessage },
+        { role: 'system', content: GRADER_SYSTEM, cache: true },
+        { role: 'user', content: conceptBlock, cache: true },
+        { role: 'user', content: attemptBlock },
       ],
-      responseFormat: 'json',
-      temperature: 0.1,
+      temperature,
     },
-    'grader',
+    pass,
+    { schema: GraderOutputSchema, name: 'record_grade', description: 'Record the assessment of the learner response.' },
   );
 
-  let raw: unknown;
-  try { raw = JSON.parse(content || '{}'); } catch { raw = {}; }
-  return parseGradeResult(raw, hasContext);
+  const first = await sample(0.1, 'grader');
+  const outputs: unknown[] = [first.data];
+  const grades: GradeResult[] = [parseGradeResult(first.data, hasContext)];
+
+  if (opts.selfConsistency && isBorderlineGrade(grades[0])) {
+    // Sequential, not parallel: keeps low Groq TPM tiers from 429-storming.
+    // A failed extra sample is dropped rather than failing the whole grade.
+    for (let i = 0; i < SELF_CONSISTENCY_EXTRA_SAMPLES; i++) {
+      try {
+        const extra = await sample(SELF_CONSISTENCY_TEMPERATURE, 'grader:consistency');
+        outputs.push(extra.data);
+        grades.push(parseGradeResult(extra.data, hasContext));
+      } catch (e) {
+        console.warn(`[GRADER] self-consistency sample ${i + 1} failed: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  return {
+    ...aggregateGrades(grades),
+    audit: {
+      outputs,
+      prompt_hash: GRADER_PROMPT_HASH,
+      model: `${config.provider}/${config.model}`,
+      contract: CONTRACT_VERSION,
+      samples: grades.length,
+    },
+  };
 }
+
+// Wire shape the model must return. Required: score + compression_stage (the
+// values everything downstream depends on). Everything else is lenient; the
+// invariants (non-empty gaps, grounding gate) are enforced by parseGradeResult.
+// Smaller models sometimes return a single string where a list is expected;
+// wrap it rather than burning a repair call on a non-critical field.
+const stringList = z.preprocess(
+  v => (typeof v === 'string' ? (v.trim() ? [v] : []) : v),
+  z.array(z.string()),
+).optional().default([]);
+
+export const GraderOutputSchema = z.object({
+  score: z.enum(['understood', 'recognizes', 'gap', 'misconception']),
+  compression_stage: z.coerce.number().int().min(0).max(5),
+  gaps_detected: stringList,
+  misconceptions_detected: stringList,
+  reasoning: z.string().optional().default(''),
+  grounding_score: z.number().min(0).max(1).nullable().optional(),
+  unsupported_claims: z.array(z.object({
+    claim: z.string(),
+    reason: z.string().optional().default(''),
+    severity: z.enum(['minor', 'major']).optional().default('minor'),
+  })).optional().default([]),
+});
 
 function parseGroundingScore(raw: unknown): number | null {
   const n = typeof raw === 'number' ? raw : NaN;

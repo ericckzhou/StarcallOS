@@ -660,7 +660,7 @@ interface ReviewQueueRow {
 // due-now subset is exposed separately via countDueConcepts. datetime()
 // normalizes both the ISO-UTC timestamps written at grade time and the
 // migration's 'YYYY-MM-DD HH:MM:SS' backfill values.
-export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[] {
+export function listReviewQueue(db: DatabaseSync, limit = 50, now: Date = new Date()): ReviewQueueItem[] {
   const rows = db
     .prepare(
       `SELECT c.*,
@@ -723,7 +723,7 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
     }
   }
 
-  return rows.map(row => ({
+  const items = rows.map(row => ({
     concept: rowToConcept(row),
     source_id: Number(row.source_id),
     source_title: row.source_title,
@@ -735,6 +735,25 @@ export function listReviewQueue(db: DatabaseSync, limit = 50): ReviewQueueItem[]
     interval_days: row.interval_days ?? 0,
     blocked_prerequisites: blockedByConcept.get(Number(row.id)) ?? [],
   }));
+  return orderBlockedLast(items, now);
+}
+
+// Prerequisite-aware ordering: within the same urgency bucket (new / due now /
+// scheduled later), concepts with unmastered direct prerequisites sink below
+// unblocked ones, so the queue suggests learning foundations first. Stable:
+// the SQL due-order is preserved inside each (bucket, blocked) group, and a
+// blocked concept never jumps across buckets — the badge still shows.
+export function reviewUrgencyBucket(dueAt: string | null, now: Date): 0 | 1 | 2 {
+  if (dueAt == null) return 0;
+  const t = Date.parse(dueAt.includes('T') ? dueAt : `${dueAt.replace(' ', 'T')}Z`);
+  return Number.isFinite(t) && t <= now.getTime() ? 1 : 2;
+}
+
+export function orderBlockedLast<T extends { due_at: string | null; blocked_prerequisites: string[] }>(items: T[], now: Date): T[] {
+  return items
+    .map((item, i) => ({ item, i, bucket: reviewUrgencyBucket(item.due_at, now), blocked: item.blocked_prerequisites.length > 0 ? 1 : 0 }))
+    .sort((a, b) => a.bucket - b.bucket || a.blocked - b.blocked || a.i - b.i)
+    .map(x => x.item);
 }
 
 // Mark a concept as reviewed (removes it from the review queue) or clear the
@@ -1005,7 +1024,15 @@ const GROUNDING_MAX_CHARS = 4_000;
 // listConceptSourceEvidence). This is the material the grader uses to decide
 // whether the learner's answer is BACKED BY the source rather than merely
 // plausible.
-export function buildGroundingContext(db: DatabaseSync, conceptId: number): GroundingContext {
+export function buildGroundingContext(
+  db: DatabaseSync,
+  conceptId: number,
+  // Retrieved excerpts from OTHER concepts in the same source (embedding
+  // retrieval, see retrieveSourceExcerpts). Appended after the concept's own
+  // material so the cap trims them first; never counted toward hasContext on
+  // their own (a concept with no material of its own stays ungrounded-skip).
+  extraExcerpts: string[] = [],
+): GroundingContext {
   const concept = getConceptById(db, conceptId);
   if (!concept) return { context: '', hasContext: false };
 
@@ -1031,10 +1058,19 @@ export function buildGroundingContext(db: DatabaseSync, conceptId: number): Grou
     parts.push(`Source excerpt (${e.kind}): "${q}"`);
   }
 
+  const own = parts.join('\n');
+  const hasContext = own.replace(/\s+/g, '').length >= GROUNDING_MIN_CHARS;
+  if (!hasContext) return { context: '', hasContext: false };
+
+  for (const x of extraExcerpts) {
+    const q = x.trim();
+    if (!q || seen.has(q.toLowerCase())) continue;
+    seen.add(q.toLowerCase());
+    parts.push(`Related source excerpt (same source, other section): "${q}"`);
+  }
   let context = parts.join('\n');
   if (context.length > GROUNDING_MAX_CHARS) {
     context = `${context.slice(0, GROUNDING_MAX_CHARS)}…`;
   }
-  const hasContext = context.replace(/\s+/g, '').length >= GROUNDING_MIN_CHARS;
-  return { context: hasContext ? context : '', hasContext };
+  return { context, hasContext };
 }

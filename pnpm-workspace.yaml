@@ -9,3 +9,7 @@ allowBuilds:
   electron: true
   esbuild: true
   canvas: false
+  # electron-builder 26 pulls in electron-winstaller (Squirrel.Windows installer
+  # builder). We ship the portable target, not Squirrel, so its build script is
+  # not needed — categorize it as not-built to avoid the CI ERR_PNPM_IGNORED_BUILDS.
+  electron-winstaller: false
