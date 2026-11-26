@@ -108,6 +108,12 @@ describe('chatJSON — anthropic path', () => {
     );
   });
 
+  it('never sends temperature (removed in API version 2026-10-21)', async () => {
+    anthropicCreate.mockResolvedValue({ usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'text', text: '{}' }] });
+    await chatJSON(anthropicCfg, { messages: [{ role: 'user', content: 'u' }], responseFormat: 'json', temperature: 0.7 }, 'grader');
+    expect(anthropicCreate.mock.calls.at(-1)?.[0]).not.toHaveProperty('temperature');
+  });
+
   it('does not strip fences in text mode', async () => {
     anthropicCreate.mockResolvedValue({
       usage: { input_tokens: 1, output_tokens: 1 },
