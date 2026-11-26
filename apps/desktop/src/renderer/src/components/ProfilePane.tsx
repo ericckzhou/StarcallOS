@@ -58,7 +58,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
 
   return (
     <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-      <aside style={{ width: 220, borderRight: '1px solid var(--gray-800)', background: 'rgba(13, 13, 22, 0.35)', padding: 16, boxSizing: 'border-box' }}>
+      <aside style={{ width: 220, borderRight: '1px solid var(--border)', background: 'rgba(13, 13, 22, 0.35)', padding: 16, boxSizing: 'border-box' }}>
         <Avatar profile={{ name, avatarDataUrl }} size={72} />
         <div style={{ marginTop: 10, fontSize: 16, fontWeight: 700 }}>{name}</div>
         {progress && (
@@ -94,8 +94,8 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                     style={{
                       width: '100%', maxWidth: 420,
                       background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
-                      border: '1px solid var(--app-line)', borderRadius: 6,
-                      color: 'var(--slate-200)', padding: '8px 10px', fontSize: 16,
+                      border: '1px solid var(--border-control)', borderRadius: 6,
+                      color: 'var(--text)', padding: '8px 10px', fontSize: 16,
                       fontWeight: 700,
                       outline: 'none',
                     }}
@@ -103,7 +103,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                   {progress && (
                     <div style={{ marginTop: 10, maxWidth: 420 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <span style={{ fontSize: 12, color: 'var(--indigo-200)', fontWeight: 800 }}>{progress.total_xp} XP</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-accent)', fontWeight: 800 }}>{progress.total_xp} XP</span>
                         <span style={{ fontSize: 11, color: 'var(--slate-400)' }}>{xpToNext(progress)} XP to milestone</span>
                       </div>
                       <ProgressBar progress={progress.progress_ratio} />
@@ -171,7 +171,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                   <div style={{ marginTop: 16, maxWidth: 420 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
                       <span style={{ fontSize: 11, color: 'var(--slate-500)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Opacity</span>
-                      <span style={{ fontSize: 11, color: 'var(--indigo-200)', fontVariantNumeric: 'tabular-nums' }}>{Math.round(backgroundOpacity * 100)}%</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-accent)', fontVariantNumeric: 'tabular-nums' }}>{Math.round(backgroundOpacity * 100)}%</span>
                     </div>
                     <input
                       className="glass-range"
@@ -187,7 +187,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                 </div>
                 <div style={{
                   height: 150,
-                  border: '1px solid var(--gray-800)',
+                  border: '1px solid var(--border)',
                   borderRadius: 8,
                   overflow: 'hidden',
                   background: '#050816',
@@ -258,14 +258,14 @@ export function Avatar({ profile, size }: { profile: Pick<Profile, 'name' | 'ava
     <img
       src={profile.avatarDataUrl}
       alt=""
-      style={{ width: size, height: size, borderRadius: 8, objectFit: 'cover', border: '1px solid var(--indigo-900)', flexShrink: 0 }}
+      style={{ width: size, height: size, borderRadius: 8, objectFit: 'cover', border: '1px solid var(--border-accent-subtle)', flexShrink: 0 }}
     />
   ) : (
     <div style={{
       width: size, height: size, borderRadius: 8, flexShrink: 0,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'var(--indigo-950)', border: '1px solid var(--indigo-900)',
-      color: 'var(--indigo-200)', fontWeight: 800, fontSize: Math.max(11, size * 0.28),
+      background: 'var(--surface-accent)', border: '1px solid var(--border-accent-subtle)',
+      color: 'var(--text-accent)', fontWeight: 800, fontSize: Math.max(11, size * 0.28),
     }}>
       {initials}
     </div>
@@ -392,10 +392,10 @@ function ActivityHeatmap({ activity }: { activity: DailyActivity[] }) {
       {tip && (
         <div style={{
           position: 'fixed', left: tip.x + 12, top: tip.y + 14, zIndex: 9999, pointerEvents: 'none',
-          background: 'rgba(13, 13, 22, 0.96)', border: '1px solid var(--indigo-900)', borderRadius: 6,
+          background: 'rgba(13, 13, 22, 0.96)', border: '1px solid var(--border-accent-subtle)', borderRadius: 6,
           padding: '7px 9px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', maxWidth: 240,
         }}>
-          <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--slate-200)' }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text)' }}>
             {tip.cell.count} challenge{tip.cell.count === 1 ? '' : 's'}
           </div>
           <div style={{ fontSize: 10, color: 'var(--slate-500)', marginTop: 1 }}>{formatHeatDate(tip.cell.date)}</div>
@@ -444,7 +444,7 @@ function SourceChallengeChart({ counts }: { counts: { source_id: number; source_
             <div style={{ flex: 1, minWidth: 0, height: 8, background: 'rgba(31,41,55,0.55)', borderRadius: 999, overflow: 'hidden', boxShadow: 'inset 0 0 0 1px rgba(2,6,23,0.4)' }}>
               <div className="csbar-fill" style={{ width: `${(c.count / max) * 100}%`, height: '100%', background: `linear-gradient(90deg, ${color}, ${color}88)`, borderRadius: 999, animationDelay: `${i * 90}ms` }} />
             </div>
-            <div title={`${pct}% of all challenges`} style={{ minWidth: 30, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700, color: 'var(--slate-200)', fontVariantNumeric: 'tabular-nums' }}>{c.count}</div>
+            <div title={`${pct}% of all challenges`} style={{ minWidth: 30, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{c.count}</div>
           </div>
         );
       })}
@@ -514,9 +514,9 @@ function ProgressBar({ progress }: { progress: number }) {
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ background: 'rgba(11, 18, 32, 0.4)', border: '1px solid var(--gray-800)', borderRadius: 8, padding: '12px 10px' }}>
+    <div style={{ background: 'rgba(11, 18, 32, 0.4)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 10px' }}>
       <div style={eyebrow}>{label}</div>
-      <div style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: 'var(--slate-200)' }}>{value}</div>
+      <div style={{ marginTop: 8, fontSize: 22, fontWeight: 800, color: 'var(--text)' }}>{value}</div>
     </div>
   );
 }
@@ -536,7 +536,7 @@ function NavButton({ active, onClick, children }: { active: boolean; onClick: ()
 
 const panel: React.CSSProperties = {
   background: 'rgba(13, 13, 22, 0.35)',
-  border: '1px solid var(--gray-800)',
+  border: '1px solid var(--border)',
   borderRadius: 8,
   padding: 18,
 };
@@ -551,10 +551,10 @@ const eyebrow: React.CSSProperties = {
 
 const buttonStyle: React.CSSProperties = {
   background: 'var(--indigo-900)',
-  border: '1px solid var(--indigo-700)',
+  border: '1px solid var(--border-accent-muted)',
   borderRadius: 5,
   padding: '6px 12px',
-  color: 'var(--indigo-200)',
+  color: 'var(--text-accent)',
   fontSize: 12,
   cursor: 'pointer',
 };

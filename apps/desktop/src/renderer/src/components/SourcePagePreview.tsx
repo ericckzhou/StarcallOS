@@ -115,7 +115,7 @@ export default function SourcePagePreview({ target, onClose }: { target: Citatio
   return (
     <section style={{ width: '46%', minWidth: 360, flexShrink: 0, display: 'flex', flexDirection: 'column', borderLeft: '1px solid rgba(31,41,55,0.72)', background: 'rgba(4,6,26,0.55)', backdropFilter: 'blur(14px)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid rgba(31,41,55,0.72)', fontSize: 12, color: 'var(--slate-400)' }}>
-        <span style={{ color: 'var(--slate-200)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }} title={target.title}>
+        <span style={{ color: 'var(--text)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }} title={target.title}>
           {target.title}
         </span>
         <button onClick={() => setRange(([a, b]) => [Math.max(1, a - 1), b])} disabled={range[0] <= 1} style={navBtn} title="Show the previous page too">‹ p. {Math.max(1, range[0] - 1)}</button>
@@ -124,13 +124,13 @@ export default function SourcePagePreview({ target, onClose }: { target: Citatio
         <button onClick={onClose} style={{ ...navBtn, fontSize: 14 }} title="Close the source preview">×</button>
       </div>
       {target.quote && found === false && (
-        <div style={{ padding: '6px 12px', fontSize: 11, color: 'var(--amber-500)' }}>
+        <div style={{ padding: '6px 12px', fontSize: 11, color: 'var(--text-warning)' }}>
           The quote was verified against the extracted text but couldn't be located on the rendered page; showing the cited page.
         </div>
       )}
       <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: 12 }}>
-        {error && <div style={{ fontSize: 12, color: 'var(--red-300)' }}>Could not open the PDF: {error}</div>}
-        {!doc && !error && <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>Opening…</div>}
+        {error && <div style={{ fontSize: 12, color: 'var(--text-danger)' }}>Could not open the PDF: {error}</div>}
+        {!doc && !error && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Opening…</div>}
         {doc && width > 0 && pages.map(p => (
           <PreviewPage
             key={`${target.sourceId}:${p}`}
@@ -217,7 +217,7 @@ function PreviewPage({ doc, pageNum, width, quote, nonce, onHighlight }: {
 
   return (
     <div style={{ marginBottom: 12 }}>
-      <div style={{ fontSize: 10, color: 'var(--gray-500)', marginBottom: 4 }}>p. {pageNum}</div>
+      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>p. {pageNum}</div>
       <div ref={wrapRef} style={{ position: 'relative', width: size?.w ?? width, height: size?.h ?? width * 1.3, background: '#fff', boxShadow: '0 4px 18px rgba(0,0,0,0.4)' }}>
         <canvas ref={canvasRef} style={{ display: 'block' }} />
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1 }}>
@@ -236,6 +236,6 @@ function PreviewPage({ doc, pageNum, width, quote, nonce, onHighlight }: {
 }
 
 const navBtn: React.CSSProperties = {
-  background: 'transparent', border: '1px solid rgba(55,65,120,0.6)', color: 'var(--indigo-200)',
+  background: 'transparent', border: '1px solid rgba(55,65,120,0.6)', color: 'var(--text-accent)',
   borderRadius: 5, padding: '1px 7px', fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap',
 };

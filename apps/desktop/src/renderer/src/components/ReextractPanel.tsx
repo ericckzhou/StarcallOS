@@ -67,7 +67,7 @@ export default function ReextractPanel() {
           <summary style={{ cursor: 'pointer' }}>Show sources</summary>
           <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
             {plan.items.map(i => (
-              <li key={i.source_id}>{i.title} <span style={{ color: 'var(--gray-500)' }}>({i.reasons.map(r => REASON_LABEL[r] ?? r).join(', ')})</span></li>
+              <li key={i.source_id}>{i.title} <span style={{ color: 'var(--text-muted)' }}>({i.reasons.map(r => REASON_LABEL[r] ?? r).join(', ')})</span></li>
             ))}
           </ul>
         </details>
@@ -95,7 +95,7 @@ export default function ReextractPanel() {
             title={plan.done ? 'Every processed source was extracted with the current parser' : 'Re-extract the outdated sources in the background, one at a time. You can keep working and stop at any time.'}>
             {plan.done ? 'Up to date' : last?.stopped ? 'Resume re-extract' : 'Re-extract outdated'}
           </button>
-          {!plan.done && <span style={{ color: 'var(--gray-500)' }}>Promoted concepts, notes and study history are kept.</span>}
+          {!plan.done && <span style={{ color: 'var(--text-muted)' }}>Promoted concepts, notes and study history are kept.</span>}
         </div>
       )}
       {!running && last && (
@@ -111,12 +111,12 @@ export default function ReextractPanel() {
           )}
         </div>
       )}
-      {error && <div style={{ marginTop: 6, color: 'var(--red-300)' }}>{error}</div>}
+      {error && <div style={{ marginTop: 6, color: 'var(--text-danger)' }}>{error}</div>}
     </div>
   );
 }
 
 const btn: React.CSSProperties = {
-  background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.4)', color: 'var(--indigo-200)',
+  background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.4)', color: 'var(--text-accent)',
   borderRadius: 6, padding: '2px 9px', fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap',
 };

@@ -515,7 +515,8 @@ Candidate rows and parse runs stamp these versions for auditability.
   action also render `×` (the `+ Add` toggles stay as text triggers).
 - Palette colors are CSS custom properties in `global.css` `:root`
   (`--gray-500`, `--indigo-400`, `--app-line`, …); inline style objects use
-  `'var(--name)'`. Keep DATA colors as hex (tag/hub colors persisted to
+  `'var(--name)'`; prefer the semantic aliases (`--text`, `--text-muted`,
+  `--border`, `--border-accent`, `--surface-panel`, …) in new code. Keep DATA colors as hex (tag/hub colors persisted to
   DB/localStorage, `<input type=color>` values, SVG presentation attributes,
   and anything concatenated with an alpha suffix like `${c}33`) — `var()` breaks
   those.

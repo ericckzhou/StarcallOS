@@ -780,8 +780,8 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
           style={{
             width: 150, height: 28, boxSizing: 'border-box',
             background: 'rgba(17,24,39,0.45)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
-            border: '1px solid var(--app-line)', borderRadius: 4, padding: '0 8px',
-            color: 'var(--slate-200)', fontSize: 11, outline: 'none',
+            border: '1px solid var(--border-control)', borderRadius: 4, padding: '0 8px',
+            color: 'var(--text)', fontSize: 11, outline: 'none',
           }}
         />
         {data?.isPdf && (
@@ -817,7 +817,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
         background: 'rgba(4,6,26,0.5)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
         maxHeight: 220, overflowY: 'auto',
       }}>
-        <div style={{ padding: '6px 12px', fontSize: 10, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        <div style={{ padding: '6px 12px', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           {searchResults.length === 0
             ? 'No matches'
             : searchWasMeaning
@@ -894,7 +894,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
     return <div style={panelStyle}>Loading source…</div>;
   }
   if (err) {
-    return <div style={{ ...panelStyle, color: 'var(--red-300)' }}>Failed to load source: {err}</div>;
+    return <div style={{ ...panelStyle, color: 'var(--text-danger)' }}>Failed to load source: {err}</div>;
   }
   if (!data) {
     return <div style={panelStyle}>No source available for this concept.</div>;
@@ -1004,7 +1004,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
   function cancelEvidenceEdit(): void { setEvEditingIndex(null); setEvDraft(null); }
   function renderEvidenceEditor(): React.ReactNode {
     if (!evDraft) return null;
-    const inp: React.CSSProperties = { background: 'rgba(17,24,39,0.45)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid var(--app-line)', borderRadius: 4, padding: '5px 7px', color: 'var(--slate-200)', fontSize: 11, outline: 'none', boxSizing: 'border-box' };
+    const inp: React.CSSProperties = { background: 'rgba(17,24,39,0.45)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid var(--border-control)', borderRadius: 4, padding: '5px 7px', color: 'var(--text)', fontSize: 11, outline: 'none', boxSizing: 'border-box' };
     return (
       <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(17,24,39,0.72)', background: 'rgba(13,13,22,0.5)', display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -1016,8 +1016,8 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
         </div>
         <textarea value={evDraft.quote} onChange={e => setEvDraft(d => d ? { ...d, quote: e.target.value } : d)} placeholder="quote (optional)" rows={2} style={{ ...inp, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.45 }} />
         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-          <button onClick={() => void saveEvidenceDraft()} style={{ background: 'var(--indigo-900)', border: '1px solid var(--indigo-500)', borderRadius: 4, padding: '4px 12px', color: 'var(--indigo-100)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Save</button>
-          <button onClick={cancelEvidenceEdit} title="Cancel" aria-label="Cancel" style={{ width: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 4, color: 'var(--slate-400)', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}>×</button>
+          <button onClick={() => void saveEvidenceDraft()} style={{ background: 'var(--indigo-900)', border: '1px solid var(--border-accent)', borderRadius: 4, padding: '4px 12px', color: 'var(--indigo-100)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Save</button>
+          <button onClick={cancelEvidenceEdit} title="Cancel" aria-label="Cancel" style={{ width: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--slate-400)', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}>×</button>
         </div>
       </div>
     );
@@ -1230,7 +1230,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
             onClick={() => { captureCurrentAnchor(); setEvidenceRailCollapsed(false); }}
             title={`Evidence (${data.evidence.length}) - click to expand`}
             style={{
-              marginTop: 8, background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 3,
+              marginTop: 8, background: 'transparent', border: '1px solid var(--border)', borderRadius: 3,
               color: 'var(--amber-400)', fontSize: 12, padding: '4px 6px', cursor: 'pointer',
               writingMode: 'vertical-rl', textOrientation: 'mixed',
             }}
@@ -1241,7 +1241,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
           <>
             <div style={{ padding: '10px 14px', borderBottom: GLASS_BORDER, background: GLASS_PANEL_BG }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--gray-600)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                   Evidence ({data.evidence.length})
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1249,14 +1249,14 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
                     onClick={openEvidenceAdd}
                     title="Add evidence"
                     aria-label="Add evidence"
-                    style={{ background: 'var(--indigo-950)', border: '1px solid var(--indigo-700)', borderRadius: 4, padding: '2px 8px', color: 'var(--indigo-200)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                    style={{ background: 'var(--surface-accent)', border: '1px solid var(--border-accent-muted)', borderRadius: 4, padding: '2px 8px', color: 'var(--text-accent)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
                   >
                     +
                   </button>
                   <button
                     onClick={() => { captureCurrentAnchor(); setEvidenceRailCollapsed(true); }}
                     title="Minimize evidence rail"
-                    style={{ background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 4, padding: '2px 7px', color: 'var(--gray-500)', fontSize: 11, cursor: 'pointer' }}
+                    style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 7px', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}
                   >
                     ‹
                   </button>
@@ -1273,7 +1273,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
                   width: 13, height: 13, borderRadius: 3,
                   background: evidenceOnly ? 'rgba(129,140,248,0.28)' : 'transparent',
                   border: `1px solid ${evidenceOnly ? '#6366f1' : '#374151'}`,
-                  color: 'var(--indigo-200)', fontSize: 10, lineHeight: 1, flexShrink: 0,
+                  color: 'var(--text-accent)', fontSize: 10, lineHeight: 1, flexShrink: 0,
                   transition: 'background-color 110ms ease, border-color 110ms ease',
                 }}>{evidenceOnly ? '✓' : ''}</span>
                 ({evidencePages.length}) related pages only
@@ -1315,13 +1315,13 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-400)' }}>p.{e.page}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>p.{e.page}</span>
                         <span style={{ fontSize: 9, color, border: `1px solid ${color}`, borderRadius: 2, padding: '1px 5px', textTransform: 'uppercase' }}>
                           {e.label}
                         </span>
                       </div>
                       {e.quote && (
-                        <div style={{ fontSize: 11, color: 'var(--gray-500)', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
                           “{e.quote}”
                         </div>
                       )}
@@ -1407,7 +1407,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
               Source-wide
             </label>
             <span style={{ width: 8 }} />
-            <span style={{ fontSize: 12, color: 'var(--gray-400)', minWidth: 100, textAlign: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 100, textAlign: 'center' }}>
               Page {page} / {totalPages}
             </span>
             <span style={{ width: 8 }} />
@@ -1814,7 +1814,7 @@ function PdfPage({
         <div style={{
           position: 'absolute', inset: 0, display: 'flex',
           alignItems: 'center', justifyContent: 'center',
-          color: 'var(--gray-400)', fontSize: 12,
+          color: 'var(--text-secondary)', fontSize: 12,
         }}>
           p.{pageNum}
         </div>
@@ -1885,7 +1885,7 @@ function AnnotationPopover({
         background: 'rgba(13,13,22,0.72)',
         backdropFilter: 'blur(14px)',
         WebkitBackdropFilter: 'blur(14px)',
-        border: '1px solid var(--indigo-900)',
+        border: '1px solid var(--border-accent-subtle)',
         borderRadius: 6,
         boxShadow: '0 16px 50px rgba(0,0,0,0.55)',
         padding: 12,
@@ -1895,7 +1895,7 @@ function AnnotationPopover({
         onMouseDown={startDrag}
         style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, cursor: 'move', userSelect: 'none' }}
       >
-        <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--slate-200)' }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text)' }}>
           {annotation.type === 'note' ? 'Sticky note' : 'Highlight'}
         </div>
         <span style={{
@@ -1903,9 +1903,9 @@ function AnnotationPopover({
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
-          border: '1px solid var(--indigo-900)',
+          border: '1px solid var(--border-accent-subtle)',
           borderRadius: 999,
-          color: 'var(--indigo-200)',
+          color: 'var(--text-accent)',
           background: 'rgba(49,46,129,0.28)',
           fontSize: 10,
           fontWeight: 700,
@@ -1920,7 +1920,7 @@ function AnnotationPopover({
           <div style={{ fontSize: 10, color: 'var(--slate-500)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             Selected text
           </div>
-          <div style={{ maxHeight: 80, overflowY: 'auto', color: 'var(--slate-300)', fontSize: 12, lineHeight: 1.45, marginBottom: 10, padding: 8, background: 'rgba(17,24,39,0.4)', border: '1px solid var(--gray-800)', borderRadius: 4 }}>
+          <div style={{ maxHeight: 80, overflowY: 'auto', color: 'var(--slate-300)', fontSize: 12, lineHeight: 1.45, marginBottom: 10, padding: 8, background: 'rgba(17,24,39,0.4)', border: '1px solid var(--border)', borderRadius: 4 }}>
             {annotation.selected_text || '(empty selection)'}
           </div>
           <input
@@ -1943,7 +1943,7 @@ function AnnotationPopover({
           value={color}
           onChange={e => setColor(e.target.value)}
           title="Annotation color"
-          style={{ width: 30, height: 28, padding: 0, background: 'transparent', border: '1px solid var(--app-line)', borderRadius: 4 }}
+          style={{ width: 30, height: 28, padding: 0, background: 'transparent', border: '1px solid var(--border-control)', borderRadius: 4 }}
         />
         <button
           onClick={() => onSave({ label, noteBody, color })}
@@ -1972,8 +1972,8 @@ function Header({ data, conceptName, extras }: { data: SourceEvidence; conceptNa
       // Wraps on narrow panes so the search box never slides off-screen.
       display: 'flex', alignItems: 'center', gap: 12, rowGap: 6, flexWrap: 'wrap', flexShrink: 0,
     }}>
-      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--slate-200)' }}>{conceptName}</span>
-      <span style={{ fontSize: 11, color: 'var(--gray-500)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{conceptName}</span>
+      <span style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>
         {data.filename}
       </span>
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, rowGap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>{extras}</div>
@@ -1998,26 +1998,26 @@ function savePdfViewState(key: string, state: SavedPdfViewState): void {
 }
 
 const navBtnEvidenceStyle: React.CSSProperties = {
-  background: 'var(--indigo-950)', border: '1px solid var(--indigo-700)', borderRadius: 3,
-  padding: '3px 8px', fontSize: 11, color: 'var(--indigo-200)', cursor: 'pointer', fontWeight: 600,
+  background: 'var(--surface-accent)', border: '1px solid var(--border-accent-muted)', borderRadius: 3,
+  padding: '3px 8px', fontSize: 11, color: 'var(--text-accent)', cursor: 'pointer', fontWeight: 600,
 };
 
 const navBtnStyle: React.CSSProperties = {
-  background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 3,
-  padding: '3px 8px', fontSize: 11, color: 'var(--gray-400)', cursor: 'pointer',
+  background: 'transparent', border: '1px solid var(--border)', borderRadius: 3,
+  padding: '3px 8px', fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer',
   minWidth: 28, textAlign: 'center',
 };
 
 const activeAnnotBtnStyle: React.CSSProperties = {
   ...navBtnStyle,
-  background: 'var(--indigo-950)',
-  border: '1px solid var(--indigo-500)',
-  color: 'var(--indigo-200)',
+  background: 'var(--surface-accent)',
+  border: '1px solid var(--border-accent)',
+  color: 'var(--text-accent)',
 };
 
 const floatingActionStyle: React.CSSProperties = {
-  background: 'var(--indigo-950)',
-  border: '1px solid var(--indigo-500)',
+  background: 'var(--surface-accent)',
+  border: '1px solid var(--border-accent)',
   borderRadius: 4,
   color: 'var(--indigo-100)',
   cursor: 'pointer',
@@ -2033,9 +2033,9 @@ const popoverInputStyle: React.CSSProperties = {
   background: 'rgba(17,24,39,0.45)',
   backdropFilter: 'blur(6px)',
   WebkitBackdropFilter: 'blur(6px)',
-  border: '1px solid var(--app-line)',
+  border: '1px solid var(--border-control)',
   borderRadius: 4,
-  color: 'var(--slate-200)',
+  color: 'var(--text)',
   fontFamily: 'inherit',
   fontSize: 12,
   outline: 'none',
@@ -2044,10 +2044,10 @@ const popoverInputStyle: React.CSSProperties = {
 
 const popoverPrimaryBtnStyle: React.CSSProperties = {
   marginLeft: 'auto',
-  background: 'var(--indigo-950)',
-  border: '1px solid var(--indigo-500)',
+  background: 'var(--surface-accent)',
+  border: '1px solid var(--border-accent)',
   borderRadius: 4,
-  color: 'var(--indigo-200)',
+  color: 'var(--text-accent)',
   cursor: 'pointer',
   fontSize: 11,
   fontWeight: 700,
@@ -2058,7 +2058,7 @@ const popoverDangerBtnStyle: React.CSSProperties = {
   background: 'transparent',
   border: '1px solid var(--red-900)',
   borderRadius: 4,
-  color: 'var(--red-300)',
+  color: 'var(--text-danger)',
   cursor: 'pointer',
   fontSize: 11,
   fontWeight: 700,
@@ -2073,7 +2073,7 @@ const popoverIconBtnStyle: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   background: 'transparent',
-  border: '1px solid var(--app-line)',
+  border: '1px solid var(--border-control)',
   borderRadius: 4,
   color: 'var(--slate-400)',
   cursor: 'pointer',
@@ -2086,7 +2086,7 @@ const undoToastStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 10,
   background: 'var(--gray-900)',
-  border: '1px solid var(--indigo-900)',
+  border: '1px solid var(--border-accent-subtle)',
   borderRadius: 6,
   color: 'var(--slate-300)',
   fontSize: 12,
@@ -2095,10 +2095,10 @@ const undoToastStyle: React.CSSProperties = {
 };
 
 const undoBtnStyle: React.CSSProperties = {
-  background: 'var(--indigo-950)',
-  border: '1px solid var(--indigo-500)',
+  background: 'var(--surface-accent)',
+  border: '1px solid var(--border-accent)',
   borderRadius: 4,
-  color: 'var(--indigo-200)',
+  color: 'var(--text-accent)',
   cursor: 'pointer',
   fontSize: 11,
   fontWeight: 700,
@@ -2107,5 +2107,5 @@ const undoBtnStyle: React.CSSProperties = {
 
 const panelStyle: React.CSSProperties = {
   flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: 'var(--gray-500)', fontSize: 13,
+  color: 'var(--text-muted)', fontSize: 13,
 };

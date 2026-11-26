@@ -149,7 +149,7 @@ export default function App() {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'transparent', color: 'var(--slate-200)', fontFamily: 'system-ui, sans-serif', position: 'relative', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'transparent', color: 'var(--text)', fontFamily: 'system-ui, sans-serif', position: 'relative', overflow: 'hidden' }}>
       {profile.backgroundDataUrl && (
         <>
           {profile.backgroundDataUrl.startsWith('data:video') ? (
@@ -216,7 +216,7 @@ export default function App() {
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 background: topLevel === 'review' ? 'rgba(245, 158, 11, 0.18)' : 'rgba(245, 158, 11, 0.12)',
                 border: '1px solid rgba(245, 158, 11, 0.45)', borderRadius: 999,
-                padding: '3px 11px', fontSize: 11, fontWeight: 700, color: 'var(--amber-500)',
+                padding: '3px 11px', fontSize: 11, fontWeight: 700, color: 'var(--text-warning)',
                 cursor: 'pointer', whiteSpace: 'nowrap',
               }}
             >
@@ -233,14 +233,14 @@ export default function App() {
             background: topLevel === 'profile' ? '#1a1a2e' : 'transparent',
             border: `1px solid ${topLevel === 'profile' ? '#4338ca' : '#1f2937'}`,
             borderRadius: 8, padding: '5px 8px', cursor: 'pointer',
-            color: 'var(--slate-200)',
+            color: 'var(--text)',
           }}
         >
           <Avatar profile={profile} size={28} />
           {progress && (
             <div style={{ width: 185, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, lineHeight: 1.1 }}>
-                <span style={{ fontSize: 11, color: 'var(--slate-200)', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 11, color: 'var(--text)', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {profile.name}
                 </span>
                 <span className={xpPulse ? 'xp-pulse' : undefined} style={{ fontSize: 10, color: 'var(--slate-400)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
@@ -395,7 +395,7 @@ function LevelUpOverlay({ level, onDone }: { level: number; onDone: () => void }
         }}>
           LEVEL {level}
         </div>
-        <div className={reduced ? undefined : 'lvlup-sub'} style={{ position: 'relative', fontSize: 13, color: 'var(--indigo-200)', fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' }}>
+        <div className={reduced ? undefined : 'lvlup-sub'} style={{ position: 'relative', fontSize: 13, color: 'var(--text-accent)', fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' }}>
           Level Up
         </div>
       </div>

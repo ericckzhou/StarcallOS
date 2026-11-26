@@ -76,10 +76,10 @@ export default function ParseRunsPanel({ sourceId }: Props) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{
-        padding: '10px 16px', borderBottom: '1px solid var(--gray-800)',
+        padding: '10px 16px', borderBottom: '1px solid var(--border)',
         display: 'flex', alignItems: 'center', gap: 16,
       }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-600)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
           Parse Runs — {runs.length}
         </span>
       </div>
@@ -124,29 +124,29 @@ export default function ParseRunsPanel({ sourceId }: Props) {
                   }}>
                     {r.mode}
                   </span>
-                  <span style={{ fontSize: 11, color: 'var(--gray-400)', marginLeft: 6 }}>{fmtTime(r.started_at)}</span>
-                  <span style={{ fontSize: 10, color: 'var(--gray-500)', marginLeft: 'auto' }}>{fmtDuration(r.duration_ms)}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 6 }}>{fmtTime(r.started_at)}</span>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 'auto' }}>{fmtDuration(r.duration_ms)}</span>
                 </div>
-                <div style={{ paddingLeft: 4, display: 'flex', gap: 12, fontSize: 11, color: 'var(--gray-400)', flexWrap: 'wrap' }}>
-                  <span><span style={{ color: 'var(--gray-600)' }}>blocks</span> {r.block_count.toLocaleString()}</span>
-                  <span><span style={{ color: 'var(--gray-600)' }}>candidates</span> {r.candidate_count}</span>
-                  <span><span style={{ color: 'var(--gray-600)' }}>relations</span> {r.relation_count}</span>
-                  <span><span style={{ color: 'var(--gray-600)' }}>equations</span> {r.equation_count}</span>
-                  <span><span style={{ color: 'var(--gray-600)' }}>misconceptions</span> {r.misconception_count}</span>
+                <div style={{ paddingLeft: 4, display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
+                  <span><span style={{ color: 'var(--text-faint)' }}>blocks</span> {r.block_count.toLocaleString()}</span>
+                  <span><span style={{ color: 'var(--text-faint)' }}>candidates</span> {r.candidate_count}</span>
+                  <span><span style={{ color: 'var(--text-faint)' }}>relations</span> {r.relation_count}</span>
+                  <span><span style={{ color: 'var(--text-faint)' }}>equations</span> {r.equation_count}</span>
+                  <span><span style={{ color: 'var(--text-faint)' }}>misconceptions</span> {r.misconception_count}</span>
                   {r.llm_call_count > 0 && (
                     <span style={{ color: 'var(--amber-400)' }}>
-                      <span style={{ color: 'var(--gray-600)' }}>LLM</span> {r.llm_call_count} calls · {fmtTokens(r.llm_input_tokens + r.llm_output_tokens)} tok
+                      <span style={{ color: 'var(--text-faint)' }}>LLM</span> {r.llm_call_count} calls · {fmtTokens(r.llm_input_tokens + r.llm_output_tokens)} tok
                     </span>
                   )}
                 </div>
               </button>
 
               {isOpen && (
-                <div style={{ padding: '8px 16px 14px 22px', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', borderTop: '1px dashed var(--gray-800)', fontSize: 11, color: 'var(--gray-400)', lineHeight: 1.6 }}>
+                <div style={{ padding: '8px 16px 14px 22px', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', borderTop: '1px dashed var(--border)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
                   {r.error_msg && (
                     <div style={{
                       marginBottom: 10, padding: '8px 10px', borderRadius: 4,
-                      background: '#1a0a0a', border: '1px solid var(--app-danger-bg)', color: 'var(--red-300)',
+                      background: '#1a0a0a', border: '1px solid var(--app-danger-bg)', color: 'var(--text-danger)',
                     }}>
                       <div style={{ fontSize: 10, fontWeight: 700, marginBottom: 4 }}>ERROR</div>
                       <div style={{ fontFamily: 'ui-monospace, Consolas, monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
@@ -165,12 +165,12 @@ export default function ParseRunsPanel({ sourceId }: Props) {
                   <ParserQuality diagnostics={r.diagnostics} blockCount={r.block_count} />
                   {Object.keys(r.diagnostics).length > 0 && (
                     <details style={{ marginTop: 8 }}>
-                      <summary style={{ cursor: 'pointer', color: 'var(--gray-500)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                      <summary style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                         diagnostics_json
                       </summary>
                       <pre style={{
                         marginTop: 6, padding: 10, borderRadius: 4,
-                        background: '#000', color: 'var(--green-300)',
+                        background: '#000', color: 'var(--text-success)',
                         fontSize: 10, lineHeight: 1.5,
                         whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                         fontFamily: 'ui-monospace, Consolas, monospace',
@@ -209,8 +209,8 @@ function ParserQuality({ diagnostics, blockCount }: { diagnostics: Record<string
   if (sectionedBlocks == null && headingBlocks == null && runningHeaderSections == null) return null;
 
   return (
-    <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px dashed var(--gray-800)' }}>
-      <div style={{ fontSize: 10, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
+    <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px dashed var(--border)' }}>
+      <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
         parser quality
       </div>
       <KV label="sectioned_blocks" value={`${pct(sectionedBlocks, blocksSeen)}${sectionedBlocks != null ? ` (${sectionedBlocks}/${blocksSeen})` : ''}`} />
@@ -226,7 +226,7 @@ function ParserQuality({ diagnostics, blockCount }: { diagnostics: Record<string
 function KV({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div style={{ display: 'flex', gap: 10 }}>
-      <span style={{ minWidth: 90, color: 'var(--gray-600)' }}>{label}</span>
+      <span style={{ minWidth: 90, color: 'var(--text-faint)' }}>{label}</span>
       <span style={{ color: '#d1d5db', fontFamily: mono ? 'ui-monospace, Consolas, monospace' : undefined }}>{value}</span>
     </div>
   );
