@@ -61,4 +61,5 @@ export * from './ingestion/topic_filter';
 // Export formatters (Markdown / Anki)
 export * from './export';
 export * from './evals/metrics';
+export * from './evals/task_judge';
 export * from './knowledge/candidate_duplicates';

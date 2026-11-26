@@ -18,10 +18,32 @@ Keys are read from the environment only, never from the app's `settings.json`.
 | Pass | Metrics |
 |---|---|
 | `grader` | score accuracy, stage exact / within ±1 / MAE, score confusion matrix, unsupported-claim precision & recall (cases with `expects_unsupported`) |
-| `lazy_tasks` | near-duplicate rate between tasks (token Jaccard ≥ 0.7), coverage of `expected_kinds`, failures |
+| `lazy_tasks` | near-duplicate rate between tasks (token Jaccard ≥ 0.7), coverage of `expected_kinds`, lexical gap targeting (adaptive cases), failures; with `--judge`, LLM-judge metrics (below) |
 | `topic_filter` | keep precision / recall / F1 / accuracy against term labels |
 
 Metric code is pure TS in `packages/services/src/evals/metrics.ts` (unit-tested).
+
+### LLM judge for tasks (`--judge`)
+
+```sh
+EVAL_PROVIDER=anthropic ANTHROPIC_API_KEY=... pnpm eval -- --pass lazy_tasks --judge --judge-model <model>
+```
+
+A second call per case (`judgeTaskSet`, `packages/services/src/evals/task_judge.ts`)
+rates the generated set. Per task it says whether the task is answerable from
+the concept, tests understanding rather than recall, and targets a recorded
+learner gap (paraphrases count, which the lexical `gap_targeting` proxy misses).
+It also rates the whole set 1 to 5. Metrics: `judge_quality` ((q−1)/4),
+`judge_answerable`, `judge_understanding`, `judge_gap_targeting`,
+`judge_failed`. The judge model defaults to the eval model (`--judge-model` or
+`EVAL_JUDGE_MODEL` overrides). Judge metrics are compared with a baseline only
+when it was recorded with the same judge model.
+
+The judge is a model too. On 2026-11-26 `qwen3.5:4b` judging its own sets
+marked the consistent-hashing adaptive set as missing both gaps although task 2
+(virtual nodes) and task 3 (hot key) target them exactly. Use a stronger judge
+than the generator, treat judge numbers as a second opinion, and keep the
+deterministic metrics as the regression gate. No judge baseline is recorded yet.
 
 ## Baselines and regressions
 

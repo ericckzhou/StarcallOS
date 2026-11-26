@@ -219,7 +219,7 @@ export function compareToBaseline(
   current: Record<string, number | null>,
   baseline: Record<string, number | null>,
   tolerance = 0.03,
-  lowerIsBetter: string[] = ['stage_mae', 'near_duplicate_rate', 'failed'],
+  lowerIsBetter: string[] = ['stage_mae', 'near_duplicate_rate', 'failed', 'judge_failed'],
 ): MetricRegression[] {
   const out: MetricRegression[] = [];
   for (const [metric, cur] of Object.entries(current)) {

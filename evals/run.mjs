@@ -6,9 +6,11 @@
 //   pnpm eval -- --model claude-haiku-4-5-20251001
 //   pnpm eval -- --save-baseline       # write results as the new baseline
 //   pnpm eval -- --limit 5             # smoke-run the first N cases
+//   pnpm eval -- --pass lazy_tasks --judge [--judge-model M]   # + LLM-judge task metrics
 //
 // Env: EVAL_PROVIDER (groq|anthropic|local, default groq), GROQ_API_KEY /
-// ANTHROPIC_API_KEY, EVAL_BASE_URL (local; default Ollama's 127.0.0.1:11434/v1). Keys are read from env only — never from the app's
+// ANTHROPIC_API_KEY, EVAL_BASE_URL (local; default Ollama's 127.0.0.1:11434/v1),
+// EVAL_JUDGE_MODEL (judge model for --judge; default = the eval model). Keys are read from env only — never from the app's
 // settings.json. Results: evals/results/<timestamp>-<pass>-<model>.json.
 // Baselines:  evals/baselines/<pass>.json. A metric that drops more than the
 // tolerance vs. its baseline is reported and the process exits 1.
@@ -39,6 +41,11 @@ const config = {
   provider, apiKey, model,
   ...(provider === 'local' ? { baseUrl: process.env.EVAL_BASE_URL ?? svc.DEFAULT_LOCAL_BASE_URL } : {}),
 };
+// --judge: a second model call per lazy-task case rates the generated set
+// (svc.judgeTaskSet). Same provider; judge_* metrics are only compared with a
+// baseline recorded by the same judge model.
+const judgeModel = flag('judge') ? (opt('judge-model') ?? process.env.EVAL_JUDGE_MODEL ?? model) : null;
+const judgeConfig = judgeModel ? { ...config, model: judgeModel } : null;
 const passes = opt('pass') ? [opt('pass')] : ['grader', 'lazy_tasks', 'topic_filter'];
 const limit = opt('limit') ? Number(opt('limit')) : Infinity;
 
@@ -111,12 +118,28 @@ async function runLazyTasks() {
       const gen = c.history?.length ? svc.regenerateTasksForConcept : svc.ensureTasksForConcept;
       tasks = (await gen(config, db, concept.id)).map(t => ({ kind: t.kind, prompt: t.prompt }));
     } catch (e) { error = e.message; }
-    results.push({ id: c.id, expected_kinds: c.expected_kinds, history_gaps: historyGaps.length ? historyGaps : undefined, tasks, error });
-    console.log(`  ${tasks ? 'ok ' : 'ERR'} ${c.id.padEnd(34)} ${tasks ? `${tasks.length} tasks: ${[...new Set(tasks.map(t => t.kind))].join(',')}` : error}`);
+    let judgment, judgeError;
+    if (judgeConfig && tasks) {
+      await pause(PACE_MS);
+      try {
+        judgment = await svc.judgeTaskSet(judgeConfig, { concept: { name: c.concept.name, definition: c.concept.definition }, tasks, gaps: historyGaps });
+      } catch (e) { judgment = null; judgeError = e.message; }
+    }
+    results.push({ id: c.id, expected_kinds: c.expected_kinds, history_gaps: historyGaps.length ? historyGaps : undefined, tasks, error, judgment, judge_error: judgeError });
+    const judged = judgment ? `  judge q${judgment.quality}` : judgeError ? `  judge ERR ${judgeError}` : '';
+    console.log(`  ${tasks ? 'ok ' : 'ERR'} ${c.id.padEnd(34)} ${tasks ? `${tasks.length} tasks: ${[...new Set(tasks.map(t => t.kind))].join(',')}` : error}${judged}`);
     await pause(PACE_MS);
   }
   const m = svc.scoreTasks(results);
-  return { metrics: m, flat: { near_duplicate_rate: m.near_duplicate_rate, kind_coverage: m.kind_coverage, gap_targeting: m.gap_targeting, failed: m.failed }, results };
+  const flat = { near_duplicate_rate: m.near_duplicate_rate, kind_coverage: m.kind_coverage, gap_targeting: m.gap_targeting, failed: m.failed };
+  if (!judgeConfig) return { metrics: m, flat, results };
+  // A case whose generation failed has nothing to judge, so it is left out
+  // (generation failures are already counted by `failed`).
+  const jm = svc.scoreTaskJudgments(results.filter(r => r.tasks).map(r => ({
+    id: r.id, task_count: r.tasks.length, adaptive: !!r.history_gaps?.length, judgment: r.judgment ?? null,
+  })));
+  const { judged, ...judgeFlat } = jm;
+  return { metrics: { ...m, judge: { model: judgeModel, ...jm } }, flat: { ...flat, ...judgeFlat }, results };
 }
 
 async function runTopicFilter() {
@@ -160,7 +183,7 @@ for (const pass of passes) {
   const out = await run();
   const record = {
     pass, provider, model, at: new Date().toISOString(),
-    contract_version: svc.CONTRACT_VERSION, flat: out.flat, metrics: out.metrics, results: out.results,
+    contract_version: svc.CONTRACT_VERSION, judge_model: pass === 'lazy_tasks' ? judgeModel : null, flat: out.flat, metrics: out.metrics, results: out.results,
   };
   const file = path.join(here, 'results', `${stamp}-${pass}-${model.replace(/[^a-z0-9.-]/gi, '_')}.json`);
   fs.writeFileSync(file, JSON.stringify(record, null, 2));
@@ -172,11 +195,15 @@ for (const pass of passes) {
 
   const baseFile = path.join(here, 'baselines', `${pass}.json`);
   if (flag('save-baseline')) {
-    fs.writeFileSync(baseFile, JSON.stringify({ provider, model, at: record.at, contract_version: record.contract_version, flat: out.flat }, null, 2));
+    fs.writeFileSync(baseFile, JSON.stringify({ provider, model, judge_model: record.judge_model, at: record.at, contract_version: record.contract_version, flat: out.flat }, null, 2));
     console.log(`[eval] baseline saved → ${path.relative(process.cwd(), baseFile)}`);
   } else if (fs.existsSync(baseFile)) {
     const base = JSON.parse(fs.readFileSync(baseFile, 'utf8'));
-    const regressions = svc.compareToBaseline(out.flat, base.flat);
+    // judge_* numbers are only comparable when the same judge produced them.
+    const sameJudge = (base.judge_model ?? null) === record.judge_model;
+    if (!sameJudge && record.judge_model) console.log(`[eval] note: baseline judge is ${base.judge_model ?? 'none'}, not comparing judge_* metrics`);
+    const comparable = Object.fromEntries(Object.entries(out.flat).filter(([k]) => sameJudge || !k.startsWith('judge_')));
+    const regressions = svc.compareToBaseline(comparable, base.flat);
     if (base.model !== model) console.log(`[eval] note: baseline model is ${base.model}, this run is ${model}`);
     if (regressions.length) {
       regressed = true;
