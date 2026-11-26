@@ -176,6 +176,11 @@ export const RagAskArgsSchema = z.object({
   conceptId: positiveInt.optional(),
 });
 
+export const RagSourceSearchArgsSchema = z.object({
+  sourceId: positiveInt,
+  query:    z.string().trim().min(1).max(500),
+});
+
 // ─── Remaining mutating-handler schemas ────────────────────────────────────────
 // These guard the rest of the write-path IPC surface. Kept permissive (generous
 // bounds, clamped numerics left as plain numbers, no `.strict()`) so they reject

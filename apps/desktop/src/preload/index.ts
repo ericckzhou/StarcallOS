@@ -163,6 +163,7 @@ contextBridge.exposeInMainWorld('api', {
     status: () => ipcRenderer.invoke('rag:status'),
     indexSource: (sourceId: number) => ipcRenderer.invoke('rag:indexSource', sourceId),
     ask: (args: { question: string; sourceIds?: number[]; conceptId?: number }) => ipcRenderer.invoke('rag:ask', args),
+    searchSource: (args: { sourceId: number; query: string }) => ipcRenderer.invoke('rag:searchSource', args),
     history: (conceptId: number) => ipcRenderer.invoke('rag:history', conceptId),
     historyDelete: (id: number) => ipcRenderer.invoke('rag:historyDelete', id),
     libraryStatus: () => ipcRenderer.invoke('rag:libraryStatus'),

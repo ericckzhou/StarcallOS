@@ -29,6 +29,7 @@ export * from './knowledge/repos/embeddings';
 export * from './knowledge/repos/rag_chunks';
 export * from './knowledge/retrieval';
 export * from './knowledge/ask';
+export * from './knowledge/source_search';
 export * from './knowledge/library_index';
 export * from './knowledge/reextract_outdated';
 export * from './knowledge/repos/ask_history';

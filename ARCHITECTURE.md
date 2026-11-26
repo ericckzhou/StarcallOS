@@ -509,7 +509,9 @@ importance tag.
   read-only but dismissible per concept (hover-×, localStorage).
 - **Source search**: a find box filters to matching pages (PDF) or highlights
   matches inline (text source); a "related pages only" toggle scopes the
-  rendered PDF to evidence pages.
+  rendered PDF to evidence pages. On PDFs a "≈" toggle searches by meaning
+  (hybrid retrieval over the source's passage index, one hit per page; falls
+  back to keyword with an explanation when vectors are unavailable).
 - **Constellation reason = evidence selector**: the link reason is picked from
   the linked concept's evidence spans (resolving to a span's linked note when
   present, else the evidence title), not free-typed.

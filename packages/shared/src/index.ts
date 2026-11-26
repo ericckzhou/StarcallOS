@@ -142,6 +142,7 @@ export const IPC = {
   RAG_STATUS:              'rag:status',
   RAG_INDEX_SOURCE:        'rag:indexSource',
   RAG_ASK:                 'rag:ask',
+  RAG_SEARCH_SOURCE:       'rag:searchSource',
   RAG_PROGRESS:            'rag:progress',
   RAG_HISTORY:             'rag:history',
   RAG_HISTORY_DELETE:      'rag:historyDelete',
@@ -342,6 +343,28 @@ export interface RagAskArgs {
   // "Ask about this": focus retrieval on this concept and save the result
   // to its Ask history. sourceIds then defaults to the concept's source.
   conceptId?: number;
+}
+
+// Meaning search inside one source (find-in-source "≈" mode): hybrid
+// retrieval over the source's passage index, grouped by page. Never embeds
+// passages itself; without vectors it falls back to keyword and says so.
+export interface RagSourceSearchArgs {
+  sourceId: number;
+  query: string;
+}
+
+export interface RagSourceSearchHit {
+  page: number;          // first page of the passage
+  page_end: number;
+  heading: string | null;
+  snippet: string;
+}
+
+export interface RagSourceSearchResult {
+  mode_used: 'hybrid' | 'keyword' | 'vector';
+  // Why results are keyword-only or empty (no index, no vectors, server down).
+  note: string | null;
+  hits: RagSourceSearchHit[];   // one per page, best passage first
 }
 
 // Streamed while Ask lazily embeds chunk vectors for the selected sources.
@@ -858,6 +881,7 @@ export interface IpcApi {
     // Answer from local sources with validated citations. Never throws for
     // offline model/embeddings — degrades to passages (see AskResult.status).
     ask: (args: RagAskArgs) => Promise<AskResult>;
+    searchSource: (args: RagSourceSearchArgs) => Promise<RagSourceSearchResult>;
     onProgress: (cb: (p: RagProgress) => void) => () => void;
     // Per-concept saved answers, newest first. Each is independent (no chat).
     history: (conceptId: number) => Promise<AskHistoryEntry[]>;

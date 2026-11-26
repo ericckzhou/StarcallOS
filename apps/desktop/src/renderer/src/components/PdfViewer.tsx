@@ -39,6 +39,7 @@ const KIND_COLOR: Record<string, string> = {
 const EVIDENCE_RAIL_KEY = 'starcall.layout.evidenceRailCollapsed';
 const ZOOM_KEY          = 'starcall.layout.pdfZoom';
 const SHOW_SOURCE_ANNOTATIONS_KEY = 'starcall.pdfAnnotations.showSourceWide';
+const MEANING_SEARCH_KEY = 'starcall.layout.meaningSearch';
 const ZOOM_MIN  = 0.5;
 const ZOOM_MAX  = 3.0;
 const ZOOM_STEP = 0.1;
@@ -291,8 +292,13 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
   // Source search. PDF results are matching pages; text results are match
   // offsets into textBody. null = no active search.
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Array<{ page: number; snippet: string; offset?: number }> | null>(null);
+  const [searchResults, setSearchResults] = useState<Array<{ page: number; snippet: string; offset?: number; heading?: string | null }> | null>(null);
   const [searching, setSearching] = useState(false);
+  // "≈" mode (PDF only): rank pages by meaning via the source's passage index
+  // instead of exact text. searchNote explains a keyword fallback / no index.
+  const [meaningSearch, setMeaningSearch] = useState(() => localStorage.getItem(MEANING_SEARCH_KEY) === 'true');
+  const [searchNote, setSearchNote] = useState<string | null>(null);
+  const [searchWasMeaning, setSearchWasMeaning] = useState(false);
   const pageTextCacheRef = useRef<Map<number, string>>(new Map());
   const textMatchRefs = useRef<Map<number, HTMLElement>>(new Map());
 
@@ -318,6 +324,10 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
   useEffect(() => {
     localStorage.setItem(ZOOM_KEY, String(userZoom));
   }, [userZoom]);
+
+  useEffect(() => {
+    localStorage.setItem(MEANING_SEARCH_KEY, String(meaningSearch));
+  }, [meaningSearch]);
 
   useEffect(() => {
     localStorage.setItem(SHOW_SOURCE_ANNOTATIONS_KEY, String(showSourceAnnotations));
@@ -727,6 +737,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
   function clearSearch(): void {
     setSearchQuery('');
     setSearchResults(null);
+    setSearchNote(null);
   }
 
   function snippetAround(text: string, idx: number, qLen: number): string {
@@ -735,13 +746,20 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
     return `${start > 0 ? '…' : ''}${text.slice(start, end).trim()}${end < text.length ? '…' : ''}`;
   }
 
-  async function runSearch(): Promise<void> {
+  async function runSearch(meaning: boolean = meaningSearch): Promise<void> {
     const q = searchQuery.trim();
-    if (!q) { setSearchResults(null); return; }
+    if (!q) { setSearchResults(null); setSearchNote(null); return; }
     const ql = q.toLowerCase();
     setSearching(true);
+    setSearchNote(null);
+    setSearchWasMeaning(false);
     try {
-      if (data?.isPdf && pdfDoc) {
+      if (data?.isPdf && meaning) {
+        const r = await window.api.rag.searchSource({ sourceId: data.sourceId, query: q });
+        setSearchResults(r.hits.map(h => ({ page: h.page, snippet: h.snippet, heading: h.heading })));
+        setSearchNote(r.note);
+        setSearchWasMeaning(true);
+      } else if (data?.isPdf && pdfDoc) {
         const results: Array<{ page: number; snippet: string }> = [];
         for (let p = 1; p <= pdfDoc.numPages; p++) {
           let text = pageTextCacheRef.current.get(p);
@@ -788,7 +806,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') void runSearch(); if (e.key === 'Escape') clearSearch(); }}
-          placeholder="Search source…"
+          placeholder={data?.isPdf && meaningSearch ? 'Search by meaning…' : 'Search source…'}
           style={{
             width: 150, height: 28, boxSizing: 'border-box',
             background: 'rgba(17,24,39,0.45)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
@@ -796,6 +814,20 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
             color: '#e2e8f0', fontSize: 11, outline: 'none',
           }}
         />
+        {data?.isPdf && (
+          <button
+            onClick={() => {
+              const next = !meaningSearch;
+              setMeaningSearch(next);
+              if (searchResults != null) void runSearch(next);
+            }}
+            title={meaningSearch ? 'Searching by meaning (passage index). Click for exact text.' : 'Exact text search. Click to search by meaning.'}
+            aria-pressed={meaningSearch}
+            style={{ ...navBtnStyle, ...(meaningSearch ? { color: '#c4b5fd', borderColor: 'rgba(167,139,250,0.6)', background: 'rgba(124,58,237,0.18)' } : {}) }}
+          >
+            ≈
+          </button>
+        )}
         <button onClick={() => void runSearch()} title="Search" disabled={searching} style={navBtnStyle}>
           {searching ? '…' : '⌕'}
         </button>
@@ -818,10 +850,15 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
         <div style={{ padding: '6px 12px', fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           {searchResults.length === 0
             ? 'No matches'
-            : isPdf
+            : searchWasMeaning
+              ? `${searchResults.length} related page${searchResults.length === 1 ? '' : 's'}`
+              : isPdf
               ? `${searchResults.length} page${searchResults.length === 1 ? '' : 's'} match`
               : `${searchResults.length} match${searchResults.length === 1 ? '' : 'es'}`}
         </div>
+        {searchNote && (
+          <div style={{ padding: '0 12px 6px', fontSize: 11, color: '#fbbf24' }}>{searchNote}</div>
+        )}
         {searchResults.map((r, i) => (
           <button
             key={isPdf ? `p${r.page}` : `m${r.offset}`}
@@ -834,6 +871,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
             }}
           >
             {isPdf && <span style={{ color: '#818cf8', fontWeight: 700, marginRight: 8 }}>p.{r.page}</span>}
+            {r.heading && <span style={{ color: '#c4b5fd', marginRight: 8 }}>{r.heading}</span>}
             <span style={{ color: '#94a3b8' }}>{r.snippet}</span>
           </button>
         ))}
@@ -1961,13 +1999,14 @@ function Header({ data, conceptName, extras }: { data: SourceEvidence; conceptNa
       borderBottom: GLASS_BORDER,
       background: GLASS_PANEL_BG,
       backdropFilter: GLASS_BLUR,
-      display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
+      // Wraps on narrow panes so the search box never slides off-screen.
+      display: 'flex', alignItems: 'center', gap: 12, rowGap: 6, flexWrap: 'wrap', flexShrink: 0,
     }}>
       <span style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0' }}>{conceptName}</span>
       <span style={{ fontSize: 11, color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>
         {data.filename}
       </span>
-      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>{extras}</div>
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, rowGap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>{extras}</div>
     </div>
   );
 }
