@@ -106,7 +106,7 @@ Remember these as the active state of the repo:
   kept OFF the DTO, read via `getEvidenceAudit`). The grader's stable prefix
   (system + concept/source block) is marked `cache: true` for Anthropic
   prompt caching (`toAnthropicPayload`). Offline evals: `pnpm eval`
-  (`evals/`, golden sets labeled `proposed` until human-reviewed).
+  (`evals/`; all golden sets `reviewed` as of 2026-11-26).
 - Confidence calibration is shipped (migration 0030). The ChallengeTab has a
   pre-submit "How confident are you?" slider (0–1, default 0.5, always captured);
   `SubmitEvidenceArgs.confidenceBefore` (Zod `0..1` optional) flows to the
@@ -297,8 +297,8 @@ Remember these as the active state of the repo:
   keyword (BM25) | vector | hybrid (RRF k=60), deterministic tie-breaks, and an
   explicit keyword fallback (`mode_used`/`vector_error`) when vectors are
   unavailable. Eval: `pnpm eval:retrieval -- --pdf <b36-txtbook.pdf>` against
-  the sha-pinned `evals/golden/retrieval.jsonl` (labels `proposed` until a human
-  reviews them; the repo is public, so labels hold keys + 60-char anchors only).
+  the sha-pinned `evals/golden/retrieval.jsonl` (labels `reviewed` 2026-11-26;
+  the repo is public, so labels hold keys + 60-char anchors only).
   `pnpm eval:ask -- --pdf <pdf> --model <local>` scores real Ask answers on
   the same questions (deterministic: status mix, abstention, citation
   precision, dropped citations; no LLM judge; tolerance 0.075). Shared setup

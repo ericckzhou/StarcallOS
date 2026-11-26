@@ -11,7 +11,7 @@
     "candidate_pool": 50
   },
   "label_status": {
-    "independent-reviewed": 30
+    "reviewed": 30
   },
   "flat": {
     "keyword.precision_at_k@5": 0.341,
