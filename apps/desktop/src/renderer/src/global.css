@@ -11,6 +11,7 @@
   --app-line: #263244;
   --app-panel: #0d0d16;
   --app-raised: #1e1e2e;
+  --gray-300: #d1d5db;
   --gray-400: #9ca3af;
   --gray-500: #6b7280;
   --gray-600: #4b5563;
@@ -40,9 +41,9 @@
 
   /* Semantic aliases (role → palette). Prefer these in new code; each maps to
      exactly one palette token so swapping a role is a one-line change here.
-     Text still mixes the gray-* and slate-* families at similar levels; that
-     consolidation is a visual change and is intentionally not made here. */
+     Body text uses the gray-* family; slate-200 is kept only as --text. */
   --text: var(--slate-200);
+  --text-soft: var(--gray-300);
   --text-secondary: var(--gray-400);
   --text-muted: var(--gray-500);
   --text-faint: var(--gray-600);

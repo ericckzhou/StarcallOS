@@ -140,7 +140,7 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
     const childCount = childrenOf(h.id).length;
     const selectStyle: React.CSSProperties = {
       flex: 1, minWidth: 0, background: 'transparent', border: '1px solid var(--border)', borderRadius: 4,
-      padding: '6px 8px', color: 'var(--slate-300)', fontSize: 12, outline: 'none', fontFamily: 'inherit',
+      padding: '6px 8px', color: 'var(--text-soft)', fontSize: 12, outline: 'none', fontFamily: 'inherit',
       // accent-color recolors the native option highlight (blue → indigo) in
       // Chromium/Electron.
       accentColor: 'var(--indigo-400)',
@@ -163,13 +163,13 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
                 onKeyDown={e => { if (e.key === 'Enter') void saveEdit(h.id); else if (e.key === 'Escape') setEditingId(null); }}
                 style={{ flex: 1, minWidth: 0, background: 'rgba(17,24,39,0.28)', border: '1px solid var(--border-control)', borderRadius: 4, padding: '6px 8px', color: 'var(--text)', fontSize: 14, fontWeight: 700, outline: 'none' }} />
               <button onClick={() => void saveEdit(h.id)} style={{ background: 'var(--indigo-900)', border: '1px solid var(--border-accent)', borderRadius: 4, padding: '6px 12px', color: 'var(--indigo-100)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Save</button>
-              <button onClick={() => setEditingId(null)} title="Cancel" style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 10px', color: 'var(--slate-400)', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}>×</button>
+              <button onClick={() => setEditingId(null)} title="Cancel" style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 10px', color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}>×</button>
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: members.length || h.description ? 10 : 0 }}>
               <span style={{ width: 12, height: 12, borderRadius: '50%', background: h.color, flexShrink: 0 }} />
               <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{h.name}</span>
-              <span style={{ fontSize: 11, color: 'var(--slate-500)' }}>{h.member_count} member{h.member_count === 1 ? '' : 's'}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{h.member_count} member{h.member_count === 1 ? '' : 's'}</span>
               {childCount > 0 && (
                 <span style={{ fontSize: 11, color: 'var(--indigo-400)' }}>· {childCount} sub-hub{childCount === 1 ? '' : 's'}</span>
               )}
@@ -184,9 +184,9 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
             <>
               <input value={draft.description} onChange={e => setDraft(d => ({ ...d, description: e.target.value }))}
                 placeholder="Description (optional)"
-                style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(17,24,39,0.28)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 8px', color: 'var(--slate-300)', fontSize: 12, outline: 'none', marginBottom: 10 }} />
+                style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(17,24,39,0.28)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 8px', color: 'var(--text-soft)', fontSize: 12, outline: 'none', marginBottom: 10 }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 11, color: 'var(--slate-500)', flexShrink: 0 }}>Parent hub</span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>Parent hub</span>
                 <select value={draft.parentHubId ?? ''} title="Nest this hub under another hub"
                   onChange={e => setDraft(d => ({ ...d, parentHubId: e.target.value ? Number(e.target.value) : null }))}
                   style={selectStyle}>
@@ -197,7 +197,7 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
             </>
           )}
           {!isEditing && h.description && (
-            <div style={{ fontSize: 12, color: 'var(--slate-400)', marginBottom: members.length ? 10 : 0, lineHeight: 1.5 }}>{h.description}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: members.length ? 10 : 0, lineHeight: 1.5 }}>{h.description}</div>
           )}
           {members.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -249,7 +249,7 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
               <input value={edgeDraft.label} onChange={e => setEdgeDraft(d => ({ ...d, label: e.target.value }))}
                 onKeyDown={e => { if (e.key === 'Enter') void addEdge(h.id); else if (e.key === 'Escape') setConnectingId(null); }}
                 placeholder="Label (optional)"
-                style={{ flex: '1 1 120px', minWidth: 0, background: 'rgba(17,24,39,0.28)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 8px', color: 'var(--slate-300)', fontSize: 12, outline: 'none' }} />
+                style={{ flex: '1 1 120px', minWidth: 0, background: 'rgba(17,24,39,0.28)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 8px', color: 'var(--text-soft)', fontSize: 12, outline: 'none' }} />
               <button onClick={() => setEdgeDraft(d => ({ ...d, directed: !d.directed }))} title="Toggle one-way / mutual"
                 style={{ background: 'transparent', border: '1px solid var(--border-accent-muted)', borderRadius: 4, padding: '6px 10px', color: 'var(--violet-300)', fontSize: 12, cursor: 'pointer', flexShrink: 0 }}>
                 {edgeDraft.directed ? '→ one-way' : '↔ mutual'}
@@ -257,7 +257,7 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
               <button onClick={() => void addEdge(h.id)} disabled={edgeDraft.target == null}
                 style={{ background: edgeDraft.target != null ? '#312e81' : '#1e1e2e', border: `1px solid ${edgeDraft.target != null ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '6px 12px', color: edgeDraft.target != null ? '#e0e7ff' : '#475569', fontSize: 12, fontWeight: 700, cursor: edgeDraft.target != null ? 'pointer' : 'not-allowed', flexShrink: 0 }}>Add</button>
               <button onClick={() => setConnectingId(null)} title="Cancel" aria-label="Cancel"
-                style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 9px', color: 'var(--slate-400)', fontSize: 14, lineHeight: 1, cursor: 'pointer', flexShrink: 0 }}>×</button>
+                style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 9px', color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1, cursor: 'pointer', flexShrink: 0 }}>×</button>
             </div>
           )}
         </div>
@@ -292,7 +292,7 @@ export default function HubsPane({ onChanged }: { onChanged?: () => void }) {
               style={{ flex: 1, minWidth: 0, background: 'rgba(17,24,39,0.28)', border: '1px solid var(--border-control)', borderRadius: 4, padding: '7px 9px', color: 'var(--text)', fontSize: 13, outline: 'none' }} />
             <input value={newHub.description} onChange={e => setNewHub(h => ({ ...h, description: e.target.value }))}
               placeholder="Description (optional)"
-              style={{ flex: 1, minWidth: 0, background: 'rgba(17,24,39,0.28)', border: '1px solid var(--border)', borderRadius: 4, padding: '7px 9px', color: 'var(--slate-300)', fontSize: 12, outline: 'none' }} />
+              style={{ flex: 1, minWidth: 0, background: 'rgba(17,24,39,0.28)', border: '1px solid var(--border)', borderRadius: 4, padding: '7px 9px', color: 'var(--text-soft)', fontSize: 12, outline: 'none' }} />
             <button onClick={() => void createHub()} disabled={!newHub.name.trim()}
               style={{ background: newHub.name.trim() ? '#312e81' : '#1e1e2e', border: `1px solid ${newHub.name.trim() ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: '7px 12px', color: newHub.name.trim() ? '#e0e7ff' : '#475569', fontSize: 12, fontWeight: 700, cursor: newHub.name.trim() ? 'pointer' : 'not-allowed' }}>Create</button>
           </div>

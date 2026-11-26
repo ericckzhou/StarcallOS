@@ -174,7 +174,7 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
                     border: `1px solid ${blocked ? '#b45309' : '#312e81'}`,
                     borderRadius: 999, padding: '3px 9px', fontSize: 11, color: 'var(--indigo-100)',
                   }}>
-                  <span style={{ fontSize: 9, color: 'var(--slate-400)' }}>{i + 1}</span>
+                  <span style={{ fontSize: 9, color: 'var(--text-secondary)' }}>{i + 1}</span>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: stageColor(n.mastery_stage), flexShrink: 0 }} aria-hidden="true" />
                   {n.name}
                 </span>
@@ -224,7 +224,7 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
                 style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'transparent', border: 'none', textAlign: 'left', padding: '6px 10px', fontSize: 12, color: 'var(--text)', cursor: 'pointer' }}>
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
                 {h.source_filename && (
-                  <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: 'var(--slate-500)' }}>{h.source_filename}</span>
+                  <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: 'var(--text-muted)' }}>{h.source_filename}</span>
                 )}
               </button>
             ))}
@@ -293,12 +293,12 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
 
 function Label({ children, inline }: { children: React.ReactNode; inline?: boolean }) {
   return (
-    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--slate-500)', marginBottom: inline ? 0 : 6 }}>
+    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--text-muted)', marginBottom: inline ? 0 : 6 }}>
       {children}
     </div>
   );
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 11, color: 'var(--slate-600)', fontStyle: 'italic' }}>{children}</div>;
+  return <div style={{ fontSize: 11, color: 'var(--text-faint)', fontStyle: 'italic' }}>{children}</div>;
 }

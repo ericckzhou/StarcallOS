@@ -185,7 +185,7 @@ export default function UserNotesSection({ conceptId, sourceId, onJumpToAnnotati
         <div key={`pending-${n.id}`} style={{
           display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8,
           background: 'rgba(13,13,22,0.6)', border: '1px solid var(--border)', borderRadius: 6,
-          padding: '8px 10px', fontSize: 12, color: 'var(--slate-400)',
+          padding: '8px 10px', fontSize: 12, color: 'var(--text-secondary)',
         }}>
           <span>Note deleted{n.heading && n.heading !== 'Untitled note' ? ` — “${n.heading}”` : ''}.</span>
           <button
@@ -368,7 +368,7 @@ function NoteRow({
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
                   background: 'transparent', border: 'none', borderRadius: 4, cursor: 'pointer',
-                  padding: '6px 8px', color: 'var(--slate-300)', fontSize: 12,
+                  padding: '6px 8px', color: 'var(--text-soft)', fontSize: 12,
                 }}
               >
                 <span style={{ width: 9, height: 9, borderRadius: 2, background: h.color, flexShrink: 0 }} />

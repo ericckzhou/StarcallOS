@@ -648,7 +648,7 @@ function LlmUsageSection() {
   }, [days]);
 
   const th: React.CSSProperties = { textAlign: 'right', padding: '4px 8px', color: 'var(--text-muted)', fontWeight: 600, fontSize: 11 };
-  const td: React.CSSProperties = { textAlign: 'right', padding: '4px 8px', color: 'var(--slate-300)', fontSize: 12, fontVariantNumeric: 'tabular-nums' };
+  const td: React.CSSProperties = { textAlign: 'right', padding: '4px 8px', color: 'var(--text-soft)', fontSize: 12, fontVariantNumeric: 'tabular-nums' };
 
   return (
     <>

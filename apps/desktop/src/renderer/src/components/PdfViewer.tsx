@@ -837,12 +837,12 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
             style={{
               display: 'block', width: '100%', textAlign: 'left', background: 'transparent',
               border: 'none', borderTop: '1px solid rgba(31,41,55,0.4)', cursor: 'pointer',
-              padding: '7px 12px', color: 'var(--slate-300)', fontSize: 12,
+              padding: '7px 12px', color: 'var(--text-soft)', fontSize: 12,
             }}
           >
             {isPdf && <span style={{ color: 'var(--indigo-400)', fontWeight: 700, marginRight: 8 }}>p.{r.page}</span>}
             {r.heading && <span style={{ color: 'var(--violet-300)', marginRight: 8 }}>{r.heading}</span>}
-            <span style={{ color: 'var(--slate-400)' }}>{r.snippet}</span>
+            <span style={{ color: 'var(--text-secondary)' }}>{r.snippet}</span>
           </button>
         ))}
       </div>
@@ -1017,7 +1017,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
         <textarea value={evDraft.quote} onChange={e => setEvDraft(d => d ? { ...d, quote: e.target.value } : d)} placeholder="quote (optional)" rows={2} style={{ ...inp, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.45 }} />
         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
           <button onClick={() => void saveEvidenceDraft()} style={{ background: 'var(--indigo-900)', border: '1px solid var(--border-accent)', borderRadius: 4, padding: '4px 12px', color: 'var(--indigo-100)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Save</button>
-          <button onClick={cancelEvidenceEdit} title="Cancel" aria-label="Cancel" style={{ width: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--slate-400)', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}>×</button>
+          <button onClick={cancelEvidenceEdit} title="Cancel" aria-label="Cancel" style={{ width: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}>×</button>
         </div>
       </div>
     );
@@ -1917,10 +1917,10 @@ function AnnotationPopover({
       </div>
       {annotation.type === 'highlight' && (
         <>
-          <div style={{ fontSize: 10, color: 'var(--slate-500)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             Selected text
           </div>
-          <div style={{ maxHeight: 80, overflowY: 'auto', color: 'var(--slate-300)', fontSize: 12, lineHeight: 1.45, marginBottom: 10, padding: 8, background: 'rgba(17,24,39,0.4)', border: '1px solid var(--border)', borderRadius: 4 }}>
+          <div style={{ maxHeight: 80, overflowY: 'auto', color: 'var(--text-soft)', fontSize: 12, lineHeight: 1.45, marginBottom: 10, padding: 8, background: 'rgba(17,24,39,0.4)', border: '1px solid var(--border)', borderRadius: 4 }}>
             {annotation.selected_text || '(empty selection)'}
           </div>
           <input
@@ -2075,7 +2075,7 @@ const popoverIconBtnStyle: React.CSSProperties = {
   background: 'transparent',
   border: '1px solid var(--border-control)',
   borderRadius: 4,
-  color: 'var(--slate-400)',
+  color: 'var(--text-secondary)',
   cursor: 'pointer',
   padding: 0,
   lineHeight: 1,
@@ -2088,7 +2088,7 @@ const undoToastStyle: React.CSSProperties = {
   background: 'var(--gray-900)',
   border: '1px solid var(--border-accent-subtle)',
   borderRadius: 6,
-  color: 'var(--slate-300)',
+  color: 'var(--text-soft)',
   fontSize: 12,
   padding: '8px 10px',
   boxShadow: '0 8px 30px rgba(0,0,0,0.45)',

@@ -114,7 +114,7 @@ export default function SourcePagePreview({ target, onClose }: { target: Citatio
 
   return (
     <section style={{ width: '46%', minWidth: 360, flexShrink: 0, display: 'flex', flexDirection: 'column', borderLeft: '1px solid rgba(31,41,55,0.72)', background: 'rgba(4,6,26,0.55)', backdropFilter: 'blur(14px)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid rgba(31,41,55,0.72)', fontSize: 12, color: 'var(--slate-400)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid rgba(31,41,55,0.72)', fontSize: 12, color: 'var(--text-secondary)' }}>
         <span style={{ color: 'var(--text)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }} title={target.title}>
           {target.title}
         </span>

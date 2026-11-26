@@ -174,8 +174,8 @@ function RescheduleButton({ conceptId }: { conceptId: number }) {
           border: '1px solid var(--border-control)', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 10,
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '0 2px 7px' }}>
-            <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Reschedule</span>
-            <span style={{ fontSize: 10, color: 'var(--slate-400)' }}>{dueState.text}</span>
+            <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Reschedule</span>
+            <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>{dueState.text}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
             {RESCHEDULE_PRESETS_DP.map(p => (
@@ -187,7 +187,7 @@ function RescheduleButton({ conceptId }: { conceptId: number }) {
               </button>
             ))}
           </div>
-          <label onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 11, color: 'var(--slate-400)' }}>
+          <label onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
             <span style={{ whiteSpace: 'nowrap' }}>Pick date</span>
             <input
               type="date"
@@ -286,7 +286,7 @@ function ExportButton({ conceptId }: { conceptId: number }) {
     background: 'transparent', border: '1px solid rgba(129,140,248,0.28)', borderRadius: 6,
     padding: '6px 9px', marginTop: 6, fontSize: 11, color: 'var(--text-accent)', cursor: 'pointer',
   };
-  const extStyle: React.CSSProperties = { fontSize: 9, color: 'var(--slate-500)', fontVariantNumeric: 'tabular-nums' };
+  const extStyle: React.CSSProperties = { fontSize: 9, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' };
 
   return (
     <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -317,7 +317,7 @@ function ExportButton({ conceptId }: { conceptId: number }) {
           background: 'rgba(4,6,26,0.5)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
           border: '1px solid var(--border-control)', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 9,
         }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0 2px' }}>Export as</div>
+          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0 2px' }}>Export as</div>
           <button className="rel-opt" role="menuitem" onClick={e => { e.stopPropagation(); doExport('markdown'); }} title="Export as Markdown (.md)" style={optStyle}>
             <span>Markdown</span><span style={extStyle}>.md</span>
           </button>
@@ -1102,7 +1102,7 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
           aria-expanded={isOpen}
           style={{
             background: 'transparent', border: '1px solid var(--border)', borderRadius: 4,
-            padding: '1px 8px', color: 'var(--slate-400)', cursor: 'pointer',
+            padding: '1px 8px', color: 'var(--text-secondary)', cursor: 'pointer',
             fontSize: 14, lineHeight: 1,
           }}
         >⋯</button>
@@ -1142,7 +1142,7 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, paddingBottom: 6, borderBottom: '1px solid rgba(31,41,55,0.7)' }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>Annotations</div>
-        <div style={{ fontSize: 11, color: 'var(--slate-500)' }}>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
           {highlights.length} highlight{highlights.length === 1 ? '' : 's'} · {notes.length} note{notes.length === 1 ? '' : 's'} · {otherEvidence.length} evidence
         </div>
         <button onClick={() => void createStandaloneNote()} style={{ ...primaryBtn, marginLeft: 'auto' }}>+ Note</button>
@@ -1176,7 +1176,7 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                   <div style={{ flex: 1, padding: '10px 12px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, minHeight: 22 }}>
                       <span style={{ fontSize: 11, color: 'var(--indigo-300)', fontWeight: 700 }}>p.{h.page}</span>
-                      {h.label && (<span style={{ fontSize: 10, color: 'var(--slate-400)', fontStyle: 'italic' }}>{h.label}</span>)}
+                      {h.label && (<span style={{ fontSize: 10, color: 'var(--text-secondary)', fontStyle: 'italic' }}>{h.label}</span>)}
                       <div className="anno-actions" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                         <button onClick={() => onJumpToAnnotation(h.page)} title="Jump to this highlight in source" style={{ ...ghostBtn, borderColor: `color-mix(in srgb, ${h.color} 55%, transparent)` }}>Jump</button>
                         <button onClick={() => void createNoteForHighlight(h)} title="Add a note linked to this highlight" style={{ ...ghostBtn, borderColor: `color-mix(in srgb, ${h.color} 55%, transparent)` }}>+ Note</button>
@@ -1187,16 +1187,16 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                     </div>
                     {/* Pull-quote treatment for the highlighted text */}
                     <div style={{
-                      fontSize: 13, color: 'var(--slate-300)', lineHeight: 1.55, fontStyle: 'italic',
+                      fontSize: 13, color: 'var(--text-soft)', lineHeight: 1.55, fontStyle: 'italic',
                       borderLeft: `2px solid ${h.color}`, paddingLeft: 10,
                       wordBreak: 'break-word',
                     }}>
-                      {snippet(h.selected_text) || <span style={{ color: 'var(--slate-600)', fontStyle: 'normal' }}>(no text captured)</span>}
+                      {snippet(h.selected_text) || <span style={{ color: 'var(--text-faint)', fontStyle: 'normal' }}>(no text captured)</span>}
                     </div>
                     {/* Optional memo (the popover's comment field) — only renders when set */}
                     {h.note_body && h.note_body.trim() && (
                       <div style={{
-                        marginTop: 8, fontSize: 11, color: 'var(--slate-400)', lineHeight: 1.5,
+                        marginTop: 8, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5,
                         paddingLeft: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                       }}>
                         {snippet(h.note_body, 240)}
@@ -1235,12 +1235,12 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                               </div>
                               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
                                 {canDrag && (
-                                  <span title="Drag to reorder" style={{ display: 'inline-flex', alignItems: 'center', height: '1.55em', fontSize: 12, color: 'var(--slate-600)', cursor: 'grab', flexShrink: 0 }}>
+                                  <span title="Drag to reorder" style={{ display: 'inline-flex', alignItems: 'center', height: '1.55em', fontSize: 12, color: 'var(--text-faint)', cursor: 'grab', flexShrink: 0 }}>
                                     {gripIcon}
                                   </span>
                                 )}
                                 <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#c4cfe4', whiteSpace: 'pre-wrap', lineHeight: 1.55, paddingRight: 22 }}>
-                                  {linked.body ? renderMarkdown(linked.body, `lnote-${linked.id}`) : <span style={{ color: 'var(--slate-600)' }}>(empty — open the ⋯ menu to edit)</span>}
+                                  {linked.body ? renderMarkdown(linked.body, `lnote-${linked.id}`) : <span style={{ color: 'var(--text-faint)' }}>(empty — open the ⋯ menu to edit)</span>}
                                 </div>
                               </div>
                             </>
@@ -1292,12 +1292,12 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
                         <span
                           title="Drag to reorder"
-                          style={{ display: 'inline-flex', alignItems: 'center', height: '1.55em', fontSize: 12, color: 'var(--slate-600)', cursor: 'grab', flexShrink: 0 }}
+                          style={{ display: 'inline-flex', alignItems: 'center', height: '1.55em', fontSize: 12, color: 'var(--text-faint)', cursor: 'grab', flexShrink: 0 }}
                         >
                           {gripIcon}
                         </span>
                         <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#c4cfe4', whiteSpace: 'pre-wrap', lineHeight: 1.55, paddingRight: 22 }}>
-                          {n.body ? renderMarkdown(n.body, `snote-${n.id}`) : <span style={{ color: 'var(--slate-600)' }}>(empty)</span>}
+                          {n.body ? renderMarkdown(n.body, `snote-${n.id}`) : <span style={{ color: 'var(--text-faint)' }}>(empty)</span>}
                         </div>
                       </div>
                       {linkingNoteId === n.id && (
@@ -1312,7 +1312,7 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                             <button onClick={() => setLinkingNoteId(null)} style={{ marginLeft: 'auto', ...ghostBtn }}>Cancel</button>
                           </div>
                           {highlights.length === 0 ? (
-                            <div style={{ fontSize: 11, color: 'var(--slate-500)' }}>No highlights yet — add one in the Source pane first.</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>No highlights yet — add one in the Source pane first.</div>
                           ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
                               {highlights.map(h => (
@@ -1325,7 +1325,7 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                                     display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
                                     background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.45)',
                                     borderRadius: 6, padding: '8px 10px',
-                                    fontSize: 11, color: 'var(--slate-300)', cursor: 'pointer',
+                                    fontSize: 11, color: 'var(--text-soft)', cursor: 'pointer',
                                   }}
                                 >
                                   <span style={{ width: 4, height: 14, borderRadius: 1, background: h.color, flexShrink: 0 }} />
@@ -1392,7 +1392,7 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                           color: EVIDENCE_KIND_COLOR[ev.kind] ?? '#6b7280',
                           textTransform: 'uppercase', letterSpacing: '0.05em',
                         }}>{ev.kind}</span>
-                        {ev.label && (<span style={{ fontSize: 10, color: 'var(--slate-400)' }}>{ev.label}</span>)}
+                        {ev.label && (<span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>{ev.label}</span>)}
                         <div className="anno-actions" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                           <button onClick={() => onJumpToAnnotation(ev.page)} style={ghostBtn}>Jump</button>
                         </div>
@@ -1403,7 +1403,7 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                       </div>
                       {ev.quote && (
                         <div style={{
-                          fontSize: 12, color: 'var(--slate-300)', fontStyle: 'italic', lineHeight: 1.5,
+                          fontSize: 12, color: 'var(--text-soft)', fontStyle: 'italic', lineHeight: 1.5,
                           borderLeft: '2px solid rgba(67,56,202,0.45)', paddingLeft: 10,
                           wordBreak: 'break-word',
                         }}>
@@ -1864,11 +1864,11 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                 border: '1px solid var(--border-accent-subtle)',
                 borderRadius: 6,
                 padding: '8px 10px',
-                color: 'var(--slate-300)',
+                color: 'var(--text-soft)',
                 fontSize: 12,
               }}
             >
-              <span style={{ color: 'var(--slate-400)' }}>Equation deleted.</span>
+              <span style={{ color: 'var(--text-secondary)' }}>Equation deleted.</span>
               <button
                 onClick={() => undoDeleteEquation(eq)}
                 style={{
@@ -1932,7 +1932,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                           }}
                         >
                           <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#fde68a', fontFamily: 'ui-monospace, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{opt.latex}</span>
-                          {opt.page > 0 && <span style={{ fontSize: 9, color: 'var(--slate-500)', flexShrink: 0 }}>p.{opt.page}</span>}
+                          {opt.page > 0 && <span style={{ fontSize: 9, color: 'var(--text-muted)', flexShrink: 0 }}>p.{opt.page}</span>}
                         </button>
                       ))}
                     </div>
@@ -1959,7 +1959,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                   inputMode="numeric"
                   style={{
                     width: 80, background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--border)',
-                    borderRadius: 4, padding: '6px 8px', color: 'var(--slate-300)', fontSize: 12,
+                    borderRadius: 4, padding: '6px 8px', color: 'var(--text-soft)', fontSize: 12,
                   }}
                 />
                 <input
@@ -1968,7 +1968,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                   placeholder="vars, comma separated (optional)"
                   style={{
                     flex: '1 1 220px', background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--border)',
-                    borderRadius: 4, padding: '6px 8px', color: 'var(--slate-300)', fontSize: 12,
+                    borderRadius: 4, padding: '6px 8px', color: 'var(--text-soft)', fontSize: 12,
                   }}
                 />
                 <button onClick={() => void addEquation()} disabled={equationBusy} style={btnSecondary(equationBusy)}>
@@ -2273,7 +2273,7 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
                     {questionType} · difficulty {difficulty}/5
                   </div>
                 )}
-                <p style={{ margin: 0, fontSize: 12, color: 'var(--slate-300)', lineHeight: 1.55 }}>{r.task_prompt_snapshot}</p>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--text-soft)', lineHeight: 1.55 }}>{r.task_prompt_snapshot}</p>
               </div>
             )}
             {r.user_response && (
@@ -2576,7 +2576,7 @@ function GroundingSection({ groundingScore, contextUsed, claims }: {
                   border: `1px solid ${(c.severity === 'major' ? '#ef4444' : '#f59e0b')}55`,
                   borderRadius: 4, padding: '1px 5px', marginRight: 6,
                 }}>{c.severity}</span>
-                <span style={{ color: 'var(--slate-300)' }}>{c.claim}</span>
+                <span style={{ color: 'var(--text-soft)' }}>{c.claim}</span>
                 {c.reason && <span style={{ color: 'var(--text-muted)' }}> — {c.reason}</span>}
               </li>
             ))}
@@ -2616,7 +2616,7 @@ function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task:
       {userResponse.trim().length > 0 && (
         <div style={{ background: '#0b1220', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px' }}>
           <div style={{ fontSize: 10, color: 'var(--text-faint)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Your Answer</div>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--slate-300)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{userResponse}</p>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--text-soft)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{userResponse}</p>
         </div>
       )}
       <div style={{ background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--border)', borderRadius: 6, padding: '12px 14px' }}>

@@ -63,7 +63,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
         <div style={{ marginTop: 10, fontSize: 16, fontWeight: 700 }}>{name}</div>
         {progress && (
           <div style={{ marginTop: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--slate-400)', marginBottom: 5 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 5 }}>
               <span>{progress.total_xp} XP</span>
               <span>{progress.challenges_completed} challenges</span>
             </div>
@@ -104,7 +104,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                     <div style={{ marginTop: 10, maxWidth: 420 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                         <span style={{ fontSize: 12, color: 'var(--text-accent)', fontWeight: 800 }}>{progress.total_xp} XP</span>
-                        <span style={{ fontSize: 11, color: 'var(--slate-400)' }}>{xpToNext(progress)} XP to milestone</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{xpToNext(progress)} XP to milestone</span>
                       </div>
                       <ProgressBar progress={progress.progress_ratio} />
                     </div>
@@ -144,7 +144,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 18, alignItems: 'center' }}>
                 <div>
                   <div style={eyebrow}>Select Background</div>
-                  <div style={{ marginTop: 8, color: 'var(--slate-400)', fontSize: 12, lineHeight: 1.5 }}>
+                  <div style={{ marginTop: 8, color: 'var(--text-secondary)', fontSize: 12, lineHeight: 1.5 }}>
                     Used only on the empty concept detail screen.
                   </div>
                   <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -170,7 +170,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                   />
                   <div style={{ marginTop: 16, maxWidth: 420 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-                      <span style={{ fontSize: 11, color: 'var(--slate-500)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Opacity</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Opacity</span>
                       <span style={{ fontSize: 11, color: 'var(--text-accent)', fontVariantNumeric: 'tabular-nums' }}>{Math.round(backgroundOpacity * 100)}%</span>
                     </div>
                     <input
@@ -209,7 +209,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                     )
                   )}
                   <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(4,6,26,0.25), rgba(4,6,26,0.75))' }} />
-                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--slate-500)', fontSize: 12 }}>
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 12 }}>
                     Select a concept to explore.
                   </div>
                 </div>
@@ -221,14 +221,14 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                 <section style={panel}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                     <div style={eyebrow}>Challenge Activity</div>
-                    <div style={{ fontSize: 11, color: 'var(--slate-500)' }}>{progress.challenges_completed} in the last year</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{progress.challenges_completed} in the last year</div>
                   </div>
                   <ActivityHeatmap activity={progress.daily_activity} />
                 </section>
                 <section style={panel}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                     <div style={eyebrow}>Challenges by Source</div>
-                    <div style={{ fontSize: 11, color: 'var(--slate-500)' }}>{progress.source_counts.length} source{progress.source_counts.length === 1 ? '' : 's'}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{progress.source_counts.length} source{progress.source_counts.length === 1 ? '' : 's'}</div>
                   </div>
                   <SourceChallengeChart counts={progress.source_counts} />
                 </section>
@@ -236,7 +236,7 @@ export default function ProfilePane({ profile, progress, onProfileChange }: Prop
                   <section style={panel}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                       <div style={eyebrow}>Calibration</div>
-                      <div style={{ fontSize: 11, color: 'var(--slate-500)' }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                         {progress.calibration.sample_count} rated answer{progress.calibration.sample_count === 1 ? '' : 's'}
                       </div>
                     </div>
@@ -349,14 +349,14 @@ function ActivityHeatmap({ activity }: { activity: DailyActivity[] }) {
         {/* Weekday labels */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: HEAT_GAP, paddingTop: 16, flexShrink: 0 }}>
           {WEEKDAY_LABELS.map((lbl, i) => (
-            <div key={i} style={{ height: HEAT_CELL, fontSize: 9, color: 'var(--slate-500)', lineHeight: `${HEAT_CELL}px`, width: 24, textAlign: 'right' }}>{lbl}</div>
+            <div key={i} style={{ height: HEAT_CELL, fontSize: 9, color: 'var(--text-muted)', lineHeight: `${HEAT_CELL}px`, width: 24, textAlign: 'right' }}>{lbl}</div>
           ))}
         </div>
         {/* Month labels + grid */}
         <div>
           <div style={{ display: 'flex', gap: HEAT_GAP, height: 16 }}>
             {monthLabels.map((lbl, i) => (
-              <div key={i} style={{ width: HEAT_CELL, fontSize: 9, color: 'var(--slate-500)', whiteSpace: 'nowrap', overflow: 'visible' }}>{lbl}</div>
+              <div key={i} style={{ width: HEAT_CELL, fontSize: 9, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'visible' }}>{lbl}</div>
             ))}
           </div>
           <div style={{ display: 'flex', gap: HEAT_GAP }}>
@@ -381,7 +381,7 @@ function ActivityHeatmap({ activity }: { activity: DailyActivity[] }) {
         </div>
       </div>
       {/* Legend */}
-      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, fontSize: 10, color: 'var(--slate-500)' }}>
+      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, fontSize: 10, color: 'var(--text-muted)' }}>
         <span>Less</span>
         {HEAT_LEVELS.map((c, i) => (
           <span key={i} style={{ width: HEAT_CELL, height: HEAT_CELL, borderRadius: 2, background: c, display: 'inline-block' }} />
@@ -398,14 +398,14 @@ function ActivityHeatmap({ activity }: { activity: DailyActivity[] }) {
           <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text)' }}>
             {tip.cell.count} challenge{tip.cell.count === 1 ? '' : 's'}
           </div>
-          <div style={{ fontSize: 10, color: 'var(--slate-500)', marginTop: 1 }}>{formatHeatDate(tip.cell.date)}</div>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>{formatHeatDate(tip.cell.date)}</div>
           {tip.cell.sources.length > 0 && (
             <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
               {tip.cell.sources.map((s, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: 'var(--slate-300)' }}>
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: 'var(--text-soft)' }}>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: SOURCE_PALETTE[i % SOURCE_PALETTE.length], flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.source_title}</span>
-                  <span style={{ color: 'var(--slate-400)', fontVariantNumeric: 'tabular-nums' }}>{s.count}</span>
+                  <span style={{ color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{s.count}</span>
                 </div>
               ))}
             </div>
@@ -426,7 +426,7 @@ const SOURCE_PALETTE = [
 
 function SourceChallengeChart({ counts }: { counts: { source_id: number; source_title: string; count: number }[] }) {
   if (counts.length === 0) {
-    return <div style={{ marginTop: 14, fontSize: 12, color: 'var(--slate-600)' }}>No challenges completed yet.</div>;
+    return <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text-faint)' }}>No challenges completed yet.</div>;
   }
   const max = Math.max(1, ...counts.map(c => c.count));
   const total = counts.reduce((s, c) => s + c.count, 0) || 1;
@@ -437,7 +437,7 @@ function SourceChallengeChart({ counts }: { counts: { source_id: number; source_
         const pct = Math.round((c.count / total) * 100);
         return (
           <div key={c.source_id} className="csbar-row" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div title={c.source_title} style={{ width: 150, flexShrink: 0, fontSize: 12, color: 'var(--slate-300)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 7 }}>
+            <div title={c.source_title} style={{ width: 150, flexShrink: 0, fontSize: 12, color: 'var(--text-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 7 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0, boxShadow: `0 0 6px ${color}88` }} />
               {c.source_title}
             </div>
@@ -489,7 +489,7 @@ function CalibrationCard({ stats }: { stats: CalibrationStats }) {
           style={{ position: 'absolute', top: 0, left: `${markerPos}%`, width: 4, height: 18, borderRadius: 2, background: verdict.color, boxShadow: `0 0 8px ${verdict.color}` }}
         />
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
         <span>Underconfident</span><span>Calibrated</span><span>Overconfident</span>
       </div>
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, marginTop: 2 }}>
@@ -544,7 +544,7 @@ const panel: React.CSSProperties = {
 const eyebrow: React.CSSProperties = {
   fontSize: 10,
   fontWeight: 800,
-  color: 'var(--slate-500)',
+  color: 'var(--text-muted)',
   textTransform: 'uppercase',
   letterSpacing: '0.1em',
 };
@@ -564,7 +564,7 @@ const ghostButtonStyle: React.CSSProperties = {
   border: '1px solid var(--gray-700)',
   borderRadius: 5,
   padding: '6px 12px',
-  color: 'var(--slate-400)',
+  color: 'var(--text-secondary)',
   fontSize: 12,
   cursor: 'pointer',
 };

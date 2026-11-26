@@ -329,7 +329,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
               disabled={createBusy}
               title="Cancel"
               aria-label="Cancel"
-              style={{ marginLeft: 'auto', width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--slate-400)', cursor: createBusy ? 'wait' : 'pointer', fontSize: 14, lineHeight: 1 }}
+              style={{ marginLeft: 'auto', width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-secondary)', cursor: createBusy ? 'wait' : 'pointer', fontSize: 14, lineHeight: 1 }}
             >
               ×
             </button>
@@ -355,7 +355,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             onChange={e => setCreateImportance(e.target.value)}
             style={{
               background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--border-control)', borderRadius: 4,
-              padding: '6px 8px', color: 'var(--slate-300)', fontSize: 12, outline: 'none',
+              padding: '6px 8px', color: 'var(--text-soft)', fontSize: 12, outline: 'none',
             }}
           >
             {IMPORTANCE_ORDER.map(imp => (
@@ -369,7 +369,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             rows={3}
             style={{
               background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--border-control)', borderRadius: 4,
-              padding: '7px 8px', color: 'var(--slate-300)', fontSize: 12, lineHeight: 1.5,
+              padding: '7px 8px', color: 'var(--text-soft)', fontSize: 12, lineHeight: 1.5,
               resize: 'vertical', outline: 'none', fontFamily: 'inherit',
             }}
           />
@@ -470,7 +470,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
                   style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', background: 'transparent', border: 'none', textAlign: 'left', padding: '6px 9px', fontSize: 11, color: 'var(--text)', cursor: 'pointer' }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: h.color, flexShrink: 0 }} />
                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
-                  <span style={{ fontSize: 9, color: 'var(--slate-500)' }}>{h.member_count}</span>
+                  <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{h.member_count}</span>
                 </button>
               ))}
             </div>
@@ -498,7 +498,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             >
               {imp !== 'all' && <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0, opacity: active ? 1 : 0.7 }} />}
               {IMP_LABEL[imp]}
-              <span style={{ fontSize: 9, color: active ? color : 'var(--slate-600)', fontVariantNumeric: 'tabular-nums' }}>{count}</span>
+              <span style={{ fontSize: 9, color: active ? color : 'var(--text-faint)', fontVariantNumeric: 'tabular-nums' }}>{count}</span>
             </button>
           );
         })}
@@ -507,7 +507,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10, margin: '8px 10px',
           background: 'rgba(13,13,22,0.6)', border: '1px solid var(--border)', borderRadius: 6,
-          padding: '8px 10px', fontSize: 11, color: 'var(--slate-400)',
+          padding: '8px 10px', fontSize: 11, color: 'var(--text-secondary)',
         }}>
           <span style={{ flex: 1 }}>
             Deleted {pendingConceptDelete.items.length} concept{pendingConceptDelete.items.length === 1 ? '' : 's'}.

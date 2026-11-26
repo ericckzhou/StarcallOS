@@ -324,7 +324,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
           </button>
           <button
             onClick={() => setPending(null)}
-            style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 12px', color: 'var(--slate-400)', fontSize: 12, cursor: 'pointer' }}
+            style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 12px', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer' }}
           >
             Cancel
           </button>
@@ -457,7 +457,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
                     {h.importance}
                   </span>
                   {h.source_filename && (
-                    <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: 'var(--slate-500)' }}>
+                    <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: 'var(--text-muted)' }}>
                       {h.source_filename}
                     </span>
                   )}
@@ -474,7 +474,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
         if (chips.length === 0) return null;
         return (
           <div style={{ marginTop: 8 }}>
-            <div style={{ fontSize: 10, color: 'var(--slate-500)', marginBottom: 4 }}>Similar concepts</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>Similar concepts</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
               {chips.map(s => (
                 <button
