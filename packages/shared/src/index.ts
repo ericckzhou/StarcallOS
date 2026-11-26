@@ -552,7 +552,6 @@ export interface CandidateLlmFilterResult {
   keepTerms: string[];
   decisions: CandidateLlmFilterDecision[];
   batches?: number;
-  providers?: string[];
 }
 
 export interface ProcessSourceResult {

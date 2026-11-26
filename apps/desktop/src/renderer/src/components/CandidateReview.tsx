@@ -209,7 +209,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
     setLlmApiBusy(true);
     setBulkMsg(null);
     setLlmFilterMsg(
-      `Filtering ${filtered.length} visible candidate${filtered.length === 1 ? '' : 's'} with your configured LLM(s) — ` +
+      `Filtering ${filtered.length} visible candidate${filtered.length === 1 ? '' : 's'} with your configured LLM provider — ` +
       `batched and paced to respect provider rate limits. This may take a moment…`,
     );
     const unsubProgress = window.api.candidates.onLlmFilterProgress(p => {
@@ -233,7 +233,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
         })),
       });
       applyTopicFitFilter(JSON.stringify({ decisions: result.decisions }));
-      const provLabel = result.providers && result.providers.length > 0 ? result.providers.join(' + ') : result.provider;
+      const provLabel = result.provider;
       setBulkMsg(
         `LLM filter (${provLabel}) kept ${result.keepTerms.length} of ${result.sent} candidates` +
         `${result.batches ? ` across ${result.batches} batch${result.batches === 1 ? '' : 'es'}` : ''}. ` +
