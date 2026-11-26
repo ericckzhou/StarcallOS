@@ -72,6 +72,7 @@ import {
   resetUsageStats, getUsageStats, setLlmTraceSink, effectiveSelfConsistency, listLocalModels, DEFAULT_LOCAL_BASE_URL,
   setSrsScheduler, mergeSettingsPatch, persistGradedAttempt, normalizeLocalBaseUrl, createOpenAICompatEmbedder, createCachingEmbedder, findCandidateNearDuplicates, DEFAULT_EMBEDDING_MODEL, indexSourceEmbeddings, retrieveSourceExcerpts, relatedConcepts, embeddingStats,
   planLibraryIndex, runLibraryIndex, type LibraryIndexProgress, type LibraryIndexSummary,
+  planOutdatedSources, runReextractOutdated, type ReextractProgress, type ReextractSummary,
   resolveAskConfig, askSources, saveAskHistory, listAskHistory, deleteAskHistory, chunkIndexStats, indexSourceChunkEmbeddings, RagAskArgsSchema,
   type Embedder, buildCandidateLlmFilterPrompt, parseCandidateLlmFilterResponse, createLlmCallSink, summarizeLlmCalls,
 } from '@starcall/services';
@@ -94,6 +95,8 @@ import type {
   LlmTraceSummary,
   RagStatus,
   RagLibraryStatus,
+  ReextractStatus,
+  ExtractCandidatesResult,
   RagIndexSourceResult,
   EmbeddingsStatus,
   CandidateNearDuplicates,
@@ -1615,7 +1618,12 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     }
     return { provider: config.provider, model: config.model, sent, keepTerms: [...keepSet], decisions: allDecisions, batches: done };
   });
-  ipcMain.handle(IPC.CANDIDATES_EXTRACT, async (_e, sourceId: number) => {
+  // Deterministic candidate re-extract for one source (the Re-extract button
+  // and the bulk "re-extract outdated sources" job). Preserves promoted
+  // concepts with evidence and concepts with study history. Records a parse
+  // run (success or failure) stamped with the current parser/grammar/layout
+  // versions, which is what takes the source off the outdated list.
+  async function reextractSourceCandidates(sourceId: number): Promise<ExtractCandidatesResult> {
     const source = getSourceById(db, sourceId);
     if (!source) throw new Error(`source ${sourceId} not found`);
     const fileExists = fs.existsSync(source.file_path);
@@ -1623,41 +1631,114 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     if (!fileExists) {
       throw new Error(`source file no longer exists: ${source.file_path}`);
     }
-    let blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
-    let runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'] = [];
-    if (source.file_path.endsWith('.txt')) {
-      blocks = segmentText(fs.readFileSync(source.file_path, 'utf-8'));
-      console.log(`[CANDIDATES] (manual) text blocks=${blocks.length}`);
-    } else {
+    const startedAt = Date.now();
+    let pageCount = 0;
+    let layoutDiagnostics: Record<string, unknown> = {};
+    const recordRun = (status: 'success' | 'failed', counts: Partial<Record<'blocks' | 'concepts' | 'relations' | 'equations' | 'misconceptions', number>>, errorMsg?: string) => {
       try {
+        createParseRun(db, {
+          source_id: sourceId, status, error_msg: errorMsg ?? null, mode: 'deterministic',
+          page_count: pageCount, block_count: counts.blocks ?? 0, candidate_count: counts.concepts ?? 0,
+          relation_count: counts.relations ?? 0, equation_count: counts.equations ?? 0,
+          misconception_count: counts.misconceptions ?? 0, duration_ms: Date.now() - startedAt,
+          llm_call_count: 0, llm_input_tokens: 0, llm_output_tokens: 0,
+          diagnostics: { ...layoutDiagnostics, trigger: 'reextract' },
+        });
+      } catch (e) {
+        console.error('[PARSE_RUN] failed to record parse_runs row:', e);
+      }
+    };
+    try {
+      let blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
+      let runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'] = [];
+      if (source.file_path.endsWith('.txt')) {
+        blocks = segmentText(fs.readFileSync(source.file_path, 'utf-8'));
+        console.log(`[CANDIDATES] (manual) text blocks=${blocks.length}`);
+      } else {
         const out = await segmentPdfIsolated(source.file_path);
         blocks = out.blocks;
         runningHeaderSections = out.runningHeaderSections;
+        pageCount = out.pageCount;
+        layoutDiagnostics = { ...out.diagnostics };
         console.log(`[CANDIDATES] (manual) pdf pages=${out.pageCount} blocks=${blocks.length}`);
-      } catch (e) {
-        console.error('[CANDIDATES] (manual) segmentPdf failed:', e);
-        throw e;
       }
+      const { paths: sectionPaths, sources: sectionSources } = buildSectionPath(blocks, runningHeaderSections);
+      const anchors = deriveTopicAnchors(blocks, source.title);
+      setTopicAnchors(db, sourceId, anchors);
+      const cand = extractCandidates(blocks, sectionPaths, anchors, sectionSources, runningHeaderSections);
+      persistCandidateExtraction(db, sourceId, cand);
+      syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections);
+      console.log(
+        `[CANDIDATES] (manual) source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +
+        `concepts=${cand.candidates.length} relations=${cand.relations.length} ` +
+        `misconceptions=${cand.misconception_phrases.length} equations=${cand.equations.length}`,
+      );
+      const result = {
+        ok: true as const,
+        blocks: cand.diagnostics.blocks_seen,
+        concepts: cand.candidates.length,
+        relations: cand.relations.length,
+        misconceptions: cand.misconception_phrases.length,
+        equations: cand.equations.length,
+      };
+      recordRun('success', result);
+      return result;
+    } catch (e) {
+      console.error('[CANDIDATES] (manual) re-extract failed:', e);
+      recordRun('failed', {}, e instanceof Error ? e.message : String(e));
+      throw e;
     }
-    const { paths: sectionPaths, sources: sectionSources } = buildSectionPath(blocks, runningHeaderSections);
-    const anchors = deriveTopicAnchors(blocks, source.title);
-    setTopicAnchors(db, sourceId, anchors);
-    const cand = extractCandidates(blocks, sectionPaths, anchors, sectionSources, runningHeaderSections);
-    persistCandidateExtraction(db, sourceId, cand);
-    syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections);
-    console.log(
-      `[CANDIDATES] (manual) source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +
-      `concepts=${cand.candidates.length} relations=${cand.relations.length} ` +
-      `misconceptions=${cand.misconception_phrases.length} equations=${cand.equations.length}`,
-    );
+  }
+
+  ipcMain.handle(IPC.CANDIDATES_EXTRACT, (_e, sourceId: number) =>
+    withSourceLock(sourceId, () => reextractSourceCandidates(sourceId)));
+
+  // Bulk "re-extract outdated sources": user-started only, one source at a
+  // time under the per-source lock, Stop-able between sources, resumable
+  // (finished sources record a current parse run and drop off the plan).
+  let reextractJob: { stop: boolean; progress: ReextractProgress | null } | null = null;
+  let lastReextractSummary: ReextractSummary | null = null;
+
+  ipcMain.handle(IPC.REEXTRACT_STATUS, (): ReextractStatus => {
+    const { items, ...plan } = planOutdatedSources(db);
     return {
-      ok: true as const,
-      blocks: cand.diagnostics.blocks_seen,
-      concepts: cand.candidates.length,
-      relations: cand.relations.length,
-      misconceptions: cand.misconception_phrases.length,
-      equations: cand.equations.length,
+      running: reextractJob != null, progress: reextractJob?.progress ?? null,
+      plan: { ...plan, items: items.map(i => ({ source_id: i.source_id, title: i.title, reasons: i.reasons })) },
+      last: lastReextractSummary,
     };
+  });
+
+  ipcMain.handle(IPC.REEXTRACT_START, (): { ok: true } | { ok: false; error: string } => {
+    if (reextractJob) return { ok: false, error: 'Re-extraction is already running.' };
+    const job: { stop: boolean; progress: ReextractProgress | null } = { stop: false, progress: null };
+    reextractJob = job;
+    void runReextractOutdated(db, {
+      reextract: async (id) => { await reextractSourceCandidates(id); },
+      withSourceLock,
+      shouldStop: () => job.stop,
+      onProgress: p => { job.progress = p; broadcast(IPC.REEXTRACT_PROGRESS, p); },
+    })
+      .then(summary => {
+        console.log(`[REEXTRACT] ${JSON.stringify({ ...summary, failures: summary.failures.length })}`);
+        lastReextractSummary = summary;
+      })
+      .catch(err => {
+        console.error('[REEXTRACT] failed:', err);
+        lastReextractSummary = {
+          stopped: true, reextracted: 0,
+          failures: [{ source_id: 0, title: '(re-extract)', error: err instanceof Error ? err.message : String(err) }],
+        };
+      })
+      .finally(() => {
+        reextractJob = null;
+        broadcast(IPC.REEXTRACT_DONE, lastReextractSummary);
+      });
+    return { ok: true };
+  });
+
+  ipcMain.handle(IPC.REEXTRACT_STOP, () => {
+    if (reextractJob) reextractJob.stop = true;
+    return { ok: true as const };
   });
 
   ipcMain.handle(IPC.EVIDENCE_SUBMIT, async (_e, args: SubmitEvidenceArgs) => {

@@ -119,7 +119,7 @@ export default function LibraryIndexPanel({ compact = false }: { compact?: boole
       )}
       {plan.stale > 0 && !running && !compact && (
         <div style={{ marginTop: 6, color: '#6b7280' }}>
-          Outdated sources get re-indexed passages only; their candidates update when you re-extract them.
+          Outdated sources get re-indexed passages only; re-extract their candidates under Outdated sources below.
         </div>
       )}
       {error && <div style={{ marginTop: 6, color: '#fca5a5' }}>{error}</div>}

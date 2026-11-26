@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import LibraryIndexPanel from './LibraryIndexPanel';
+import ReextractPanel from './ReextractPanel';
 import type { EmbeddingsStatus, ExtractionMode, LlmTraceSummary, ProviderId, SettingsSnapshot } from '@starcall/shared';
 
 type Snapshot = SettingsSnapshot;
@@ -347,6 +348,16 @@ export default function SettingsPane() {
           every passage. Concepts, candidates and notes are never changed.
         </p>
         <LibraryIndexPanel />
+
+        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
+          Outdated sources
+        </h1>
+        <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 10, lineHeight: 1.5 }}>
+          Sources whose candidates were extracted by an older version of the parser. Re-extracting them applies
+          the current parser, one source at a time in the background. Promoted concepts with evidence, notes and
+          study history are kept; unpromoted candidates are rebuilt.
+        </p>
+        <ReextractPanel />
 
         <LlmUsageSection />
 
