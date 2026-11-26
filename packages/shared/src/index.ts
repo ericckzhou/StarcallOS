@@ -20,6 +20,9 @@ import type {
   LibraryIndexPlan,
   LibraryIndexProgress,
   LibraryIndexSummary,
+  ReextractPlan,
+  ReextractProgress,
+  ReextractSummary,
 } from '@starcall/services';
 
 export type {
@@ -146,6 +149,11 @@ export const IPC = {
   RAG_LIBRARY_STOP:        'rag:libraryStop',
   RAG_LIBRARY_PROGRESS:    'rag:libraryProgress',
   RAG_LIBRARY_DONE:        'rag:libraryDone',
+  REEXTRACT_STATUS:        'reextract:status',
+  REEXTRACT_START:         'reextract:start',
+  REEXTRACT_STOP:          'reextract:stop',
+  REEXTRACT_PROGRESS:      'reextract:progress',
+  REEXTRACT_DONE:          'reextract:done',
 } as const;
 
 export type ExportFormat = 'markdown' | 'anki';
@@ -275,6 +283,21 @@ export interface EmbeddingsStatus {
 export type EmbeddingsIndexResult =
   | { ok: true; sources: number; embedded: number }
   | { ok: false; error: string };
+
+// ─── Re-extract outdated sources ─────────────────────────────────────────────
+
+export type { ReextractProgress, ReextractSummary };
+
+export interface ReextractStatus {
+  running: boolean;
+  progress: ReextractProgress | null;
+  // Outdated = processed sources whose latest successful parse run predates
+  // the current parser/grammar/layout versions (or has no run at all).
+  plan: Omit<ReextractPlan, 'items'> & {
+    items: Array<{ source_id: number; title: string; reasons: ReextractPlan['items'][number]['reasons'] }>;
+  };
+  last: ReextractSummary | null;    // most recent run this session
+}
 
 // ─── Local Ask (RAG) ─────────────────────────────────────────────────────────
 
@@ -830,6 +853,14 @@ export interface IpcApi {
     libraryStop: () => Promise<{ ok: true }>;
     onLibraryProgress: (cb: (p: LibraryIndexProgress) => void) => () => void;
     onLibraryDone: (cb: (s: LibraryIndexSummary | null) => void) => () => void;
+  };
+  // Bulk re-extract of outdated sources: user-started, Stop-able, resumable.
+  reextract: {
+    status: () => Promise<ReextractStatus>;
+    start: () => Promise<{ ok: true } | { ok: false; error: string }>;
+    stop: () => Promise<{ ok: true }>;
+    onProgress: (cb: (p: ReextractProgress) => void) => () => void;
+    onDone: (cb: (s: ReextractSummary | null) => void) => () => void;
   };
   candidates: {
     bySource: (sourceId: number) => Promise<CandidatesBundle>;

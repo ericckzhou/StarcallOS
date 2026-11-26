@@ -342,6 +342,14 @@ Remember these as the active state of the repo:
   on load (`DOMMatrix is not defined`). Worker death fails in-flight parses
   (never retried in-process); a worker that cannot start falls back to
   in-process; `STARCALL_PDF_PARSER=inprocess` forces the old path.
+- Bulk "re-extract outdated sources" is shipped (Settings → Outdated sources,
+  `ReextractPanel.tsx`; `knowledge/reextract_outdated.ts`; IPC `reextract.*`).
+  Outdated = has candidates AND the latest SUCCESSFUL `parse_runs` row has a
+  different PARSER/GRAMMAR/LAYOUT version (or no run → `unknown`). The single
+  Re-extract button and the job share `reextractSourceCandidates` in main, which
+  now records a `parse_run` (`diagnostics.trigger='reextract'`) — without that a
+  re-extracted source would stay "outdated" forever. User-started only,
+  sequential under `withSourceLock`, Stop between sources, resumable.
 - User-facing provider text should say "configured LLM provider" unless a
   feature is truly Groq-specific.
 - `.claude/agents/ipc-contract-reviewer.md` is a project review agent that

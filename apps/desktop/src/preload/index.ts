@@ -181,4 +181,19 @@ contextBridge.exposeInMainWorld('api', {
       return () => ipcRenderer.removeListener('rag:progress', listener);
     },
   },
+  reextract: {
+    status: () => ipcRenderer.invoke('reextract:status'),
+    start: () => ipcRenderer.invoke('reextract:start'),
+    stop: () => ipcRenderer.invoke('reextract:stop'),
+    onProgress: (cb: (p: unknown) => void) => {
+      const listener = (_e: unknown, p: unknown) => cb(p);
+      ipcRenderer.on('reextract:progress', listener);
+      return () => ipcRenderer.removeListener('reextract:progress', listener);
+    },
+    onDone: (cb: (s: unknown) => void) => {
+      const listener = (_e: unknown, s: unknown) => cb(s);
+      ipcRenderer.on('reextract:done', listener);
+      return () => ipcRenderer.removeListener('reextract:done', listener);
+    },
+  },
 });
