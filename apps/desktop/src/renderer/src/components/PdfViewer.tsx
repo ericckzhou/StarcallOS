@@ -3,6 +3,7 @@ import * as pdfjs from 'pdfjs-dist';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import type { PdfAnnotation, PdfAnnotationRect } from '@starcall/shared';
 import { renderMarkdown } from './RichText';
+import { clampPage, parseSavedPdfViewState, pickAnchorPage, reanchorScroll, serializePdfViewState, type PageGeometry, type SavedPdfViewState } from './pdf_anchor';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — vite ?url import returns a string path the worker loader uses
 import workerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
@@ -69,11 +70,6 @@ const HIGHLIGHT_PALETTE = [
   '#2dd4bf', // teal
   '#fb923c', // orange
 ];
-
-interface SavedPdfViewState {
-  page: number;
-  scrollTop: number;
-}
 
 interface HighlightAction {
   page: number;
@@ -546,38 +542,15 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
     // the selection-geometry that stamps highlight pages, so the header label
     // and stored annotation pages agree.
     const containerTop = container.getBoundingClientRect().top;
-    let bestPage = 1;
-    let bestTop = -Infinity; // page top relative to container top; topmost started page
-    let bestHeight = 1;
-    let bestFound = false;
-    let fallbackPage = 1;
-    let fallbackDelta = Infinity;
+    const geometry: PageGeometry[] = [];
     for (const [pageNum, el] of pageRefs.current.entries()) {
       const rect = el.getBoundingClientRect();
-      const top = rect.top - containerTop; // 0 = page top aligned to container top
-      if (top <= 4 && top >= bestTop) {
-        bestPage = pageNum;
-        bestTop = top;
-        bestHeight = Math.max(1, rect.height);
-        bestFound = true;
-      }
-      const delta = Math.abs(top);
-      if (delta < fallbackDelta) {
-        fallbackDelta = delta;
-        fallbackPage = pageNum;
-      }
+      geometry.push({ page: pageNum, top: rect.top - containerTop, height: rect.height });
     }
-    if (!bestFound) {
-      const fallbackEl = pageRefs.current.get(fallbackPage);
-      const rect = fallbackEl?.getBoundingClientRect();
-      bestPage = fallbackPage;
-      bestTop = rect ? rect.top - containerTop : 0;
-      bestHeight = Math.max(1, rect?.height ?? 1);
-    }
-    const offset = Math.max(0, -bestTop); // how far the current page is scrolled past the top
-    currentPageRef.current = bestPage;
-    currentPageOffsetRef.current = offset;
-    currentPageOffsetRatioRef.current = Math.max(0, Math.min(1, offset / bestHeight));
+    const anchor = pickAnchorPage(geometry);
+    currentPageRef.current = anchor.page;
+    currentPageOffsetRef.current = anchor.offset;
+    currentPageOffsetRatioRef.current = anchor.ratio;
   }, []);
 
   useEffect(() => {
@@ -614,16 +587,13 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
       if (!el) return;
       const container = scrollContainerRef.current;
       if (!container) return;
-      const offset = Math.min(
-        Math.max(0, el.offsetHeight - 1),
-        currentPageOffsetRatioRef.current * Math.max(1, el.offsetHeight),
-      );
-      currentPageOffsetRef.current = offset;
       // Align by rect delta (same as scrollToPage). `offsetTop` is relative to
       // the nearest positioned ancestor, which is NOT the scroll container, so
       // using it here re-scrolls a full page early and undoes a correct jump.
       const delta = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
-      container.scrollTop += delta + offset;
+      const { offset, scrollBy } = reanchorScroll(currentPageOffsetRatioRef.current, el.offsetHeight, delta);
+      currentPageOffsetRef.current = offset;
+      container.scrollTop += scrollBy;
       setPage(target);
       if (container) savePdfViewState(viewStateKey, { page: target, scrollTop: container.scrollTop });
     });
@@ -2013,11 +1983,7 @@ function Header({ data, conceptName, extras }: { data: SourceEvidence; conceptNa
 
 function readSavedPdfViewState(key: string): SavedPdfViewState | null {
   try {
-    const raw = sessionStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<SavedPdfViewState>;
-    if (!Number.isFinite(parsed.page) || !Number.isFinite(parsed.scrollTop)) return null;
-    return { page: Number(parsed.page), scrollTop: Math.max(0, Number(parsed.scrollTop)) };
+    return parseSavedPdfViewState(sessionStorage.getItem(key));
   } catch {
     return null;
   }
@@ -2025,17 +1991,10 @@ function readSavedPdfViewState(key: string): SavedPdfViewState | null {
 
 function savePdfViewState(key: string, state: SavedPdfViewState): void {
   try {
-    sessionStorage.setItem(key, JSON.stringify({
-      page: Math.max(1, Math.floor(state.page)),
-      scrollTop: Math.max(0, Math.floor(state.scrollTop)),
-    }));
+    sessionStorage.setItem(key, serializePdfViewState(state));
   } catch {
     // Session storage is best-effort; source navigation should still work.
   }
-}
-
-function clampPage(page: number, totalPages: number): number {
-  return Math.max(1, Math.min(Math.floor(page), Math.max(1, totalPages)));
 }
 
 const navBtnEvidenceStyle: React.CSSProperties = {
