@@ -159,6 +159,68 @@ export function migrateSecretsAtRest(userDataDir: string, codec: SecretCodec): b
   return true;
 }
 
+// Async variant of SecretCodec, matching Electron's async safeStorage API
+// (`encryptStringAsync` / `decryptStringAsync`; the sync calls are deprecated).
+// `decrypt` reports `reencrypt` when the OS rotated the key or offers a
+// stronger one, so the caller can re-save the file.
+export interface AsyncSecretCodec {
+  available: boolean;
+  encrypt(plain: string): Promise<string>;                                  // base64 ciphertext
+  decrypt(cipher: string): Promise<{ plain: string; reencrypt: boolean }>;  // takes base64 ciphertext
+}
+
+async function decodeKeyAsync(stored: unknown, codec?: AsyncSecretCodec): Promise<{ plain: string; resave: boolean }> {
+  if (typeof stored === 'string') {
+    // Legacy plaintext: re-save encrypted once a codec can do it.
+    return { plain: stored, resave: stored.length > 0 && !!codec?.available };
+  }
+  if (isEnvelope(stored)) {
+    if (!codec) return { plain: '', resave: false };
+    try {
+      const r = await codec.decrypt(stored.enc);
+      return { plain: r.plain, resave: r.reencrypt && !!codec.available };
+    } catch {
+      return { plain: '', resave: false };
+    }
+  }
+  return { plain: '', resave: false };
+}
+
+async function encodeKeyAsync(plain: string, codec?: AsyncSecretCodec): Promise<string | EncEnvelope> {
+  if (!plain) return '';
+  if (codec?.available) {
+    try { return { enc: await codec.encrypt(plain) }; } catch { /* fall through to plaintext */ }
+  }
+  return plain;
+}
+
+// Loads settings, decrypting keys with the async codec. `needsResave` is true
+// when a key is still plaintext on disk (and a codec is available) or the OS
+// asked for re-encryption; the caller should then `saveSettingsAsync` once.
+export async function loadSettingsAsync(
+  userDataDir: string, codec?: AsyncSecretCodec,
+): Promise<{ settings: LLMSettings; needsResave: boolean }> {
+  const p = settingsPath(userDataDir);
+  if (!fs.existsSync(p)) return { settings: defaults(), needsResave: false };
+  let raw: Record<string, unknown>;
+  try { raw = JSON.parse(fs.readFileSync(p, 'utf-8')) as Record<string, unknown>; } catch { return { settings: defaults(), needsResave: false }; }
+  const [groq, anthropic] = await Promise.all([decodeKeyAsync(raw.groqApiKey, codec), decodeKeyAsync(raw.anthropicApiKey, codec)]);
+  return {
+    settings: { ...defaults(), ...(raw as Partial<LLMSettings>), groqApiKey: groq.plain, anthropicApiKey: anthropic.plain },
+    needsResave: groq.resave || anthropic.resave,
+  };
+}
+
+export async function saveSettingsAsync(userDataDir: string, s: LLMSettings, codec?: AsyncSecretCodec): Promise<void> {
+  const [groqApiKey, anthropicApiKey] = await Promise.all([encodeKeyAsync(s.groqApiKey, codec), encodeKeyAsync(s.anthropicApiKey, codec)]);
+  const p = settingsPath(userDataDir);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  // Write-then-rename so a crash mid-write never leaves a truncated file.
+  const tmp = `${p}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ ...s, groqApiKey, anthropicApiKey }, null, 2), 'utf-8');
+  fs.renameSync(tmp, p);
+}
+
 const EXTRACTION_MODES: ExtractionMode[] = ['deterministic', 'candidate_gated', 'full'];
 
 function isProviderId(v: unknown): v is ProviderId {
