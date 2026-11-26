@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { SettingsPatchSchema } from './ipc-schemas';
-import { loadSettings, saveSettings, migrateSecretsAtRest, sanitizeSettingsInput, resolveProviderConfig, mergeSettingsPatch, type LLMSettings, type SecretCodec } from './settings';
+import { loadSettings, saveSettings, migrateSecretsAtRest, sanitizeSettingsInput, resolveProviderConfig, mergeSettingsPatch, loadSettingsAsync, saveSettingsAsync, type LLMSettings, type SecretCodec, type AsyncSecretCodec } from './settings';
 
 // Reversible stand-in for Electron safeStorage (which is unavailable in tests).
 const fakeCodec: SecretCodec = {
@@ -87,6 +87,57 @@ describe('settings secret storage', () => {
     // Stored as plaintext so the key is not lost; still loadable without a codec.
     expect(JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf-8')).groqApiKey).toBe('gsk_plain');
     expect(loadSettings(dir).groqApiKey).toBe('gsk_plain');
+  });
+});
+
+describe('settings secret storage (async codec)', () => {
+  let dir: string;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'starcall-settings-async-')); });
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  // Same ciphertext format as fakeCodec, so the sync and async paths interoperate
+  // (as Electron's decryptStringAsync reads encryptString output).
+  const asyncCodec = (reencrypt = false, available = true): AsyncSecretCodec => ({
+    available,
+    encrypt: async (plain) => fakeCodec.encrypt(plain),
+    decrypt: async (b64) => ({ plain: fakeCodec.decrypt(b64), reencrypt }),
+  });
+  const onDisk = () => JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf-8'));
+
+  it('round-trips encrypted keys and leaves no temp file', async () => {
+    await saveSettingsAsync(dir, base({ groqApiKey: 'gsk_a', anthropicApiKey: 'sk-ant-b' }), asyncCodec());
+    expect(onDisk().groqApiKey).toHaveProperty('enc');
+    expect(fs.existsSync(path.join(dir, 'settings.json.tmp'))).toBe(false);
+    const r = await loadSettingsAsync(dir, asyncCodec());
+    expect(r.settings.groqApiKey).toBe('gsk_a');
+    expect(r.settings.anthropicApiKey).toBe('sk-ant-b');
+    expect(r.needsResave).toBe(false);
+  });
+
+  it('reads keys written by the sync codec', async () => {
+    saveSettings(dir, base({ groqApiKey: 'gsk_old' }), fakeCodec);
+    expect((await loadSettingsAsync(dir, asyncCodec())).settings.groqApiKey).toBe('gsk_old');
+  });
+
+  it('flags legacy plaintext keys and keys the OS wants re-encrypted', async () => {
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(base({ groqApiKey: 'gsk_plain' })));
+    const plain = await loadSettingsAsync(dir, asyncCodec());
+    expect(plain).toMatchObject({ needsResave: true, settings: { groqApiKey: 'gsk_plain' } });
+    await saveSettingsAsync(dir, plain.settings, asyncCodec());
+    expect(onDisk().groqApiKey).toHaveProperty('enc');
+    expect((await loadSettingsAsync(dir, asyncCodec())).needsResave).toBe(false);
+    expect((await loadSettingsAsync(dir, asyncCodec(true))).needsResave).toBe(true);
+  });
+
+  it('keeps plaintext when no keyring, without asking for a re-save', async () => {
+    await saveSettingsAsync(dir, base({ groqApiKey: 'gsk_plain' }), asyncCodec(false, false));
+    expect(onDisk().groqApiKey).toBe('gsk_plain');
+    expect(await loadSettingsAsync(dir, asyncCodec(false, false))).toMatchObject({ needsResave: false, settings: { groqApiKey: 'gsk_plain' } });
+  });
+
+  it('returns an empty key (not a crash) when decryption fails', async () => {
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ ...base(), groqApiKey: { enc: 'garbage' } }));
+    expect((await loadSettingsAsync(dir, asyncCodec())).settings.groqApiKey).toBe('');
   });
 });
 

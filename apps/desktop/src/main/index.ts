@@ -45,7 +45,7 @@ import {
   segmentTextWithDiagnostics,
   clearDerivedDataForSource, recoverInterruptedSources,
   createParseRun, listParseRunsBySource,
-  loadSettings, saveSettings, migrateSecretsAtRest, sanitizeSettingsInput, applyEnvFallbacks, resolveProviderConfig, MODEL_CHOICES,
+  loadSettingsAsync, saveSettingsAsync, sanitizeSettingsInput, applyEnvFallbacks, resolveProviderConfig, MODEL_CHOICES,
   chatJSON,
   validateIpc, isPrivateIp, isBlockedHostname,
   CreateSourceArgsSchema, ProcessSourceArgsSchema, CreateTextSourceArgsSchema,
@@ -64,7 +64,7 @@ import {
   MisconceptionCandidateCreateArgsSchema, MisconceptionCandidateUpdateArgsSchema,
   EquationCandidateCreateArgsSchema, EquationCandidateUpdateArgsSchema,
   renderConceptExport, renderBundleExport, extractArticle, docxToMarkdown, pptxToMarkdown, chunkBatches,
-  type ConceptImportance, type LLMSettings, type PassName, type RelationKind, type SecretCodec,
+  type ConceptImportance, type LLMSettings, type PassName, type RelationKind, type AsyncSecretCodec,
   runEnricher,
   runConceptExtractor, runGraphBuilder,
   runMisconceptionExtractor, runTaskGenerator, computeCentrality,
@@ -255,20 +255,57 @@ function loadDevDotenv(): void {
 }
 
 // OS-backed secret codec for API keys (DPAPI on Windows, Keychain on macOS,
-// libsecret on Linux). Available only after the app is ready, which every
-// settings read/write here is. If the OS has no keyring, `available` is false
-// and settings.ts falls back to plaintext rather than losing the key.
-function secretCodec(): SecretCodec {
+// libsecret on Linux), on Electron's async safeStorage API (the sync calls are
+// deprecated). Usable only after the app is ready. If the OS has no keyring,
+// `available` is false and settings.ts falls back to plaintext rather than
+// losing the key. decryptStringAsync also reads keys written by the old sync
+// encryptString, so existing installs keep their keys.
+async function secretCodec(): Promise<AsyncSecretCodec> {
   return {
-    available: safeStorage.isEncryptionAvailable(),
-    encrypt: (plain) => safeStorage.encryptString(plain).toString('base64'),
-    decrypt: (b64) => safeStorage.decryptString(Buffer.from(b64, 'base64')),
+    available: await safeStorage.isAsyncEncryptionAvailable(),
+    encrypt: async (plain) => (await safeStorage.encryptStringAsync(plain)).toString('base64'),
+    decrypt: async (b64) => {
+      const r = await safeStorage.decryptStringAsync(Buffer.from(b64, 'base64'));
+      return { plain: r.result, reencrypt: r.shouldReEncrypt };
+    },
   };
 }
 
-// Saved settings as stored (no env fallbacks).
+// Decrypted settings, loaded once at startup (initSettings) and replaced on
+// every save, so the many synchronous readers never touch the async codec.
+// main is the only writer of settings.json.
+let settingsCache: LLMSettings | null = null;
+let settingsWrite: Promise<void> = Promise.resolve();
+
+async function initSettings(): Promise<void> {
+  const dir = app.getPath('userData');
+  const codec = await secretCodec();
+  const { settings, needsResave } = await loadSettingsAsync(dir, codec);
+  settingsCache = settings;
+  // Encrypt a key left as plaintext by a pre-encryption install, or re-encrypt
+  // one the OS rotated, so no stale secret stays on disk until the next save.
+  if (needsResave) {
+    await saveSettingsAsync(dir, settings, codec);
+    console.log('[SECRETS] re-saved API key(s) with OS-encrypted storage');
+  }
+}
+
+// Persists settings and swaps the cache only after the write succeeded.
+// Saves are serialized so two quick Settings saves can't interleave.
+function persistSettings(next: LLMSettings): Promise<void> {
+  const run = settingsWrite.then(async () => {
+    await saveSettingsAsync(app.getPath('userData'), next, await secretCodec());
+    settingsCache = next;
+  });
+  settingsWrite = run.catch(() => undefined);
+  return run;
+}
+
+// Saved settings as stored (no env fallbacks). A copy, so callers can't
+// mutate the cache.
 function loadRawSettings(): LLMSettings {
-  return loadSettings(app.getPath('userData'), secretCodec());
+  if (!settingsCache) throw new Error('settings read before initSettings()');
+  return structuredClone(settingsCache);
 }
 
 // Saved settings with env-var API key fallbacks applied — what LLM calls use.
@@ -1452,10 +1489,10 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       defaultDoclingBaseUrl: DEFAULT_DOCLING_BASE_URL,
     };
   });
-  ipcMain.handle(IPC.SETTINGS_SET, (_e, rawInput: Partial<LLMSettings>) => {
-    const dir = app.getPath('userData');
-    const codec = secretCodec();
-    const current = loadSettings(dir, codec);
+  ipcMain.handle(IPC.SETTINGS_SET, async (_e, rawInput: Partial<LLMSettings>) => {
+    // Wait out an in-flight save so this patch merges onto its result.
+    await settingsWrite;
+    const current = loadRawSettings();
     // Validate structure first, then clamp enum values via sanitizeSettingsInput.
     const validated = validateIpc(SettingsPatchSchema, rawInput, IPC.SETTINGS_SET);
     // A non-empty base URL that isn't a usable http(s) URL is an error the user
@@ -1468,7 +1505,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     }
     const input = sanitizeSettingsInput(validated, current);
     const next = mergeSettingsPatch(current, input);
-    saveSettings(dir, next, codec);
+    await persistSettings(next);
     setSrsScheduler(next.srsScheduler ?? 'sm2');
     return { ok: true as const };
   });
@@ -1885,7 +1922,7 @@ function contentSecurityPolicy(): string {
   ].join('; ');
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Disable the app-level menu entirely (kills the File/Edit/View/Window/Help bar).
   // Per-window calls (`removeMenu`, `setMenuBarVisibility(false)`) belt-and-suspender it.
   Menu.setApplicationMenu(null);
@@ -1905,12 +1942,9 @@ app.whenReady().then(() => {
     });
   });
 
-  // One-time at-rest migration: encrypt any API key left as plaintext by a
-  // pre-encryption install, so an upgrade doesn't leave a secret on disk until
-  // the user next opens Settings. No-op once keys are enveloped.
-  if (migrateSecretsAtRest(app.getPath('userData'), secretCodec())) {
-    console.log('[SECRETS] migrated plaintext API key(s) to OS-encrypted storage');
-  }
+  // Settings (incl. decrypted API keys) must be loaded before any IPC handler
+  // or startup step reads them.
+  await initSettings();
 
   const DB_PATH = path.join(app.getPath('userData'), 'stellaria.db');
   const db = openDb(DB_PATH);
