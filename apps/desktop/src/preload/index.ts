@@ -151,6 +151,9 @@ contextBridge.exposeInMainWorld('api', {
     traceSummary: (days?: number) => ipcRenderer.invoke('llm:traceSummary', days),
     listLocalModels: (baseUrl: string) => ipcRenderer.invoke('llm:listLocalModels', baseUrl),
   },
+  docling: {
+    test: (baseUrl: string) => ipcRenderer.invoke('docling:test', baseUrl),
+  },
   embeddings: {
     status: () => ipcRenderer.invoke('embeddings:status'),
     indexLibrary: () => ipcRenderer.invoke('embeddings:indexLibrary'),

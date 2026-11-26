@@ -167,7 +167,7 @@ describe('settings save pipeline (SettingsPatchSchema -> sanitize -> merge)', ()
       provider: 'local', groqApiKey: 'g2', anthropicApiKey: 'a2', modelOverrides: { grader: 'x' },
       extractionMode: 'full', heavyModel: 'h2', lightModel: 'l2', gradeSelfConsistency: true,
       localBaseUrl: 'http://box:1/v1', localModel: 'm', embeddingsEnabled: true, embeddingModel: 'e',
-      srsScheduler: 'fsrs',
+      srsScheduler: 'fsrs', pdfParser: 'docling', doclingBaseUrl: 'http://box:5001',
     } as const;
     // Every key the schema accepts must be exercised here, so a newly added
     // setting that the schema strips (or the merge drops) fails this test.
@@ -175,6 +175,14 @@ describe('settings save pipeline (SettingsPatchSchema -> sanitize -> merge)', ()
     const current: LLMSettings = { provider: 'groq', groqApiKey: '', anthropicApiKey: '' };
     const next = mergeSettingsPatch(current, sanitizeSettingsInput(SettingsPatchSchema.parse(patch), current));
     for (const [k, v] of Object.entries(patch)) expect(next[k as keyof LLMSettings]).toEqual(v);
+  });
+
+  it('clamps an unknown PDF parser to builtin and keeps the saved Docling URL on bad input', () => {
+    const current: LLMSettings = { provider: 'groq', groqApiKey: '', anthropicApiKey: '', doclingBaseUrl: 'http://127.0.0.1:5001' };
+    expect(sanitizeSettingsInput({ pdfParser: 'bogus' as never }, current).pdfParser).toBe('builtin');
+    expect(sanitizeSettingsInput({ doclingBaseUrl: 'ftp://x' }, current).doclingBaseUrl).toBe('http://127.0.0.1:5001');
+    expect(sanitizeSettingsInput({ doclingBaseUrl: '  ' }, current).doclingBaseUrl).toBe('');
+    expect(sanitizeSettingsInput({ doclingBaseUrl: 'http://box:5001/' }, current).doclingBaseUrl).toBe('http://box:5001');
   });
 
   it('clamps an unknown scheduler to sm2 and trims the embedding model', () => {

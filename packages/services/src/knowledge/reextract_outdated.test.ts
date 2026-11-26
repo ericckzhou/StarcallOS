@@ -59,6 +59,14 @@ describe('planOutdatedSources', () => {
     expect(plan.done).toBe(false);
   });
 
+  it('compares against the per-source expected layout', () => {
+    const { db, ids } = seed();
+    // Docling selected for PDFs: every built-in-stamped PDF is outdated by layout.
+    const plan = planOutdatedSources(db, cur, s => (s.file_path.endsWith('.pdf') ? 'docling-0.1.0' : cur.layout));
+    expect(plan.items.find(i => i.source_id === ids.current)?.reasons).toEqual(['layout']);
+    expect(plan.outdated).toBe(5);
+  });
+
   it('reports every differing version', () => {
     const { db } = seed();
     const plan = planOutdatedSources(db, { parser: 'x', grammar: 'y', layout: cur.layout });

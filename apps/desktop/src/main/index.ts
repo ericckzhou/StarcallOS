@@ -72,12 +72,13 @@ import {
   resetUsageStats, getUsageStats, setLlmTraceSink, effectiveSelfConsistency, listLocalModels, DEFAULT_LOCAL_BASE_URL,
   setSrsScheduler, mergeSettingsPatch, persistGradedAttempt, normalizeLocalBaseUrl, createOpenAICompatEmbedder, createCachingEmbedder, findCandidateNearDuplicates, DEFAULT_EMBEDDING_MODEL, indexSourceEmbeddings, retrieveSourceExcerpts, relatedConcepts, embeddingStats,
   planLibraryIndex, runLibraryIndex, type LibraryIndexProgress, type LibraryIndexSummary,
-  planOutdatedSources, runReextractOutdated, type ReextractProgress, type ReextractSummary,
+  planOutdatedSources, runReextractOutdated, currentReextractVersions, type ReextractProgress, type ReextractSummary,
+  doclingServerInfo, DEFAULT_DOCLING_BASE_URL, LAYOUT_VERSION, CHUNKER_VERSION,
   resolveAskConfig, askSources, saveAskHistory, listAskHistory, deleteAskHistory, chunkIndexStats, indexSourceChunkEmbeddings, RagAskArgsSchema,
   type Embedder, buildCandidateLlmFilterPrompt, parseCandidateLlmFilterResponse, createLlmCallSink, summarizeLlmCalls,
 } from '@starcall/services';
 import { IPC } from '@starcall/shared';
-import { segmentPdfIsolated, stopPdfParser } from './pdf_parser';
+import { expectedLayoutFor, segmentPdfConfigured, stopPdfParser } from './pdf_parser';
 import type {
   CandidateLlmFilterArgs,
   CandidateLlmFilterDecision,
@@ -338,10 +339,11 @@ function syncRetrievalChunks(
   sourceId: number,
   blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'],
   runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'],
+  layoutVersion: string = LAYOUT_VERSION,
 ): Record<string, unknown> {
   try {
     const { chunks, diagnostics } = chunkBlocks(blocks, runningHeaderSections);
-    const sync = syncSourceChunks(db, sourceId, chunks);
+    const sync = syncSourceChunks(db, sourceId, chunks, { chunker: CHUNKER_VERSION, layout: layoutVersion });
     console.log(`[RAG_CHUNKS] source=${sourceId} chunks=${chunks.length} sync=${JSON.stringify(sync)}`);
     return { ...diagnostics, sync };
   } catch (e) {
@@ -391,6 +393,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     let equationCount = 0;
     let misconceptionCount = 0;
     let layoutDiagnostics: Record<string, unknown> = {};
+    let layoutVersionUsed = LAYOUT_VERSION;
 
     const logTotals = (label: string): void => {
       const s = getUsageStats();
@@ -419,6 +422,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
           llm_input_tokens: Object.values(usage.byPass).reduce((a, p) => a + p.prompt, 0),
           llm_output_tokens: Object.values(usage.byPass).reduce((a, p) => a + p.completion, 0),
           diagnostics: { ...layoutDiagnostics, llm_by_pass: usage.byPass },
+          layout_version: layoutVersionUsed,
         });
       } catch (e) {
         console.error('[PARSE_RUN] failed to record parse_runs row:', e);
@@ -426,6 +430,15 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     };
 
     try {
+      // Parse the PDF BEFORE wiping anything: a Docling conversion can take
+      // minutes, and a parse that fails or is interrupted (app closed) must
+      // not leave the source with its candidates already deleted.
+      updateSourceStatus(db, sourceId, 'processing');
+      const preSource = getSourceById(db, sourceId)!;
+      const preSeg = preSource.file_path.endsWith('.txt')
+        ? null
+        : await segmentPdfConfigured(preSource.file_path, loadRawSettings());
+
       // Idempotent retry: wipe derived artifacts before rebuilding. Keeps
       // the source row, file path, and events lineage intact.
       const wiped = clearDerivedDataForSource(db, sourceId);
@@ -453,10 +466,12 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         updateSourceStatus(db, sourceId, 'processing', { page_count: pageCount });
         console.log(`[EXTRACT] text blocks: ${blocksForLLM.length}`);
       } else {
-        const { blocks: allBlocks, pageCount: pc, diagnostics: diag, runningHeaderSections: rhSections } = await segmentPdfIsolated(source.file_path);
+        const seg = preSeg!;
+        const { blocks: allBlocks, pageCount: pc, diagnostics: diag, runningHeaderSections: rhSections } = seg;
         pageCount = pc;
         runningHeaderSections = rhSections;
-        layoutDiagnostics = { ...diag };
+        layoutVersionUsed = seg.layoutVersion;
+        layoutDiagnostics = { ...diag, parser: seg.parser, parser_fallback: seg.fallback };
         updateSourceStatus(db, sourceId, 'processing', { page_count: pageCount });
         blocksForLLM = allBlocks.filter(b =>
           (args.pageStart == null || b.page >= args.pageStart) &&
@@ -496,7 +511,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       }
       layoutDiagnostics = {
         ...layoutDiagnostics,
-        rag_chunks: syncRetrievalChunks(db, sourceId, blocksForLLM, runningHeaderSections),
+        rag_chunks: syncRetrievalChunks(db, sourceId, blocksForLLM, runningHeaderSections, layoutVersionUsed),
       };
 
       // ─── Mode dispatch ──────────────────────────────────────────────────────
@@ -1212,7 +1227,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const s = loadRawSettings();
     const model = s.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
     const ask = resolveAskConfig(s);
-    const stale = new Set(planLibraryIndex(db, { embeddingModel: null }).items.filter(i => i.action === 'rechunk').map(i => i.source_id));
+    const stale = new Set(planLibraryIndex(db, { embeddingModel: null, expectLayout: expectedLayoutFor(loadRawSettings()) }).items.filter(i => i.action === 'rechunk').map(i => i.source_id));
     return {
       askModel: ask?.model ?? null,
       askBaseUrl: ask?.baseUrl ?? null,
@@ -1252,14 +1267,16 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     if (!fs.existsSync(source.file_path)) throw new Error('The source file no longer exists.');
     let blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
     let runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'] = [];
+    let layoutVersion = LAYOUT_VERSION;
     if (source.file_path.endsWith('.txt')) {
       blocks = segmentText(fs.readFileSync(source.file_path, 'utf-8'));
     } else {
-      const out = await segmentPdfIsolated(source.file_path);
+      const out = await segmentPdfConfigured(source.file_path, loadRawSettings());
       blocks = out.blocks;
       runningHeaderSections = out.runningHeaderSections;
+      layoutVersion = out.layoutVersion;
     }
-    const diag = syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections);
+    const diag = syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections, layoutVersion);
     if (typeof diag.error === 'string') throw new Error(diag.error);
   }
 
@@ -1287,7 +1304,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.RAG_LIBRARY_STATUS, (): RagLibraryStatus => {
     const s = loadRawSettings();
     const model = s.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
-    const { items: _items, ...plan } = planLibraryIndex(db, { embeddingModel: s.embeddingsEnabled ? model : null });
+    const { items: _items, ...plan } = planLibraryIndex(db, { embeddingModel: s.embeddingsEnabled ? model : null, expectLayout: expectedLayoutFor(s) });
     return { running: libraryJob != null, progress: libraryJob?.progress ?? null, plan, last: lastLibrarySummary };
   });
 
@@ -1298,6 +1315,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     void runLibraryIndex(db, {
       rebuildChunks: rebuildChunksForSource,
       embedder: getEmbedder(),
+      expectLayout: expectedLayoutFor(loadRawSettings()),
       withSourceLock,
       shouldStop: () => job.stop,
       onProgress: p => { job.progress = p; broadcast(IPC.RAG_LIBRARY_PROGRESS, p); },
@@ -1397,6 +1415,19 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     }
   });
 
+  ipcMain.handle(IPC.DOCLING_TEST, async (_e, rawBaseUrl: unknown) => {
+    if (typeof rawBaseUrl !== 'string' || rawBaseUrl.length > 300) {
+      return { ok: false as const, error: 'Base URL must be a string.' };
+    }
+    const base = rawBaseUrl.trim() ? normalizeLocalBaseUrl(rawBaseUrl) : DEFAULT_DOCLING_BASE_URL;
+    if (!base) return { ok: false as const, error: 'Docling URL must be an http:// or https:// URL, e.g. http://127.0.0.1:5001' };
+    try {
+      return { ok: true as const, ...(await doclingServerInfo(base)) };
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
   ipcMain.handle(IPC.SETTINGS_GET, (): SettingsSnapshot => {
     const s = loadEffectiveSettings();
     return {
@@ -1416,6 +1447,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       embeddingModel: s.embeddingModel ?? '',
       defaultEmbeddingModel: DEFAULT_EMBEDDING_MODEL,
       srsScheduler: s.srsScheduler ?? 'sm2',
+      pdfParser: s.pdfParser ?? 'builtin',
+      doclingBaseUrl: s.doclingBaseUrl ?? '',
+      defaultDoclingBaseUrl: DEFAULT_DOCLING_BASE_URL,
     };
   });
   ipcMain.handle(IPC.SETTINGS_SET, (_e, rawInput: Partial<LLMSettings>) => {
@@ -1428,6 +1462,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     // must see (sanitize would otherwise silently keep the old one).
     if (validated.localBaseUrl && validated.localBaseUrl.trim() && !normalizeLocalBaseUrl(validated.localBaseUrl)) {
       throw new Error('Server base URL must be an http:// or https:// URL, e.g. http://127.0.0.1:11434/v1');
+    }
+    if (validated.doclingBaseUrl && validated.doclingBaseUrl.trim() && !normalizeLocalBaseUrl(validated.doclingBaseUrl)) {
+      throw new Error('Docling URL must be an http:// or https:// URL, e.g. http://127.0.0.1:5001');
     }
     const input = sanitizeSettingsInput(validated, current);
     const next = mergeSettingsPatch(current, input);
@@ -1623,7 +1660,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   // concepts with evidence and concepts with study history. Records a parse
   // run (success or failure) stamped with the current parser/grammar/layout
   // versions, which is what takes the source off the outdated list.
-  async function reextractSourceCandidates(sourceId: number): Promise<ExtractCandidatesResult> {
+  async function reextractSourceCandidates(sourceId: number): Promise<ExtractCandidatesResult & { parserFallback?: string | null }> {
     const source = getSourceById(db, sourceId);
     if (!source) throw new Error(`source ${sourceId} not found`);
     const fileExists = fs.existsSync(source.file_path);
@@ -1634,6 +1671,8 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const startedAt = Date.now();
     let pageCount = 0;
     let layoutDiagnostics: Record<string, unknown> = {};
+    let layoutVersion = LAYOUT_VERSION;
+    let parserFallback: string | null = null;
     const recordRun = (status: 'success' | 'failed', counts: Partial<Record<'blocks' | 'concepts' | 'relations' | 'equations' | 'misconceptions', number>>, errorMsg?: string) => {
       try {
         createParseRun(db, {
@@ -1643,6 +1682,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
           misconception_count: counts.misconceptions ?? 0, duration_ms: Date.now() - startedAt,
           llm_call_count: 0, llm_input_tokens: 0, llm_output_tokens: 0,
           diagnostics: { ...layoutDiagnostics, trigger: 'reextract' },
+          layout_version: layoutVersion,
         });
       } catch (e) {
         console.error('[PARSE_RUN] failed to record parse_runs row:', e);
@@ -1655,11 +1695,13 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         blocks = segmentText(fs.readFileSync(source.file_path, 'utf-8'));
         console.log(`[CANDIDATES] (manual) text blocks=${blocks.length}`);
       } else {
-        const out = await segmentPdfIsolated(source.file_path);
+        const out = await segmentPdfConfigured(source.file_path, loadRawSettings());
         blocks = out.blocks;
         runningHeaderSections = out.runningHeaderSections;
         pageCount = out.pageCount;
-        layoutDiagnostics = { ...out.diagnostics };
+        layoutVersion = out.layoutVersion;
+        parserFallback = out.fallback;
+        layoutDiagnostics = { ...out.diagnostics, parser: out.parser, parser_fallback: out.fallback };
         console.log(`[CANDIDATES] (manual) pdf pages=${out.pageCount} blocks=${blocks.length}`);
       }
       const { paths: sectionPaths, sources: sectionSources } = buildSectionPath(blocks, runningHeaderSections);
@@ -1667,7 +1709,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       setTopicAnchors(db, sourceId, anchors);
       const cand = extractCandidates(blocks, sectionPaths, anchors, sectionSources, runningHeaderSections);
       persistCandidateExtraction(db, sourceId, cand);
-      syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections);
+      syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections, layoutVersion);
       console.log(
         `[CANDIDATES] (manual) source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +
         `concepts=${cand.candidates.length} relations=${cand.relations.length} ` +
@@ -1682,7 +1724,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         equations: cand.equations.length,
       };
       recordRun('success', result);
-      return result;
+      return { ...result, parserFallback };
     } catch (e) {
       console.error('[CANDIDATES] (manual) re-extract failed:', e);
       recordRun('failed', {}, e instanceof Error ? e.message : String(e));
@@ -1700,7 +1742,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   let lastReextractSummary: ReextractSummary | null = null;
 
   ipcMain.handle(IPC.REEXTRACT_STATUS, (): ReextractStatus => {
-    const { items, ...plan } = planOutdatedSources(db);
+    const { items, ...plan } = planOutdatedSources(db, currentReextractVersions(), expectedLayoutFor(loadRawSettings()));
     return {
       running: reextractJob != null, progress: reextractJob?.progress ?? null,
       plan: { ...plan, items: items.map(i => ({ source_id: i.source_id, title: i.title, reasons: i.reasons })) },
@@ -1713,8 +1755,14 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const job: { stop: boolean; progress: ReextractProgress | null } = { stop: false, progress: null };
     reextractJob = job;
     void runReextractOutdated(db, {
-      reextract: async (id) => { await reextractSourceCandidates(id); },
+      reextract: async (id) => {
+        const r = await reextractSourceCandidates(id);
+        // Docling selected but unavailable: the source was re-extracted with the
+        // built-in parser and still expects Docling, so report it as skipped.
+        if (r.parserFallback) throw new Error(`Docling unavailable, used the built-in parser: ${r.parserFallback}`);
+      },
       withSourceLock,
+      expectLayout: expectedLayoutFor(loadRawSettings()),
       shouldStop: () => job.stop,
       onProgress: p => { job.progress = p; broadcast(IPC.REEXTRACT_PROGRESS, p); },
     })

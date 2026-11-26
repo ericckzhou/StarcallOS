@@ -342,6 +342,19 @@ Remember these as the active state of the repo:
   on load (`DOMMatrix is not defined`). Worker death fails in-flight parses
   (never retried in-process); a worker that cannot start falls back to
   in-process; `STARCALL_PDF_PARSER=inprocess` forces the old path.
+- Optional Docling PDF parser (Settings → PDF parser; default Built-in). The
+  user runs their own `docling-serve` (default `http://127.0.0.1:5001`); the app
+  never bundles Python. `ingestion/docling.ts`: `convertPdfWithDocling` (async
+  API: submit → poll → result, JSON only, OCR off) + `doclingToSegmentation`
+  (DoclingDocument 1.x → the same `SegmentedBlock`s; furniture layer dropped;
+  section depth from numbering since Docling reports every header as level 1;
+  "Chapter N" folded into its title; formula text from `orig`). Main's
+  `segmentPdfConfigured` falls back to the built-in worker on ANY Docling
+  error. Layout stamp = `docling-<DOCLING_ADAPTER_VERSION>` for Docling-parsed
+  PDFs (chunks + parse runs); `expectedLayoutFor(settings)` feeds every
+  outdated planner, so switching parsers marks PDFs outdated. A Docling
+  fallback during bulk re-extract is reported as skipped. Evals take
+  `--parser docling` (label mapping is mechanical; see evals README).
 - Bulk "re-extract outdated sources" is shipped (Settings → Outdated sources,
   `ReextractPanel.tsx`; `knowledge/reextract_outdated.ts`; IPC `reextract.*`).
   Outdated = has candidates AND the latest SUCCESSFUL `parse_runs` row has a

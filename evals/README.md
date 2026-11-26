@@ -171,3 +171,36 @@ what the app runs.
   after the running-header layout fix (they need relabelling), which lowers
   citation precision for those questions. Only 3 unanswerable questions, so
   abstention is a coarse signal.
+
+## Comparing PDF parsers (Docling)
+
+Both the retrieval and the Ask eval take `--parser docling`, which segments the
+pinned textbook through a local `docling-serve` (`EVAL_DOCLING_URL`, default
+`http://127.0.0.1:5001`) instead of the built-in parser. The converted JSON is
+cached in `.cache/docling-<sha>.json` and the chunks go to a separate cache DB.
+A Docling run is never compared with, or saved as, the built-in baseline.
+
+The golden labels are built-in chunk keys, so for Docling they are mapped
+mechanically: the labelled passage's text (from the built-in chunking) is
+matched to Docling chunks within 2 pages that are mostly made of that passage
+(at least 70% of the chunk's content words occur in it) and cover a real part
+of it (at least 20%). It is a lookup of the same passage, not a new relevance
+judgment, but it does change the relevant sets (2.65 chunks per question vs
+1.96), so compare MRR and coverage rather than recall.
+
+Measured 2026-11-26 on b36 (docling 2.153.0, CPU, 164 s for 275 pages;
+`nomic-embed-text`, `qwen3.5:4b`; labels still `proposed`):
+
+| | built-in | Docling |
+|---|---|---|
+| chunks | 657 | 832 |
+| hybrid MRR@5 / Cov@5 / Cov@10 | 0.617 / 0.885 / 0.885 | 0.596 / 0.846 / 0.923 |
+| Ask: grounded / supported | 0.692 / 0.962 | 0.769 / 0.962 |
+| Ask: grounded on equation questions | 0.40 | 0.80 |
+| Ask: dropped citations | 0.140 | 0.055 |
+| Ask: citation precision (mapped labels) | 0.522 | 0.420 |
+| candidates: total / strong (score >= 0.5) | 295 / 38 | 356 / 112 |
+
+Retrieval is roughly level; answers cite formulas far more reliably and the
+candidate list loses the table-of-contents noise. One textbook is not enough
+to change the default, so Docling stays opt-in.

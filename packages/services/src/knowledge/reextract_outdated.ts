@@ -40,9 +40,19 @@ export function currentReextractVersions(): ReextractVersions {
   return { parser: PARSER_VERSION, grammar: GRAMMAR_VERSION, layout: LAYOUT_VERSION };
 }
 
-export function planOutdatedSources(db: DatabaseSync, current: ReextractVersions = currentReextractVersions()): ReextractPlan {
+// Expected layout stamp for one source. The layout version depends on which
+// PDF parser is configured (built-in vs Docling) and on the source kind (text
+// sources always use the built-in segmenter), so the caller can supply it per
+// source; by default every source expects `current.layout`.
+export type ExpectLayout = (source: { source_id: number; file_path: string }) => string;
+
+export function planOutdatedSources(
+  db: DatabaseSync,
+  current: ReextractVersions = currentReextractVersions(),
+  expectLayout?: ExpectLayout,
+): ReextractPlan {
   const rows = db.prepare(
-    `SELECT s.id AS id, COALESCE(s.title, s.filename) AS title, s.page_count AS page_count,
+    `SELECT s.id AS id, COALESCE(s.title, s.filename) AS title, s.page_count AS page_count, s.file_path AS file_path,
             r.parser_version AS parser_version, r.grammar_version AS grammar_version, r.layout_version AS layout_version
        FROM sources s
        LEFT JOIN parse_runs r ON r.id = (
@@ -51,7 +61,7 @@ export function planOutdatedSources(db: DatabaseSync, current: ReextractVersions
           ORDER BY r2.id DESC LIMIT 1)
       WHERE EXISTS (SELECT 1 FROM concept_candidates c WHERE c.source_id = s.id)`,
   ).all() as Array<{
-    id: number; title: string; page_count: number | null;
+    id: number; title: string; page_count: number | null; file_path: string;
     parser_version: string | null; grammar_version: string | null; layout_version: string | null;
   }>;
 
@@ -65,7 +75,8 @@ export function planOutdatedSources(db: DatabaseSync, current: ReextractVersions
     else {
       if (versions.parser !== current.parser) reasons.push('parser');
       if (versions.grammar !== current.grammar) reasons.push('grammar');
-      if (versions.layout !== current.layout) reasons.push('layout');
+      const layout = expectLayout ? expectLayout({ source_id: Number(r.id), file_path: r.file_path }) : current.layout;
+      if (versions.layout !== layout) reasons.push('layout');
     }
     if (reasons.length) {
       items.push({
@@ -102,6 +113,7 @@ export interface ReextractDeps {
   withSourceLock?: <T>(sourceId: number, fn: () => Promise<T>) => Promise<T>;
   onProgress?: (p: ReextractProgress) => void;
   shouldStop?: () => boolean;
+  expectLayout?: ExpectLayout;
 }
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -110,7 +122,7 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 // responsive. A failed source is reported and skipped; Stop takes effect
 // between sources (a source in progress always finishes or fails whole).
 export async function runReextractOutdated(db: DatabaseSync, deps: ReextractDeps): Promise<ReextractSummary> {
-  const plan = planOutdatedSources(db);
+  const plan = planOutdatedSources(db, currentReextractVersions(), deps.expectLayout);
   const lock = deps.withSourceLock ?? (<T>(_id: number, fn: () => Promise<T>) => fn());
   const summary: ReextractSummary = { stopped: false, reextracted: 0, failures: [] };
   for (let i = 0; i < plan.items.length; i++) {

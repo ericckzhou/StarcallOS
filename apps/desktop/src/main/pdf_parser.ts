@@ -13,7 +13,10 @@
 
 import path from 'path';
 import { Worker } from 'node:worker_threads';
-import { segmentPdf } from '@starcall/services';
+import {
+  segmentPdf, convertPdfWithDocling, doclingToSegmentation, doclingLayoutVersion, normalizeLocalBaseUrl,
+  DEFAULT_DOCLING_BASE_URL, LAYOUT_VERSION,
+} from '@starcall/services';
 
 type SegmentResult = Awaited<ReturnType<typeof segmentPdf>>;
 interface Pending { resolve: (r: SegmentResult) => void; reject: (e: Error) => void }
@@ -81,4 +84,46 @@ export function stopPdfParser(): void {
   worker = null;
   failAll('The PDF parser was stopped.');
   void child?.terminate();
+}
+
+// ─── Parser choice (built-in vs the user's docling-serve) ────────────────────
+
+export interface ConfiguredSegmentation extends SegmentResult {
+  parser: 'builtin' | 'docling';
+  // Layout version stamp for what actually ran (chunks + parse runs).
+  layoutVersion: string;
+  // Why Docling was selected but not used; null when it was used (or not selected).
+  fallback: string | null;
+}
+
+export interface PdfParserSettings { pdfParser?: 'builtin' | 'docling'; doclingBaseUrl?: string }
+
+// Docling is optional and never fails processing: any error (server down,
+// timeout, unknown output format) falls back to the built-in parser and the
+// reason is reported in the result, so the parse run and UI can show it.
+export async function segmentPdfConfigured(filePath: string, settings: PdfParserSettings): Promise<ConfiguredSegmentation> {
+  if (settings.pdfParser === 'docling') {
+    const baseUrl = normalizeLocalBaseUrl(settings.doclingBaseUrl) ?? DEFAULT_DOCLING_BASE_URL;
+    try {
+      const t0 = Date.now();
+      const doc = await convertPdfWithDocling(filePath, { baseUrl });
+      const out = doclingToSegmentation(doc);
+      console.log(`[PDF_PARSER] docling ${path.basename(filePath)}: ${out.pageCount} pages, ${out.blocks.length} blocks in ${Date.now() - t0}ms`);
+      return { ...out, parser: 'docling', layoutVersion: doclingLayoutVersion(), fallback: null };
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      console.error(`[PDF_PARSER] docling failed for ${path.basename(filePath)}; using the built-in parser: ${reason}`);
+      const out = await segmentPdfIsolated(filePath);
+      return { ...out, parser: 'builtin', layoutVersion: LAYOUT_VERSION, fallback: reason };
+    }
+  }
+  const out = await segmentPdfIsolated(filePath);
+  return { ...out, parser: 'builtin', layoutVersion: LAYOUT_VERSION, fallback: null };
+}
+
+// Layout stamp a source SHOULD have under the current settings: text sources
+// always use the built-in segmenter; PDFs follow the parser choice.
+export function expectedLayoutFor(settings: PdfParserSettings) {
+  return (s: { file_path: string }): string =>
+    settings.pdfParser === 'docling' && !s.file_path.endsWith('.txt') ? doclingLayoutVersion() : LAYOUT_VERSION;
 }

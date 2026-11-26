@@ -52,9 +52,9 @@ const neighbors = flag('neighbors');
 
 const golden = readGolden(here, die);
 const cases = golden.cases.slice(0, limit);
-const { db, sourceId, sha, chunks, rows, embedder, vectorError, unresolved } = await openPinnedDoc({
+const { db, sourceId, sha, chunks, rows, embedder, vectorError, unresolved, parser } = await openPinnedDoc({
   svc, here, tag: 'ask-eval', pdf: opt('pdf') ?? process.env.RETRIEVAL_EVAL_PDF, meta: golden.meta, cases,
-  wantVectors: true, noCache: flag('no-cache'), die,
+  wantVectors: true, noCache: flag('no-cache'), die, parser: opt('parser') ?? 'builtin',
 });
 // Ask runs hybrid retrieval in the app; scoring a keyword fallback as "Ask"
 // would hide a broken embedding setup.
@@ -113,7 +113,7 @@ fs.mkdirSync(path.join(here, 'results'), { recursive: true });
 fs.mkdirSync(path.join(here, 'baselines'), { recursive: true });
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const runConfig = {
-  document_sha256: sha, chunker_version: svc.CHUNKER_VERSION, layout_version: svc.LAYOUT_VERSION, chunks: chunks.length,
+  document_sha256: sha, parser, chunker_version: svc.CHUNKER_VERSION, layout_version: svc.LAYOUT_VERSION, chunks: chunks.length,
   model, embed_model: embedder.model, k: 6, neighbors, max_passage_chars: 1600, cases: cases.length,
 };
 const out = { at: new Date().toISOString(), config: runConfig, label_status: statusCounts, unresolved, metrics: m, results };
@@ -129,7 +129,9 @@ const flat = {
   dropped_citation_rate: m.dropped_citation_rate,
 };
 const baseFile = path.join(here, 'baselines', 'ask.json');
-if (flag('save-baseline')) {
+if (parser !== 'builtin') {
+  console.log(`[eval] parser ${parser}: not compared with or saved as the built-in baseline.`);
+} else if (flag('save-baseline')) {
   if (Number.isFinite(limit)) die('refusing to save a baseline from a --limit run.');
   if (neighbors) die('refusing to save a baseline with --neighbors (not the app default).');
   const { results: _r, ...metricsOnly } = out;
