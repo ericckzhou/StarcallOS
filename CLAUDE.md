@@ -22,11 +22,16 @@ Remember these as the active state of the repo:
 - Candidate review filters now operate on `final_score`, parser labels, and
   currently visible rows. Both manual ChatGPT prompts and configured in-app LLM
   filtering must send only the visible filtered candidates. The configured API
-  filter sends a single compact call of up to `LLM_API_FILTER_LIMIT` (75)
-  deduped visible candidates (term-only payload) to stay under low Groq TPM
-  tiers; the manual ChatGPT prompt is the large-list fallback. (An earlier
-  multi-batch/dual-provider "full coverage" path was reverted — it stalled on
-  Groq 429 backoff.)
+  filter (Candidate Review sends `fullCoverage: true`) runs deduped visible
+  candidates in term-only batches of `LLM_API_FILTER_LIMIT` (75) on the ONE
+  configured provider: sequential, 1s pacing, at most `LLM_FILTER_MAX_BATCHES`
+  (12) and a 120s deadline, and a batch that exhausts its retries stops the run
+  with partial results (fail-soft, never discards kept terms). Without
+  `fullCoverage` it is a single 75-candidate call. Returned terms match
+  candidates case/whitespace-insensitively (`keptBatchTerms` / `topicFitKey`).
+  The manual ChatGPT prompt remains the large-list fallback. (The original
+  unbounded dual-provider version stalled on Groq 429 backoff and was reverted
+  2026-05-29; the bounded single-provider version replaced it 2026-06-03.)
 - Source preview is a shared side pane across concept tabs. Preserve logical
   page anchoring when tabs, rails, zoom, or layout width changes.
 - PDF annotations are persisted source records. New manual highlights/sticky
