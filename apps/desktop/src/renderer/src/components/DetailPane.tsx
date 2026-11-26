@@ -215,6 +215,25 @@ function RescheduleButton({ conceptId }: { conceptId: number }) {
 // to export the concept as Markdown (.md) or an Anki import file (.txt,
 // tab-separated) via export:concept; the main process owns the Save dialog and
 // file write. Briefly flips to a check on success.
+// Opens the Ask tab scoped to this concept. Hidden on the Challenge tab until
+// the current attempt is graded, so looking things up can't replace recall.
+function AskAboutButton({ concept }: { concept: Concept }) {
+  return (
+    <button
+      onClick={() => window.dispatchEvent(new CustomEvent('starcall:ask', {
+        detail: { conceptId: concept.id, name: concept.name, sourceId: concept.source_id ?? null },
+      }))}
+      title={`Ask a question about ${concept.name} (answers from your sources, local model)`}
+      style={{
+        background: 'rgba(129,140,248,0.10)', border: '1px solid rgba(129,140,248,0.35)', color: '#c7d2fe',
+        borderRadius: 6, padding: '3px 9px', fontSize: 11, fontWeight: 600, cursor: 'pointer', flexShrink: 0,
+      }}
+    >
+      Ask
+    </button>
+  );
+}
+
 function ExportButton({ conceptId }: { conceptId: number }) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -327,6 +346,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   const [confidence, setConfidence] = useState(0.5);
   const [grading, setGrading] = useState(false);
   const [grade, setGrade] = useState<Grade | null>(null);
+  const [gradeError, setGradeError] = useState<string | null>(null);
   const [generatingTasks, setGeneratingTasks] = useState(false);
   const [taskGenError, setTaskGenError] = useState<string | null>(null);
   const [progress, setProgress] = useState<StudyProgress | null>(null);
@@ -364,7 +384,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   useEffect(() => {
     if (!concept) return;
     setTasks([]); setMastery(null); setMisconceptions([]); setEquations([]);
-    setHistory([]); setGrade(null); setSelectedTask(null); setResponse(''); setConfidence(0.5);
+    setHistory([]); setGrade(null); setGradeError(null); setSelectedTask(null); setResponse(''); setConfidence(0.5);
     setTaskGenError(null); setGeneratingTasks(false);
     setEvidenceKinds([]);
     Promise.all([
@@ -482,20 +502,34 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
   async function handleSubmit() {
     if (!selectedTask || !concept || !response.trim()) return;
     setGrading(true);
+    setGradeError(null);
+    let result: unknown;
     try {
-      const result = await window.api.evidence.submit({
+      result = await window.api.evidence.submit({
         taskId: selectedTask.id, conceptId: concept.id,
         userResponse: response, confidenceBefore: confidence,
       });
-      const g = result as Grade;
-      setGrade(g);
-      setMastery({ compression_stage: g.compression_stage });
-      setHistory(prev => [result as HistoryRecord, ...prev]);
-      setProgress(await window.api.evidence.progress() as StudyProgress);
-      window.dispatchEvent(new Event('starcall:progressChanged'));
-      window.dispatchEvent(new Event('starcall:review-queue-stale'));
-    } finally {
+    } catch (e) {
+      // Submit failed atomically (main persists record + mastery + SRS in one
+      // transaction, after grading), so nothing was recorded and the typed
+      // answer is kept for a resubmit.
+      const msg = e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e);
+      setGradeError(msg);
       setGrading(false);
+      return;
+    }
+    setGrading(false);
+    const g = result as Grade;
+    setGrade(g);
+    setMastery({ compression_stage: g.compression_stage });
+    setHistory(prev => [result as HistoryRecord, ...prev]);
+    window.dispatchEvent(new Event('starcall:progressChanged'));
+    window.dispatchEvent(new Event('starcall:review-queue-stale'));
+    // A failed refresh only leaves the XP header stale; the attempt is saved.
+    try {
+      setProgress(await window.api.evidence.progress() as StudyProgress);
+    } catch (e) {
+      console.warn('[challenge] progress refresh failed after a saved attempt', e);
     }
   }
 
@@ -548,7 +582,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
           tasks={tasks} selectedTask={selectedTask} onSelectTask={setSelectedTask}
           response={response} onResponseChange={setResponse}
           confidence={confidence} onConfidenceChange={setConfidence}
-          grading={grading} grade={grade}
+          grading={grading} grade={grade} gradeError={gradeError}
           generatingTasks={generatingTasks} taskGenError={taskGenError}
           onGenerateTasks={generateTasks}
           onRegenerateTasks={regenerateTasks}
@@ -600,6 +634,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
               </span>
               <RescheduleButton conceptId={concept.id} />
               <ExportButton conceptId={concept.id} />
+              {!(tab === 'challenge' && grade == null) && <AskAboutButton concept={concept} />}
               <button
                 onClick={() => setSourcePreviewOpen(false)}
                 title="Hide source"
@@ -649,6 +684,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
           </span>
           <RescheduleButton conceptId={concept.id} />
           <ExportButton conceptId={concept.id} />
+              {!(tab === 'challenge' && grade == null) && <AskAboutButton concept={concept} />}
           <button
             onClick={() => setSourcePreviewOpen(v => !v)}
             title="Show source on the right"
@@ -2323,11 +2359,11 @@ function ConfidenceSlider({ value, onChange, disabled }: {
   );
 }
 
-function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseChange, confidence, onConfidenceChange, grading, grade, generatingTasks, taskGenError, onGenerateTasks, onRegenerateTasks, onSubmit, onReset }: {
+function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseChange, confidence, onConfidenceChange, grading, grade, gradeError, generatingTasks, taskGenError, onGenerateTasks, onRegenerateTasks, onSubmit, onReset }: {
   tasks: Task[]; selectedTask: Task | null; onSelectTask: (t: Task) => void;
   response: string; onResponseChange: (v: string) => void;
   confidence: number; onConfidenceChange: (v: number) => void;
-  grading: boolean; grade: Grade | null;
+  grading: boolean; grade: Grade | null; gradeError: string | null;
   generatingTasks: boolean; taskGenError: string | null;
   onGenerateTasks: () => void;
   onRegenerateTasks: () => void;
@@ -2434,6 +2470,12 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
       }}>
         {grading ? 'Grading…' : 'Submit Response'}
       </button>
+      {gradeError && !grading && (
+        <div role="alert" style={{ fontSize: 12, color: '#fca5a5', lineHeight: 1.5 }}>
+          Grading failed — nothing was recorded and your answer is kept. Try submitting again.
+          <div style={{ color: '#9ca3af', marginTop: 2 }}>{gradeError}</div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,12 +2,15 @@
 // Used when a promoted candidate has no evidence_tasks yet and the user
 // opens its Challenge Me tab. Pay-per-use: ~500 tok per concept.
 
-import { chatJSON, type ProviderConfig } from '../core/llm';
+import type { ProviderConfig } from '../core/llm';
+import { z } from 'zod';
+import { chatStructured } from '../core/structured';
 import type { DatabaseSync } from '../core/infra/sqlite';
 import { getConceptById } from '../knowledge/repos/concepts';
 import { getSourceById } from '../knowledge/repos/sources';
-import { listTasksByConcept, createTask, deleteTasksForConcept, listRecordsByConcept } from '../knowledge/repos/evidence';
-import type { EvidenceTask, EvidenceKind } from '../core/domain/types';
+import { listTasksByConcept, createTask, retireTasksForConcept, listRecordsByConcept } from '../knowledge/repos/evidence';
+import type { EvidenceTask, EvidenceKind, EvidenceRecord } from '../core/domain/types';
+import { CALIBRATION_TOLERANCE } from '../knowledge/repos/evidence';
 
 // Contract: ../../../../contracts/lazy_tasks.md (CONTRACT_VERSION). Key invariants:
 // 5 tasks, one per kind in fixed order; grounded in THIS concept's source domain;
@@ -75,6 +78,76 @@ interface RawTask {
   kind: EvidenceKind;
   prompt: string;
   difficulty: number;
+}
+
+// Wire shape for lazy_tasks: strict envelope (at least one task), lenient items.
+export const LazyTasksOutputSchema = z.object({
+  tasks: z.array(z.object({
+    kind: z.string(),
+    prompt: z.string(),
+    difficulty: z.coerce.number().optional().default(3),
+  })).min(1),
+});
+
+// ─── Adaptive context (contract 1.4.0) ───────────────────────────────────────
+// Turns the learner's graded history for this concept into a compact block the
+// task generator targets: where they got to, what the grader said was missing,
+// what they got wrong, and whether they tend to overrate themselves. Empty
+// string when there is no history (first-time generation is unchanged).
+
+const HISTORY_MAX_GAPS = 3;
+const HISTORY_MAX_MISCONCEPTIONS = 2;
+
+type HistoryRecord = Pick<EvidenceRecord,
+  'score' | 'compression_stage' | 'gaps_detected' | 'misconceptions_detected' | 'created_at'
+> & { calibration_gap?: number | null };
+
+export function buildLearnerHistoryBlock(records: HistoryRecord[]): string {
+  if (records.length === 0) return '';
+  const recent = [...records].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+  const last = recent[0];
+  const best = Math.max(...recent.map(r => r.compression_stage));
+
+  const pick = (lists: string[][], max: number) => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const list of lists) {
+      for (const item of list) {
+        const t = item.trim();
+        const k = t.toLowerCase();
+        if (!t || seen.has(k)) continue;
+        seen.add(k);
+        out.push(t.length > 200 ? `${t.slice(0, 200)}…` : t);
+        if (out.length >= max) return out;
+      }
+    }
+    return out;
+  };
+  const gaps = pick(recent.map(r => r.gaps_detected ?? []), HISTORY_MAX_GAPS);
+  const misconceptions = pick(recent.map(r => r.misconceptions_detected ?? []), HISTORY_MAX_MISCONCEPTIONS);
+
+  const gapsWithConfidence = recent.map(r => r.calibration_gap).filter((g): g is number => typeof g === 'number');
+  const meanGap = gapsWithConfidence.length > 0 ? gapsWithConfidence.reduce((a, b) => a + b, 0) / gapsWithConfidence.length : null;
+  const calibration = meanGap === null ? null
+    : meanGap > CALIBRATION_TOLERANCE ? 'tends to be OVERCONFIDENT on this concept'
+    : meanGap < -CALIBRATION_TOLERANCE ? 'tends to be underconfident on this concept'
+    : 'is well calibrated on this concept';
+
+  const lines = [
+    'LEARNER HISTORY for this concept (use it to target the tasks):',
+    `  • Attempts: ${records.length}. Last result: ${last.score}, stage ${last.compression_stage}. Best stage reached: ${best}.`,
+  ];
+  if (gaps.length) lines.push(`  • Recent gaps the grader flagged:\n${gaps.map(g => `      - ${g}`).join('\n')}`);
+  if (misconceptions.length) lines.push(`  • Misconceptions shown:\n${misconceptions.map(m => `      - ${m}`).join('\n')}`);
+  if (calibration) lines.push(`  • The learner ${calibration}.`);
+  lines.push(
+    'ADAPT: keep the 5 kinds in order, but aim each question at the gaps above where the kind allows;',
+    `  pitch difficulty at or above what stage ${Math.min(5, best + 1)} requires (never easier than their best stage);`,
+  );
+  if (misconceptions.length) lines.push('  make the misconception_resistance task probe the recorded misconception from a new angle;');
+  if (calibration?.includes('OVERCONFIDENT')) lines.push('  favor questions with a specific checkable answer over open "explain" prompts, so overconfidence shows;');
+  lines.push('  do not mention this history or the learner\'s past answers in the prompts themselves.');
+  return lines.join('\n');
 }
 
 function normalizePrompt(p: string): string {
@@ -156,23 +229,29 @@ export async function ensureTasksForConcept(
     lines.push('TWIST: this is a REGENERATION. Each new question must explore a DIFFERENT angle than the avoid-list above — pick a new scenario, a different misconception, a different sibling concept to connect to, or a different difficulty band within the allowed range. Do not paraphrase the avoided prompts. Surprise the learner with the slant while keeping the kind contract.');
   }
 
+  // Adaptive targeting from graded history (no-op for a never-attempted concept).
+  const historyBlock = buildLearnerHistoryBlock(listRecordsByConcept(db, conceptId));
+  if (historyBlock) {
+    lines.push('');
+    lines.push(historyBlock);
+  }
+
   const userContent = lines.join('\n');
 
-  const { content } = await chatJSON(
+  const { data } = await chatStructured(
     config,
     {
       messages: [
-        { role: 'system', content: TASK_SYSTEM },
+        { role: 'system', content: TASK_SYSTEM, cache: true },
         { role: 'user', content: userContent },
       ],
-      responseFormat: 'json',
       temperature: opts.addTwist ? 0.6 : 0.3,
     },
     'lazy_tasks',
+    { schema: LazyTasksOutputSchema, name: 'record_tasks' },
   );
-
-  const parsed = JSON.parse(content || '{"tasks":[]}') as { tasks?: RawTask[] };
-  const tasks = parsed.tasks ?? [];
+  // Item-level leniency stays below (unknown kinds dropped, difficulty clamped).
+  const tasks = data.tasks as RawTask[];
 
   const validKinds: EvidenceKind[] = [
     'definition',
@@ -220,7 +299,9 @@ export async function regenerateTasksForConcept(
     const p = (r.task_prompt_snapshot ?? '').trim();
     if (p) exclude.add(p);
   }
-  deleteTasksForConcept(db, conceptId);
+  // Retire, never hard-delete: a hard delete cascades to evidence_records and
+  // wiped the learner's graded history for this concept (see migration 0035).
+  retireTasksForConcept(db, conceptId);
   return ensureTasksForConcept(config, db, conceptId, {
     excludePrompts: [...exclude],
     addTwist: true,

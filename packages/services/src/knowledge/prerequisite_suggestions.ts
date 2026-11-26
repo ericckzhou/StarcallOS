@@ -17,7 +17,9 @@
 import type { DatabaseSync } from '../core/infra/sqlite';
 import { createEdge } from './repos/concepts';
 import { emitEvent } from '../core/events';
-import { chatJSON, type ProviderConfig } from '../core/llm';
+import type { ProviderConfig } from '../core/llm';
+import { z } from 'zod';
+import { chatStructured } from '../core/structured';
 
 export type SuggestionEdgeType = 'requires' | 'enables';
 export type SuggestionBasis = 'deterministic' | 'llm';
@@ -263,27 +265,20 @@ export async function suggestLlmPrerequisites(
     })
     .join('\n');
 
-  const { content } = await chatJSON(
+  const { data } = await chatStructured(
     config,
     {
       messages: [
         { role: 'system', content: PREREQ_SUGGEST_SYSTEM },
         { role: 'user', content: `Concepts:\n${list}` },
       ],
-      responseFormat: 'json',
       temperature: 0.2,
       maxTokens: 1024,
     },
     'prereq_suggest',
+    { schema: PrereqSuggestOutputSchema, name: 'record_prerequisites' },
   );
-
-  let edges: LlmEdge[] = [];
-  try {
-    const parsed = JSON.parse(content || '{"edges":[]}') as { edges?: LlmEdge[] };
-    edges = Array.isArray(parsed.edges) ? parsed.edges : [];
-  } catch {
-    return { created, skippedExistingEdge, skippedUnresolved };
-  }
+  const edges: LlmEdge[] = data.edges;
 
   const insert = db.prepare(
     `INSERT OR IGNORE INTO prerequisite_suggestions
@@ -302,6 +297,14 @@ export async function suggestLlmPrerequisites(
 
   return { created, skippedExistingEdge, skippedUnresolved };
 }
+
+// Wire shape for prereq_suggest. Unresolvable names are counted downstream.
+export const PrereqSuggestOutputSchema = z.object({
+  edges: z.array(z.object({
+    prerequisite: z.string(),
+    dependent: z.string(),
+  })).default([]),
+});
 
 const SUGGESTION_SELECT = `
   SELECT s.*, cf.name AS from_name, ct.name AS to_name

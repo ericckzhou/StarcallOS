@@ -9,7 +9,7 @@ const longStr     = (max = 50_000) => z.string().max(max);
 
 // ─── Enum schemas ─────────────────────────────────────────────────────────────
 
-const providerIdSchema        = z.enum(['groq', 'anthropic']);
+const providerIdSchema        = z.enum(['groq', 'anthropic', 'local']);
 const extractionModeSchema    = z.enum(['deterministic', 'candidate_gated', 'full']);
 const conceptImportanceSchema = z.enum(['foundational', 'core', 'supporting', 'peripheral', 'reference_only']);
 const annotationTypeSchema    = z.enum(['highlight', 'note']);
@@ -86,6 +86,14 @@ export const SettingsPatchSchema = z.object({
   extractionMode:  extractionModeSchema.optional(),
   heavyModel:      z.string().max(200).optional(),
   lightModel:      z.string().max(200).optional(),
+  gradeSelfConsistency: z.boolean().optional(),
+  localBaseUrl:    z.string().max(300).optional(),
+  localModel:      z.string().max(200).optional(),
+  embeddingsEnabled: z.boolean().optional(),
+  embeddingModel:  z.string().max(200).optional(),
+  srsScheduler:    z.enum(['sm2', 'fsrs']).optional(),
+  pdfParser:       z.enum(['builtin', 'docling']).optional(),
+  doclingBaseUrl:  z.string().max(300).optional(),
 });
 
 export const SubmitEvidenceArgsSchema = z.object({
@@ -159,6 +167,14 @@ export const ExportBundleArgsSchema = z
     message: 'sourceId is required for scope "source" and forbidden for scope "library"',
     path: ['sourceId'],
   });
+
+// Local Ask (RAG). Bounded so a pasted essay can't become a huge FTS/prompt.
+export const RagAskArgsSchema = z.object({
+  question:  z.string().trim().min(1).max(2000),
+  sourceIds: z.array(positiveInt).max(500).optional(),
+  // "Ask about this": focus retrieval on the concept and save to its history.
+  conceptId: positiveInt.optional(),
+});
 
 // ─── Remaining mutating-handler schemas ────────────────────────────────────────
 // These guard the rest of the write-path IPC surface. Kept permissive (generous

@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { computeCentrality, runStructureExtractor, runChunker } from './extraction';
 
-vi.mock('../core/llm', () => ({ chatJSON: vi.fn() }));
+vi.mock('../core/llm', async (importOriginal) => ({ ...(await importOriginal<typeof import('../core/llm')>()), chatJSON: vi.fn() }));
 import { chatJSON } from '../core/llm';
 const mockChat = vi.mocked(chatJSON);
 
-const fakeUsage = { pass: 'x', provider: 'groq' as const, model: 'm', promptTokens: 5, completionTokens: 5, totalTokens: 10, durationMs: 20 };
+const fakeUsage = { pass: 'x', provider: 'groq' as const, model: 'm', promptTokens: 5, completionTokens: 5, totalTokens: 10, durationMs: 20, retries: 0, cacheReadTokens: 0 };
 const cfg = { provider: 'groq' as const, apiKey: 'k', model: 'm' };
 
 // ─── computeCentrality (pure, no LLM) ─────────────────────────────────────────

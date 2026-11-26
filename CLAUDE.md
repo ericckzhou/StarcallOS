@@ -92,7 +92,21 @@ Remember these as the active state of the repo:
   are intrinsic to one attempt (no delete/replay recompute). `UnsupportedClaim`
   lives in `core/domain/types.ts`; the GradeCard + History rows render a
   grounded/partially-grounded/unsupported badge + claim list. `CONTRACT_VERSION`
-  1.2.0; contract in `contracts/grader.md`.
+  is 1.4.0 (shared counter; 1.4.0 = adaptive lazy tasks); grader contract in
+  `contracts/grader.md`. Grader 1.3.0 adds per-stage calibration
+  examples to `GRADER_SYSTEM`, optional self-consistency (Settings → Grading,
+  `effectiveSelfConsistency`: default on for Anthropic, off for Groq) that
+  re-grades `isBorderlineGrade` answers twice at T=0.7 (temperature applies to Groq/local only: Anthropic SDK 1.x / API
+  2026-10-21 removed sampling controls, so Anthropic calls never send it) and merges via
+  `aggregateGrades` (majority score, ties → conservative; lower-median stage).
+  Graded attempts persist via `persistGradedAttempt` (record + mastery + SRS in
+  one transaction),
+  and an audit trail on `evidence_records` (migration 0032: `grader_output`,
+  `grader_prompt_hash`, `grader_model`, `grader_contract`, `grade_samples`;
+  kept OFF the DTO, read via `getEvidenceAudit`). The grader's stable prefix
+  (system + concept/source block) is marked `cache: true` for Anthropic
+  prompt caching (`toAnthropicPayload`). Offline evals: `pnpm eval`
+  (`evals/`, golden sets labeled `proposed` until human-reviewed).
 - Confidence calibration is shipped (migration 0030). The ChallengeTab has a
   pre-submit "How confident are you?" slider (0–1, default 0.5, always captured);
   `SubmitEvidenceArgs.confidenceBefore` (Zod `0..1` optional) flows to the
@@ -128,7 +142,18 @@ Remember these as the active state of the repo:
   ease/reps untouched, `null` = due now). Deleting an evidence record replays the
   survivors (`recomputeSrsForConcept`, beside `recomputeMasteryForConcept` in
   `deleteEvidenceRecord`). The pure SM-2 scheduler lives in
-  `packages/services/src/knowledge/srs.ts`. The queue defaults to expanding only
+  `packages/services/src/knowledge/srs.ts`; FSRS-5 (default weights) in
+  `knowledge/fsrs.ts`. Settings → Grading → Review scheduler picks SM-2
+  (default) or FSRS; main calls `setSrsScheduler` at startup and on save, and
+  every record/replay path goes through `scheduleReview`. FSRS state is
+  `concept_srs.stability/difficulty` (migration 0034); SM-2 cards convert
+  lazily on their next review (stability seeded from the SM-2 interval — no
+  replay, which would drop `✓ Done` reviews). Overconfident non-`understood`
+  attempts (`calibration_gap` > 0.15) get a 0.7× interval under either
+  scheduler (also applied on replay). `listReviewQueue` sinks concepts with
+  unmastered direct prerequisites below unblocked ones within the same urgency
+  bucket (`orderBlockedLast`). Settings persist via `mergeSettingsPatch`
+  (never list fields one by one in main — that silently dropped new settings). The queue defaults to expanding only
   the most recently previewed source's group.
 - Concepts export to **Markdown** (`.md`) or **Anki** (`.txt`, tab-separated
   import — NOT `.apkg`) via the DetailPane header `ExportButton` (beside
@@ -225,6 +250,119 @@ Remember these as the active state of the repo:
   source (`starcall.layout.lastSource`, set on Sources-tab select), falling back
   to the largest source. The footer stats scope to the selected source via
   `graph.statsBySource`. The mastery ring ramps orange→yellow→green by stage.
+- Every `chatJSON` call (success or failure) emits an `LlmTraceEvent` to an
+  optional sink (`setLlmTraceSink`); main installs `createLlmCallSink(db)`,
+  appending metadata only (pass/provider/model/tokens/cache reads/latency/
+  retries/`prompt_hash` = sha256 of system prompt, never prompt text) to the
+  append-only `llm_calls` table (migration 0031). A throwing sink never breaks
+  a call. Settings shows an "LLM usage" table via `llm.traceSummary(days)`.
+- Structured LLM passes go through `chatStructured` (`core/structured.ts`):
+  a Zod wire schema per pass (`GraderOutputSchema`, `LazyTasksOutputSchema`,
+  `EnrichOutputSchema`, `PrereqSuggestOutputSchema`). Anthropic enforces it
+  natively as a single forced tool (`ChatRequest.jsonSchema`); Groq stays on
+  `json_object`. Invalid output gets ONE repair call (traced as
+  `<pass>:repair`), then throws `LlmParseError`. Never substitute a default
+  result for bad output — the grader previously recorded unparseable output
+  as a real `gap` grade. The topic filter keeps its lenient parser (it also
+  parses pasted ChatGPT output) and is traced as `topic_filter`.
+- Local embeddings are opt-in (Settings → Embeddings, `embeddingsEnabled`,
+  default model `nomic-embed-text`) via an OpenAI-compatible `/embeddings`
+  endpoint at `localBaseUrl` (`core/embeddings.ts`; pure fetch, no native/ONNX
+  module). Vectors live in the derived `embeddings` table (migration 0033,
+  wiped by `clearDerivedDataForSource`), indexed incrementally by text hash
+  (`indexSourceEmbeddings`): `concept` rows (name + definition) and `span` rows
+  (evidence quotes ≥40 chars). Consumers: grading adds top similar quotes from
+  OTHER concepts in the same source to `buildGroundingContext(db, id, extra)`
+  (only when the concept has its own material; 8s soft timeout); the
+  constellation editor shows "Similar concepts" chips (`embeddings.related`)
+  that only START the normal add flow — never auto-link. Candidate Review shows
+  a "≈ term" near-duplicate chip (`candidates.nearDuplicates` →
+  `findCandidateNearDuplicates`, term-only, `clustering:` prefix for nomic
+  models, threshold 0.93 calibrated on nomic; not persisted — main memoizes via
+  `createCachingEmbedder`); hints only, never auto-merge. Every consumer must
+  degrade silently when embeddings are off/unreachable.
+- The RAG retrieval foundation is shipped (migration 0036, PR 1 of local Q&A;
+  no UI, no answer generation yet). `chunkBlocks` (`ingestion/chunker.ts`,
+  `CHUNKER_VERSION`) turns the existing layout blocks into section-bounded,
+  page-traceable chunks. Page-numbered running headers are stripped in
+  `layout.ts` (`detectPrintedPageHeaders`, LAYOUT 0.5.3: margin/first/last-line
+  numbers voting for one printed-page offset); the chunker's own header filter
+  is now only a backstop. `syncSourceChunks` reconciles `rag_chunks` by content-addressed
+  `chunk_key` right after candidate persistence in both processing paths —
+  unchanged documents write nothing and keep chunk ids. `rag_chunks_fts` (FTS5,
+  porter) is trigger-synced. Chunk vectors are `embeddings` rows with
+  `owner_kind='chunk'` (on demand via `indexSourceChunkEmbeddings`; processing
+  never embeds); `clearDerivedDataForSource` and `indexSourceEmbeddings` must
+  never touch chunk rows. `retrieveChunks` (`knowledge/retrieval.ts`) =
+  keyword (BM25) | vector | hybrid (RRF k=60), deterministic tie-breaks, and an
+  explicit keyword fallback (`mode_used`/`vector_error`) when vectors are
+  unavailable. Eval: `pnpm eval:retrieval -- --pdf <b36-txtbook.pdf>` against
+  the sha-pinned `evals/golden/retrieval.jsonl` (labels `proposed` until a human
+  reviews them; the repo is public, so labels hold keys + 60-char anchors only).
+  `pnpm eval:ask -- --pdf <pdf> --model <local>` scores real Ask answers on
+  the same questions (deterministic: status mix, abstention, citation
+  precision, dropped citations; no LLM judge; tolerance 0.075). Shared setup
+  lives in `evals/pinned_doc.mjs`.
+- Local Ask (RAG PR 2) is shipped as a top-level **Ask** tab (`AskPane.tsx`,
+  `knowledge/ask.ts`). Generation is LOCAL-ONLY: `resolveAskConfig` always
+  returns the `local` provider (pass `ask`) and never a cloud one. Citations
+  are verified by `validateAnswer`/`quoteInPassage`: the quote must occur in
+  the passage after `normalizeWithMap` folding, and the result carries
+  `start`/`end` offsets into the original text, which the UI highlights.
+  Unverified citations are dropped and markers rewritten. Status is
+  grounded/partial/qualified/unsupported/insufficient/no_passages/retrieval_only
+  (`qualified` = the model flagged the passages insufficient but gave a hedged
+  answer with ≥1 VERIFIED citation; shown as "Sources partly answer this", not
+  a decline). Neighbor expansion (`withNeighbors`, `AskOptions.neighbors`) is
+  opt-in/off: it raised citation precision but cost false-premise answers.
+  Pre-model abstention was measured and deliberately NOT shipped (top cosine
+  does not separate unanswerable questions on the golden set). A model
+  failure degrades to `retrieval_only` (passages still shown). Chunk vectors
+  are embedded lazily on Ask with `rag:progress`; `rag.indexSource` backfills
+  one pre-0036 source; the whole-library job (`knowledge/library_index.ts`,
+  `LibraryIndexPanel` in the Ask rail + Settings → Passage index) chunks
+  unindexed sources, re-chunks outdated ones (older chunker/layout stamps) and
+  embeds everything. It is user-started only (never at startup), resumable with
+  no job table (per-source/per-batch commits), and Stop-able; failures are
+  skipped and reported. A main-process per-source lock serializes it with
+  Index/Ask; Ask skips busy sources (index_warning). Citations open
+  `SourcePagePreview` (read-only cited-page render, quote located on
+  letters/digits only — pdf.js emits math glyphs as out-of-order spans; never
+  use it to VERIFY, only to locate). `+ Note` saves the answer and its citations as a concept
+  note. Never loosen the quote check into fuzzy/semantic matching: the
+  guarantee is verbatim modulo typography. The concept header **Ask** button
+  (hidden on Challenges until graded) opens Ask with that concept as context:
+  retrieval `focus` only, per-concept `ask_history` (migration 0037, newest
+  50). This is NOT a chat: never feed earlier answers back into the prompt.
+- PDF segmentation runs off the main thread: every main-process `segmentPdf`
+  call goes through `segmentPdfIsolated` (`apps/desktop/src/main/pdf_parser.ts`)
+  → a Node **worker thread** (`parse_worker.ts`, second electron-vite main
+  entry, 2 GB heap cap). NOT an Electron utilityProcess: pdf.js keys its
+  Node detection off `process.type`, which is `'utility'` there, so it crashes
+  on load (`DOMMatrix is not defined`). Worker death fails in-flight parses
+  (never retried in-process); a worker that cannot start falls back to
+  in-process; `STARCALL_PDF_PARSER=inprocess` forces the old path.
+- Optional Docling PDF parser (Settings → PDF parser; default Built-in). The
+  user runs their own `docling-serve` (default `http://127.0.0.1:5001`); the app
+  never bundles Python. `ingestion/docling.ts`: `convertPdfWithDocling` (async
+  API: submit → poll → result, JSON only, OCR off) + `doclingToSegmentation`
+  (DoclingDocument 1.x → the same `SegmentedBlock`s; furniture layer dropped;
+  section depth from numbering since Docling reports every header as level 1;
+  "Chapter N" folded into its title; formula text from `orig`). Main's
+  `segmentPdfConfigured` falls back to the built-in worker on ANY Docling
+  error. Layout stamp = `docling-<DOCLING_ADAPTER_VERSION>` for Docling-parsed
+  PDFs (chunks + parse runs); `expectedLayoutFor(settings)` feeds every
+  outdated planner, so switching parsers marks PDFs outdated. A Docling
+  fallback during bulk re-extract is reported as skipped. Evals take
+  `--parser docling` (label mapping is mechanical; see evals README).
+- Bulk "re-extract outdated sources" is shipped (Settings → Outdated sources,
+  `ReextractPanel.tsx`; `knowledge/reextract_outdated.ts`; IPC `reextract.*`).
+  Outdated = has candidates AND the latest SUCCESSFUL `parse_runs` row has a
+  different PARSER/GRAMMAR/LAYOUT version (or no run → `unknown`). The single
+  Re-extract button and the job share `reextractSourceCandidates` in main, which
+  now records a `parse_run` (`diagnostics.trigger='reextract'`) — without that a
+  re-extracted source would stay "outdated" forever. User-started only,
+  sequential under `withSourceLock`, Stop between sources, resumable.
 - User-facing provider text should say "configured LLM provider" unless a
   feature is truly Groq-specific.
 - `.claude/agents/ipc-contract-reviewer.md` is a project review agent that
@@ -313,6 +451,7 @@ changes that affect repeatability:
 - `PARSER_VERSION`: candidates/topic scoring/promotion-output behavior
 - `GRAMMAR_VERSION`: grammar/equation extraction behavior
 - `LAYOUT_VERSION`: segmentation/layout classification behavior
+- `CHUNKER_VERSION`: retrieval chunk boundaries (`ingestion/chunker.ts`)
 
 Candidate rows and parse runs stamp these versions for auditability.
 
@@ -392,6 +531,15 @@ Candidate rows and parse runs stamp these versions for auditability.
   any promoted concept across all sources (suggestion rows show the other
   source's filename). The list is user-curated only — enrich, the ChatGPT
   paste flow, and the generated prompt never write it.
+- Regenerate RETIRES graded tasks (`evidence_tasks.retired_at`, migration 0035;
+  `retireTasksForConcept`) and hard-deletes only unattempted ones.
+  `evidence_records.task_id` is `ON DELETE CASCADE` with FKs enforced, so the
+  old hard delete wiped the concept's graded history — never call
+  `deleteTasksForConcept` for a "replace tasks" flow. `listTasksByConcept`
+  hides retired tasks. Task generation is adaptive (contract 1.4.0): once a
+  concept has graded attempts, `buildLearnerHistoryBlock` appends last/best
+  stage, recent gaps, misconceptions, and calibration so the 5 tasks target
+  them.
 - Regenerating Challenge tasks excludes every already-seen prompt (live tasks
   + every `task_prompt_snapshot`), sends them as an AVOID list with a twist
   instruction, and post-filters exact normalized duplicates. The Regenerate
@@ -448,7 +596,15 @@ Candidate rows and parse runs stamp these versions for auditability.
 All provider calls go through `chatJSON(config, request, passName)` in
 `packages/services/src/core/llm.ts`.
 
-- Providers: `groq` and `anthropic`
+- Providers: `groq`, `anthropic`, and `local` (any OpenAI-compatible server —
+  Ollama/llama.cpp/LM Studio — via `fetch` to `{localBaseUrl}/chat/completions`,
+  default `http://127.0.0.1:11434/v1`; free-text `localModel`, one model for
+  every pass, no API key; `MODEL_CHOICES.local` is empty). Local calls send
+  `reasoning_effort: "none"` (thinking models otherwise burn max_tokens on
+  hidden reasoning and return truncated JSON), retrying once without it on a
+  400. Settings → "Test connection" lists models via `llm.listLocalModels`.
+  The local provider is unrelated to the URL importer's SSRF guard
+  (`net_guard` still blocks loopback for `+ URL`).
 - Settings: provider, API keys, `heavyModel`, `lightModel`, `extractionMode`
 - Heavy passes: `enrich`, `chunker`, `concepts`, `misconceptions`, `tasks`,
   `lazy_tasks`, `grader`
@@ -458,7 +614,10 @@ All provider calls go through `chatJSON(config, request, passName)` in
 - The configured candidate topic-fit API path must stay small enough for low
   Groq TPM tiers. Prefer small batches and compact prompts over sending the full
   candidate list. The manual ChatGPT prompt remains the large-list fallback.
-- Anthropic JSON mode is emulated by prompt instruction and fence stripping.
+- Anthropic JSON mode: structured passes (`chatStructured`: grader,
+  lazy_tasks, enrich_concept, prereq_suggest) force a single tool with the Zod
+  schema as `input_schema`; plain `chatJSON` callers (extraction passes, topic
+  filter) still rely on prompt instruction + fence stripping.
 
 ## Skills/Agent Workflow
 

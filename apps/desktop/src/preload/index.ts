@@ -94,6 +94,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   candidates: {
     bySource: (sourceId: number) => ipcRenderer.invoke('candidates:bySource', sourceId),
+    nearDuplicates: (sourceId: number) => ipcRenderer.invoke('candidates:nearDuplicates', sourceId),
     promote:  (candidateId: number) => ipcRenderer.invoke('candidates:promote', candidateId),
     promoteBulk: (candidateIds: number[]) => ipcRenderer.invoke('candidates:promoteBulk', candidateIds),
     reject:   (candidateId: number) => ipcRenderer.invoke('candidates:reject', candidateId),
@@ -145,5 +146,57 @@ contextBridge.exposeInMainWorld('api', {
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (input: unknown) => ipcRenderer.invoke('settings:set', input),
+  },
+  llm: {
+    traceSummary: (days?: number) => ipcRenderer.invoke('llm:traceSummary', days),
+    listLocalModels: (baseUrl: string) => ipcRenderer.invoke('llm:listLocalModels', baseUrl),
+  },
+  docling: {
+    test: (baseUrl: string) => ipcRenderer.invoke('docling:test', baseUrl),
+  },
+  embeddings: {
+    status: () => ipcRenderer.invoke('embeddings:status'),
+    indexLibrary: () => ipcRenderer.invoke('embeddings:indexLibrary'),
+    related: (conceptId: number) => ipcRenderer.invoke('concepts:related', conceptId),
+  },
+  rag: {
+    status: () => ipcRenderer.invoke('rag:status'),
+    indexSource: (sourceId: number) => ipcRenderer.invoke('rag:indexSource', sourceId),
+    ask: (args: { question: string; sourceIds?: number[]; conceptId?: number }) => ipcRenderer.invoke('rag:ask', args),
+    history: (conceptId: number) => ipcRenderer.invoke('rag:history', conceptId),
+    historyDelete: (id: number) => ipcRenderer.invoke('rag:historyDelete', id),
+    libraryStatus: () => ipcRenderer.invoke('rag:libraryStatus'),
+    libraryStart: () => ipcRenderer.invoke('rag:libraryStart'),
+    libraryStop: () => ipcRenderer.invoke('rag:libraryStop'),
+    onLibraryProgress: (cb: (p: unknown) => void) => {
+      const listener = (_e: unknown, p: unknown) => cb(p);
+      ipcRenderer.on('rag:libraryProgress', listener);
+      return () => ipcRenderer.removeListener('rag:libraryProgress', listener);
+    },
+    onLibraryDone: (cb: (s: unknown) => void) => {
+      const listener = (_e: unknown, s: unknown) => cb(s);
+      ipcRenderer.on('rag:libraryDone', listener);
+      return () => ipcRenderer.removeListener('rag:libraryDone', listener);
+    },
+    onProgress: (cb: (p: { phase: 'embedding'; sourceId: number; done: number; total: number }) => void) => {
+      const listener = (_e: unknown, p: { phase: 'embedding'; sourceId: number; done: number; total: number }) => cb(p);
+      ipcRenderer.on('rag:progress', listener);
+      return () => ipcRenderer.removeListener('rag:progress', listener);
+    },
+  },
+  reextract: {
+    status: () => ipcRenderer.invoke('reextract:status'),
+    start: () => ipcRenderer.invoke('reextract:start'),
+    stop: () => ipcRenderer.invoke('reextract:stop'),
+    onProgress: (cb: (p: unknown) => void) => {
+      const listener = (_e: unknown, p: unknown) => cb(p);
+      ipcRenderer.on('reextract:progress', listener);
+      return () => ipcRenderer.removeListener('reextract:progress', listener);
+    },
+    onDone: (cb: (s: unknown) => void) => {
+      const listener = (_e: unknown, s: unknown) => cb(s);
+      ipcRenderer.on('reextract:done', listener);
+      return () => ipcRenderer.removeListener('reextract:done', listener);
+    },
   },
 });

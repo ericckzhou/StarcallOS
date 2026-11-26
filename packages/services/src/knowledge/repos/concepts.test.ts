@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../../core/infra/db';
 import { createSource } from './sources';
-import { createConcept, searchConceptsByPrefix, searchConceptsByPrefixForConcept, searchConceptsByPrefixGlobal } from './concepts';
+import { createConcept, createEdge, listReviewQueue, searchConceptsByPrefix, searchConceptsByPrefixForConcept, searchConceptsByPrefixGlobal } from './concepts';
 
 function seed(db: ReturnType<typeof openDb>) {
   const source = createSource(db, { filename: 'b.txt', file_path: 'b.txt' });
@@ -174,5 +174,35 @@ describe('searchConceptsByPrefixGlobal', () => {
       source_filename: 'bible.pdf',
     });
     db.close();
+  });
+});
+
+describe('listReviewQueue ordering with real rows', () => {
+  it('orders new -> due (unblocked before blocked) -> future, parsing both due_at formats', () => {
+    const db = openDb(':memory:');
+    const src = createSource(db, { filename: 'q.pdf', file_path: '/tmp/q.pdf' });
+    const mk = (name: string) => createConcept(db, {
+      source_id: src.id, name, slug: name.toLowerCase(), importance: 'core', definition_text: '', why_exists: '',
+      what_breaks: '', where_reappears: [], chunk_ids: [], section_path: [], exam_value: 0.5,
+      misconception_risk: 0.5, centrality_score: 0.5,
+    });
+    const N = mk('New'), D1 = mk('Overdue'), D2 = mk('Due'), B = mk('Blocked'), F = mk('Future'), P = mk('Prereq');
+    const due = (id: number, at: string | null) => db.prepare(
+      `INSERT INTO concept_srs (concept_id, due_at) VALUES (?, ?)
+       ON CONFLICT(concept_id) DO UPDATE SET due_at = excluded.due_at`,
+    ).run(id, at);
+    due(D1.id, '2026-05-01 00:00:00');      // migration-backfill format
+    due(B.id, '2026-05-02T00:00:00.000Z');
+    due(D2.id, '2026-05-03T00:00:00.000Z');
+    due(F.id, '2026-07-01T00:00:00.000Z');
+    due(P.id, '2026-07-02T00:00:00.000Z');
+    createEdge(db, P.id, B.id, 'requires');
+
+    const now = new Date('2026-06-01T00:00:00Z');
+    const order = () => listReviewQueue(db, 50, now).map(i => i.concept.name);
+    expect(order()).toEqual(['New', 'Overdue', 'Due', 'Blocked', 'Future', 'Prereq']);
+
+    db.prepare(`INSERT INTO mastery (concept_id, compression_stage) VALUES (?, 2)`).run(P.id);
+    expect(order()).toEqual(['New', 'Overdue', 'Blocked', 'Due', 'Future', 'Prereq']);
   });
 });
