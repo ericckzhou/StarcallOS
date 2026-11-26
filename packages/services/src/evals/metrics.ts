@@ -313,3 +313,105 @@ export function scoreRetrieval(results: RetrievalCaseResult[], k: number): Retri
     mean_top_score_unanswerable: meanTop(unanswerable),
   };
 }
+
+// ─── Ask (answers) ───────────────────────────────────────────────────────────
+// Deterministic answer-level metrics for local Ask. No LLM judge: these count
+// what the pipeline itself can verify — the answer status, which chunks the
+// verified citations point at, how many citations were dropped, and latency.
+// Unanswerable questions (no relevant chunk exists) score only on abstention.
+
+export interface AskCaseResult {
+  id: string;
+  category: string;
+  answerable: boolean;
+  relevant: string[];          // relevant chunk keys
+  status: string;              // AnswerStatus
+  cited: string[];             // chunk keys of VERIFIED citations (may repeat)
+  dropped: number;             // citations dropped by validation
+  latency_ms: number;
+}
+
+export interface AskGroupMetrics {
+  n: number;
+  grounded_rate: number;       // status 'grounded'
+  supported_rate: number;      // 'grounded' or 'partial'
+  declined_rate: number;       // 'insufficient' or 'no_passages'
+  unsupported_rate: number;    // answered, nothing verified
+  failed_rate: number;         // 'retrieval_only' (model error / invalid output)
+}
+
+export interface AskMetrics {
+  n: number;
+  answerable: AskGroupMetrics;
+  // Share of unanswerable questions the pipeline declined. null when the set has none.
+  correct_abstention_rate: number | null;
+  n_unanswerable: number;
+  // Over verified citations on answerable questions: share pointing at a relevant chunk.
+  citation_precision: number | null;
+  // Share of supported answerable answers citing at least one relevant chunk.
+  relevant_citation_rate: number | null;
+  // dropped / (verified + dropped) over all cases.
+  dropped_citation_rate: number | null;
+  latency_p50_ms: number;
+  latency_p95_ms: number;
+  by_category: Record<string, AskGroupMetrics>;
+}
+
+const DECLINED = new Set(['insufficient', 'no_passages']);
+
+function askGroup(cs: AskCaseResult[]): AskGroupMetrics {
+  const n = cs.length;
+  const share = (pred: (c: AskCaseResult) => boolean) => (n ? round(cs.filter(pred).length / n) : 0);
+  return {
+    n,
+    grounded_rate: share(c => c.status === 'grounded'),
+    supported_rate: share(c => c.status === 'grounded' || c.status === 'partial'),
+    declined_rate: share(c => DECLINED.has(c.status)),
+    unsupported_rate: share(c => c.status === 'unsupported'),
+    failed_rate: share(c => c.status === 'retrieval_only'),
+  };
+}
+
+// Nearest-rank percentile over a non-empty list.
+export function percentile(xs: number[], p: number): number {
+  if (xs.length === 0) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.max(0, Math.ceil((p / 100) * s.length) - 1))];
+}
+
+export function scoreAsk(results: AskCaseResult[]): AskMetrics {
+  const answerable = results.filter(c => c.answerable && c.relevant.length > 0);
+  const unanswerable = results.filter(c => !c.answerable);
+
+  let cites = 0, relevantCites = 0;
+  for (const c of answerable) {
+    const rel = new Set(c.relevant);
+    cites += c.cited.length;
+    relevantCites += c.cited.filter(k => rel.has(k)).length;
+  }
+  const supported = answerable.filter(c => c.status === 'grounded' || c.status === 'partial');
+  const verified = results.reduce((a, c) => a + c.cited.length, 0);
+  const dropped = results.reduce((a, c) => a + c.dropped, 0);
+
+  const by_category: Record<string, AskGroupMetrics> = {};
+  for (const cat of [...new Set(results.map(c => c.category))].sort()) {
+    by_category[cat] = askGroup(results.filter(c => c.category === cat));
+  }
+  const lat = results.map(c => c.latency_ms);
+  return {
+    n: results.length,
+    answerable: askGroup(answerable),
+    correct_abstention_rate: unanswerable.length
+      ? round(unanswerable.filter(c => DECLINED.has(c.status)).length / unanswerable.length)
+      : null,
+    n_unanswerable: unanswerable.length,
+    citation_precision: cites ? round(relevantCites / cites) : null,
+    relevant_citation_rate: supported.length
+      ? round(supported.filter(c => c.cited.some(k => c.relevant.includes(k))).length / supported.length)
+      : null,
+    dropped_citation_rate: verified + dropped ? round(dropped / (verified + dropped)) : null,
+    latency_p50_ms: percentile(lat, 50),
+    latency_p95_ms: percentile(lat, 95),
+    by_category,
+  };
+}

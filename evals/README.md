@@ -114,3 +114,44 @@ changes against. It is not a quality claim:
   A sign test gives p ≈ 0.125, which is not significant.
 - Re-record the baseline (`--save-baseline`) after the human review, and
   report the comparison against this one.
+
+## Ask answers
+
+`evals/ask.mjs` runs the 30 retrieval golden questions through the real
+`askSources` pipeline (hybrid retrieval → local model → citation
+verification) and scores the answers. No LLM judge: every metric is
+something the pipeline can check deterministically. Not part of CI. It needs
+the pinned textbook, the embedding server and a local chat model.
+
+```sh
+pnpm eval:ask -- --pdf /path/to/b36-txtbook.pdf --model qwen3.5:4b
+pnpm eval:ask -- --pdf /path/to/b36-txtbook.pdf --model qwen3.5:4b --limit 5   # smoke run, never gated
+pnpm eval:ask -- --pdf /path/to/b36-txtbook.pdf --model qwen3.5:4b --save-baseline
+```
+
+Env: `EVAL_ASK_MODEL` (instead of `--model`), plus the retrieval eval's
+`RETRIEVAL_EVAL_PDF`, `EVAL_BASE_URL` and `EVAL_EMBED_MODEL`. The runner
+refuses to score if retrieval falls back to keyword-only, since that is not
+what the app runs.
+
+- **Metrics** (`scoreAsk` in `packages/services/src/evals/metrics.ts`):
+  - answerable questions: share `grounded`, `supported` (grounded or partial),
+    `declined` (insufficient / no_passages), `unsupported` and `failed`
+    (model error → retrieval only);
+  - unanswerable questions: correct abstention rate (declined);
+  - citation precision: share of verified citations that point at a labelled
+    relevant chunk, plus the share of supported answers citing at least one;
+  - dropped-citation rate (quotes that failed verification);
+  - latency p50 / p95 (reported, not gated: it depends on the machine).
+- **Diagnostic**: answerable questions declined although a relevant passage
+  was in the prompt are listed by id. That separates generation misses from
+  retrieval misses.
+- **Baseline**: `baselines/ask.json` (metrics only; the per-run results file
+  contains answer text and stays in the gitignored `results/`). Local answers
+  vary from run to run even at temperature 0, so the regression tolerance is
+  0.075 (two questions out of 27), not the 0.03 the other evals use.
+- **Caveats**: the same `proposed` labels as the retrieval eval, so citation
+  precision inherits their keyword bias. Six labels currently do not resolve
+  after the running-header layout fix (they need relabelling), which lowers
+  citation precision for those questions. Only 3 unanswerable questions, so
+  abstention is a coarse signal.

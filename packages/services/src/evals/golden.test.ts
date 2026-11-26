@@ -84,10 +84,10 @@ describe('golden sets', () => {
 describe('retrieval golden set', () => {
   const CATEGORIES = ['exact_term', 'conceptual', 'multi_passage', 'equation', 'ambiguous', 'no_answer', 'false_premise'];
 
-  it('evals/retrieval.mjs only calls functions the services package exports', () => {
-    const src = fs.readFileSync(path.join(EVALS, 'retrieval.mjs'), 'utf8');
+  it.each(['retrieval.mjs', 'pinned_doc.mjs', 'ask.mjs'])('evals/%s only calls functions the services package exports', (file) => {
+    const src = fs.readFileSync(path.join(EVALS, file), 'utf8');
     const used = [...new Set([...src.matchAll(/svc\.(\w+)/g)].map(m => m[1]))];
-    expect(used.length).toBeGreaterThan(8);
+    expect(used.length).toBeGreaterThan(3);
     expect(used.filter(n => !(n in svc))).toEqual([]);
   });
 
