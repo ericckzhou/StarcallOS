@@ -52,6 +52,15 @@ function evidenceTitle(ev: EvidenceOption): string {
 // the user must first state WHY the two concepts relate; that reason is stored
 // alongside the link and surfaced on the Constellation Map.
 export default function WhereItReappearsEditor({ conceptId, value, onChange }: Props) {
+  // Embedding-based suggestions (empty when embeddings are off). A pick only
+  // starts the normal add flow — the user still chooses the reason.
+  const [suggested, setSuggested] = useState<Array<{ id: number; name: string; source_title: string; similarity: number }>>([]);
+  useEffect(() => {
+    let live = true;
+    setSuggested([]);
+    window.api.embeddings.related(conceptId).then(r => { if (live) setSuggested(r); }).catch(() => {});
+    return () => { live = false; };
+  }, [conceptId]);
   const [input, setInput] = useState('');
   const [hits, setHits] = useState<Hit[]>([]);
   const [open, setOpen] = useState(false);
@@ -458,6 +467,33 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
           )}
         </div>
       ) : pending.editIndex == null ? renderReasonBox() : null}
+
+      {pending == null && (() => {
+        const linked = new Set(value.map(l => l.name.toLowerCase()));
+        const chips = suggested.filter(s => !linked.has(s.name.toLowerCase()));
+        if (chips.length === 0) return null;
+        return (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: 10, color: '#64748b', marginBottom: 4 }}>Similar concepts</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {chips.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => beginAdd({ id: s.id, name: s.name, importance: '', source_filename: s.source_title })}
+                  title={`Link ${s.name} (${s.source_title}) — ${Math.round(s.similarity * 100)}% similar`}
+                  style={{
+                    background: 'rgba(30,27,75,0.5)', border: '1px dashed #4338ca', borderRadius: 999,
+                    padding: '2px 9px', color: '#c7d2fe', fontSize: 11, cursor: 'pointer', maxWidth: 220,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}
+                >
+                  + {s.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

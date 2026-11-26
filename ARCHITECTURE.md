@@ -93,6 +93,165 @@ parse_runs                 append-only audit of every Process click (mode, durat
   list can group formulas under their source topic rather than leaving them
   unattached whenever possible.
 
+## Retrieval Chunk Index (RAG foundation, migration 0036)
+
+A deterministic, zero-LLM passage index over every processed source. It is the
+foundation of local question answering (the Ask tab, below); retrieval itself
+is a services API measured by an offline eval.
+
+```text
+layout blocks (segmentPdf / segmentText, unchanged)
+  -> chunkBlocks (ingestion/chunker.ts)      section-bounded, page-traceable chunks
+  -> syncSourceChunks (repos/rag_chunks.ts)  reconcile by content key
+  -> rag_chunks + rag_chunks_fts (FTS5)      BM25 keyword index, kept in sync by triggers
+  -> embeddings owner_kind='chunk'           opt-in local vectors (indexSourceChunkEmbeddings)
+  -> retrieveChunks (knowledge/retrieval.ts) keyword | vector | hybrid (RRF)
+```
+
+- **Chunker** (`CHUNKER_VERSION`): never crosses a section boundary, never
+  splits a layout block (except a single block over `maxChars`, split at
+  sentences), never starts a chunk with a formula and keeps short "where ..."
+  continuations with it, keeps a heading with the block after it, carries up to
+  `overlapChars` of whole trailing blocks into the next chunk of the same
+  section. Defaults: target 1000 / max 1800 / min 200 / overlap 200 chars.
+  It drops numeric figure-label noise and, as a backstop, any page-numbered
+  running headers that still arrive as headings before calling the existing
+  `buildSectionPath`.
+- **Running headers** (`LAYOUT_VERSION` 0.5.3, `detectPrintedPageHeaders` in
+  `layout.ts`): margin lines (fixed band OR a page's first/last line) whose
+  leading/trailing integer `n` votes for offset `n − page`; when one offset wins
+  on ≥ max(5, 20% of pages) pages, every margin line whose number equals
+  `page + offset` is stripped. This catches chapter-scoped and one-off headers
+  that the book-wide repeat set misses. On b36 (offset −8) it strips 257 lines
+  and drops heading blocks from 326 to 122.
+- **Identity**: `chunk_key` = sha256(text) prefix + `#` + duplicate index. Stable
+  while the text is unchanged, so re-processing an unchanged document writes
+  nothing, keeps every chunk id, and never re-embeds. Eval labels reference it.
+- **Lifecycle**: processing and manual re-extract call `syncSourceChunks` right
+  after candidate persistence (failures are logged + recorded in parse-run
+  diagnostics, never fail processing). `clearDerivedDataForSource` does NOT wipe
+  chunks or chunk vectors — they are reconciled instead. Source delete cascades
+  (rows, FTS entries via trigger, vectors). `deleteSourceChunks` removes one
+  source's index. Sources processed before 0036 get chunks on their next
+  process / re-extract (no forced backfill).
+- **Vectors** reuse the existing `embeddings` table, text-hash caching and model
+  column; nomic models get `search_document:` / `search_query:` prefixes.
+  `indexSourceEmbeddings` (concept/span) is scoped to its own kinds so it can no
+  longer prune chunk vectors. Processing never embeds; nothing in the app calls
+  `indexSourceChunkEmbeddings` yet.
+- **Retrieval**: FTS5 query is built from quoted unicode word tokens (stopwords
+  and single letters dropped, OR-combined), so user text can never become FTS
+  syntax. BM25 weights text 1.0 / section path 0.5. Vector = brute-force cosine
+  over the selected sources. Hybrid = Reciprocal Rank Fusion (k = 60, pool 50),
+  ties broken by best single rank then chunk id. When vectors are unavailable a
+  hybrid request degrades to keyword and says so in `mode_used` +
+  `vector_error`; it is never silent. Filters: `sourceIds`, `k`, `minSimilarity`.
+- **FTS5** is verified in both runtimes that open the DB (Node 22.16 / SQLite
+  3.49.1 for tests, Electron 42 / SQLite 3.53.0 for the app); `hasFts5(db)` is
+  the runtime check, covered by a test.
+- **Built in PR 2 (Ask)**: chunk vectors are generated lazily on Ask (below);
+  per-source backfill for pre-0036 sources is the Ask rail's **Index** button.
+- **Decided follow-ups (not built)**:
+- **Eval**: `pnpm eval:retrieval -- --pdf <b36-txtbook.pdf>` (see
+  `evals/README.md`). Labels are Claude-proposed until a human reviews them.
+
+## Library passage index
+
+`knowledge/library_index.ts`; controls in the Ask rail ("Passage index") and
+Settings → Passage index (both `LibraryIndexPanel.tsx`).
+
+- **Plan** (`planLibraryIndex`, pure read): per source, `chunk` (no chunks),
+  `rechunk` (any chunk stamped with an older `chunker_version`/`layout_version`),
+  and, when embeddings are on, chunks missing a vector for the model. Run order:
+  unindexed, then stale, then embed-only; fewer pages first in each group.
+- **Run** (`runLibraryIndex`): re-segment and reconcile chunks only (candidates,
+  concepts, notes, history untouched), then `indexSourceChunkEmbeddings`.
+  Segmentation, embedder, lock, progress and stop are injected, so the runner is
+  tested with fakes.
+- **Resumable with no job table**: chunks commit per source and vectors per
+  64-chunk batch, and vectors are reused by (model, text hash). Stop is checked
+  between sources and between batches. Resuming just plans again; finished
+  work is never redone.
+- **Failures**: a source that fails to chunk (missing file, bad PDF) is recorded
+  and skipped. The first embedding failure ends vector work for the run (the
+  server is most likely down), but chunking continues. Everything is reported
+  in the summary.
+- **Never automatic**: the job only starts from a user click (`rag.libraryStart`),
+  never at startup. Re-chunking an outdated source updates its passages only;
+  its candidates follow on the next re-extract.
+- **Per-source lock** (main): the library job, the per-source Index button and
+  Ask's lazy embedding serialize on a source. Ask never waits; it skips a busy
+  source's embedding and says so in `index_warning`. Index refuses a busy source.
+  The job queues behind the lock.
+- IPC: `rag.{libraryStatus,libraryStart,libraryStop,onLibraryProgress,onLibraryDone}`;
+  `rag.status` sources carry `stale`. Settings' older "Index concepts now"
+  button is the separate concept/span index (grading excerpts, related concepts).
+
+## Local Ask (RAG PR 2)
+
+Top-level **Ask** tab (`AskPane.tsx`): pick sources, ask a question, get an
+answer whose every citation has been verified against the passage text.
+
+```text
+rag.ask -> lazy chunk embedding (indexSourceChunkEmbeddings, progress events)
+        -> askSources (knowledge/ask.ts)
+             retrieveChunks hybrid (k = 6)        no hits -> 'no_passages', no model call
+             ONE structured 'ask' call, LOCAL model only
+             validateAnswer: quotes verified, [n] markers rewritten
+```
+
+- **Local-only generation**: `resolveAskConfig` always returns the `local`
+  provider (`localModel` at `localBaseUrl`), whatever the main provider is, so
+  retrieved source text never goes to a cloud API. It returns null when no local
+  model is set and the main provider is not local; Ask then shows passages only.
+- **Citation validation** (pure, `validateAnswer`): every `{passage, quote}`
+  must occur verbatim in that passage after `normalizeWithMap` folding (case,
+  whitespace, NFKC, all quote marks into one class, dashes, PDF glyphs such as
+  TeX's `ǫ`→`ε` and `∗`→`*`, letter-hyphen-letter joined on both sides). Quotes
+  under 12 normalized chars are rejected. `"..."` elisions must match in order.
+  A verified citation carries `start`/`end` offsets into the original passage
+  text, and the UI highlights exactly that span. Unverified citations and
+  markers are dropped with a reason, and the answer's `[n]` markers are
+  rewritten to verified passages only.
+- **Status**: `grounded` / `partial` (something dropped) / `unsupported`
+  (nothing verifiable) / `insufficient` (model says the passages don't answer;
+  a bare "insufficient" answer becomes null) / `no_passages` / `retrieval_only`.
+- **Offline handling**: a model failure (server down, invalid output after the
+  one repair) returns `retrieval_only` with `generation_error`, and the passages
+  are still shown. Embedding failure degrades to keyword retrieval
+  (`mode_used`/`vector_error`); a failed lazy embedding run sets
+  `index_warning`. Nothing is silent.
+- **Lazy embeddings**: when embeddings are enabled, Ask embeds the selected
+  sources' chunks first, streaming `rag:progress`. Each 64-chunk batch is
+  committed, so an interrupted run resumes, and vectors with the same model and
+  text hash are reused. After the first Ask, later Asks embed nothing.
+- **Backfill**: `rag.indexSource` re-segments one source file and reconciles
+  its chunks. Candidates and concepts are never touched.
+- **Learning loop**: `+ Note` saves the verified answer and its cited quotes
+  and pages as an ordinary user-owned note on a concept from the cited sources.
+- **Ask about a concept** (PR 3, migration 0037): the DetailPane header **Ask**
+  button (hidden on the Challenges tab until the current attempt is graded, so
+  lookup never replaces recall) dispatches `starcall:ask`. App switches to Ask
+  with that concept as context: an "About" chip, the concept's source selected,
+  and agreement-free starter questions that only fill the box. `rag.ask({conceptId})`
+  passes the concept name as `focus`, which is appended to the RETRIEVAL query
+  only (never the prompt, so verification is unchanged), and saves the result to
+  `ask_history`. That table is user-owned, keeps the newest 50 per concept, and
+  cascades on concept delete. History is a list of independent verified
+  answers, deliberately not a chat thread: prior answers are never fed back
+  into the prompt, so the model can't cite itself. `+ Note` defaults to the
+  concept (one click; ▾ picks another).
+- **Citation → page**: clicking a `[n]` marker, a verified source or a passage's
+  "Open page ↗" opens `SourcePagePreview` beside the answer: a read-only render of
+  the cited page range (PDF sources only) with the verified quote highlighted and
+  scrolled into view, plus prev/next page. It is separate from the concept-bound
+  `PdfViewer` and writes nothing. The quote was verified server-side against
+  layout text; the preview only LOCATES it, on letters/digits only
+  (`spansForQuote`), because pdf.js emits math glyphs as out-of-order text-layer
+  spans. Highlighting is line-granular (whole text-layer spans).
+- IPC: `rag.{status,indexSource,ask,onProgress,history,historyDelete}`; args
+  validated by `RagAskArgsSchema` (question ≤ 2000 chars, optional `conceptId`).
+
 ## Mastery Model (compression stages)
 ```
 0  Unseen
@@ -121,6 +280,7 @@ Hand-bumped in `packages/services/src/core/version.ts`:
 - `PARSER_VERSION` — `candidates.ts` + `topic.ts` (signal weights, scoring)
 - `GRAMMAR_VERSION` — `grammar.ts` + `equations.ts` (regex patterns)
 - `LAYOUT_VERSION` — `layout.ts` (geometry segmentation, classify hints)
+- `CHUNKER_VERSION` — `chunker.ts` (retrieval chunk boundaries; stamped on `rag_chunks` rows)
 
 Every `concept_candidates` row stamps `parser_version`. Every `parse_runs` row stamps all three. Bump after behavioral changes so diffs across runs are traceable.
 
@@ -166,7 +326,7 @@ repeated domain-term evidence.
 `clearDerivedDataForSource(db, sourceId, { preserveUserData: true })`:
 - Always wipes: `concept_candidates`, `relation_candidates`, `equation_candidates`, `misconception_candidates`, `semantic_chunks`
 - For `concepts`: preserves any concept with study history (`evidence_records`) OR non-empty `evidence_json` (= manually promoted from candidate). Deletes only LLM-generated/untouched ones.
-- Never touches: `sources`, source file, `events`
+- Never touches: `sources`, source file, `events`, `rag_chunks` and chunk vectors (reconciled by `syncSourceChunks` instead)
 
 Startup: `recoverInterruptedSources(db)` flips any `status='processing'` (killed mid-run) → `status='failed'` with recoverable error message.
 

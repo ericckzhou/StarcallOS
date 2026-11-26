@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../core/llm', () => ({ chatJSON: vi.fn() }));
+vi.mock('../core/llm', async (importOriginal) => ({ ...(await importOriginal<typeof import('../core/llm')>()), chatJSON: vi.fn() }));
 
 import { chatJSON } from '../core/llm';
 import { openDb } from '../core/infra/db';
@@ -10,7 +10,7 @@ import { getConceptById } from '../knowledge/repos/concepts';
 import { enrichConceptDefinition } from './enrich_concept';
 
 const mockChat = vi.mocked(chatJSON);
-const fakeUsage = { pass: 'enrich_concept', provider: 'groq' as const, model: 'm', promptTokens: 10, completionTokens: 20, totalTokens: 30, durationMs: 50 };
+const fakeUsage = { pass: 'enrich_concept', provider: 'groq' as const, model: 'm', promptTokens: 10, completionTokens: 20, totalTokens: 30, durationMs: 50, retries: 0, cacheReadTokens: 0 };
 const cfg = { provider: 'groq' as const, apiKey: 'k', model: 'm' };
 
 type DB = ReturnType<typeof openDb>;
@@ -150,5 +150,24 @@ describe('enrichConceptDefinition', () => {
     await enrichConceptDefinition(cfg, db, concept.id);
     const userMsg = mockChat.mock.calls[0][1].messages.find(m => m.role === 'user')!.content;
     expect(userMsg).not.toContain('Verbatim quotes from THIS source');
+  });
+});
+
+describe('enrich_concept: never blanks existing text', () => {
+  it('rejects all-empty / wrong-key output (repair, then LlmParseError) and leaves the concept untouched', async () => {
+    const { db, concept } = setup({ definition_text: 'user-edited' });
+    mockChat.mockResolvedValue({ content: JSON.stringify({ definition: 'wrong key' }), usage: fakeUsage });
+    const callsBefore = mockChat.mock.calls.length;
+    await expect(enrichConceptDefinition(cfg, db, concept.id)).rejects.toThrow(/non-empty/);
+    expect(mockChat.mock.calls.length - callsBefore).toBe(2);
+    expect(getConceptById(db, concept.id)!.definition_text).toBe('user-edited');
+  });
+
+  it('keeps existing fields the model left empty', async () => {
+    const { db, concept } = setup({ definition_text: 'kept', why_exists: 'kept too' });
+    mockChat.mockResolvedValue({ content: JSON.stringify({ definition_text: '', why_exists: '', what_breaks: 'new' }), usage: fakeUsage });
+    await enrichConceptDefinition(cfg, db, concept.id);
+    const c = getConceptById(db, concept.id)!;
+    expect(c).toMatchObject({ definition_text: 'kept', why_exists: 'kept too', what_breaks: 'new' });
   });
 });

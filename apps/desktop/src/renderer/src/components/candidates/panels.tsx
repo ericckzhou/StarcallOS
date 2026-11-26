@@ -13,7 +13,7 @@ import {
   type RelationCandidate,
 } from './shared';
 
-export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, setExpanded, busy, equationsByTerm, act, llmKeepIds }: {
+export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, setExpanded, busy, equationsByTerm, act, llmKeepIds, nearDuplicates }: {
   filtered: Array<ConceptCandidate & { bucket?: Bucket }>;
   totalConcepts: number;
   extractMsg: string | null;
@@ -23,6 +23,7 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
   equationsByTerm: Map<string, EquationCandidate[]>;
   act: (id: number, fn: () => Promise<unknown>) => Promise<void>;
   llmKeepIds: Set<number> | null;
+  nearDuplicates?: Record<number, { id: number; term: string; similarity: number }>;
 }) {
   if (filtered.length === 0) {
     return (
@@ -65,6 +66,14 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                   {c.term}
                 </div>
                 <div style={{ marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {nearDuplicates?.[c.id] && (
+                    <span
+                      title={`Possible duplicate of "${nearDuplicates[c.id].term}" (${Math.round(nearDuplicates[c.id].similarity * 100)}% similar). Review both before promoting.`}
+                      style={{ fontSize: 9, color: '#fcd34d', border: '1px dashed #a16207', borderRadius: 2, padding: '1px 5px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >
+                      ≈ {nearDuplicates[c.id].term}
+                    </span>
+                  )}
                   <span style={{ fontSize: 10, color: '#6b7280' }}>x{c.mention_count}</span>
                   <span style={{ fontSize: 10, color: '#6b7280' }}>p.{c.first_page}</span>
                   {c.section_path.length > 0 && (

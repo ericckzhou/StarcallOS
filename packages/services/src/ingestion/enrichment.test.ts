@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runEnricher } from './enrichment';
 import type { SegmentedBlock } from './layout';
 
-vi.mock('../core/llm', () => ({ chatJSON: vi.fn() }));
+vi.mock('../core/llm', async (importOriginal) => ({ ...(await importOriginal<typeof import('../core/llm')>()), chatJSON: vi.fn() }));
 
 import { chatJSON } from '../core/llm';
 const mockChat = vi.mocked(chatJSON);
 
-const fakeUsage = { pass: 'enrich', provider: 'groq' as const, model: 'm', promptTokens: 10, completionTokens: 20, totalTokens: 30, durationMs: 50 };
+const fakeUsage = { pass: 'enrich', provider: 'groq' as const, model: 'm', promptTokens: 10, completionTokens: 20, totalTokens: 30, durationMs: 50, retries: 0, cacheReadTokens: 0 };
 const cfg = { provider: 'groq' as const, apiKey: 'k', model: 'm' };
 
 function blk(readingOrder: number, text: string, hint = 'body', page = 1): SegmentedBlock {

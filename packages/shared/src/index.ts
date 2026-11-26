@@ -15,6 +15,14 @@ import type {
   StoredRelationCandidate,
   StoredMisconceptionCandidate,
   StoredEquationCandidate,
+  AskResult,
+  AskHistoryEntry,
+  LibraryIndexPlan,
+  LibraryIndexProgress,
+  LibraryIndexSummary,
+  ReextractPlan,
+  ReextractProgress,
+  ReextractSummary,
 } from '@starcall/services';
 
 export type {
@@ -86,6 +94,13 @@ export const IPC = {
   REVIEW_GET_SRS:          'review:getSrs',
   SETTINGS_GET:            'settings:get',
   SETTINGS_SET:            'settings:set',
+  LLM_TRACE_SUMMARY:       'llm:traceSummary',
+  LLM_LIST_LOCAL_MODELS:   'llm:listLocalModels',
+  DOCLING_TEST:            'docling:test',
+  EMBEDDINGS_STATUS:       'embeddings:status',
+  EMBEDDINGS_INDEX_LIBRARY: 'embeddings:indexLibrary',
+  CONCEPTS_RELATED:        'concepts:related',
+  CANDIDATES_NEAR_DUPLICATES: 'candidates:nearDuplicates',
   SOURCES_BYTES:           'sources:bytes',
   SOURCES_LLM_FILTER_GET:  'sources:llmFilterGet',
   SOURCES_LLM_FILTER_SET:  'sources:llmFilterSet',
@@ -124,6 +139,22 @@ export const IPC = {
   PARSE_RUNS_BY_SOURCE:    'parseRuns:bySource',
   EXPORT_CONCEPT:          'export:concept',
   EXPORT_BUNDLE:           'export:bundle',
+  RAG_STATUS:              'rag:status',
+  RAG_INDEX_SOURCE:        'rag:indexSource',
+  RAG_ASK:                 'rag:ask',
+  RAG_PROGRESS:            'rag:progress',
+  RAG_HISTORY:             'rag:history',
+  RAG_HISTORY_DELETE:      'rag:historyDelete',
+  RAG_LIBRARY_STATUS:      'rag:libraryStatus',
+  RAG_LIBRARY_START:       'rag:libraryStart',
+  RAG_LIBRARY_STOP:        'rag:libraryStop',
+  RAG_LIBRARY_PROGRESS:    'rag:libraryProgress',
+  RAG_LIBRARY_DONE:        'rag:libraryDone',
+  REEXTRACT_STATUS:        'reextract:status',
+  REEXTRACT_START:         'reextract:start',
+  REEXTRACT_STOP:          'reextract:stop',
+  REEXTRACT_PROGRESS:      'reextract:progress',
+  REEXTRACT_DONE:          'reextract:done',
 } as const;
 
 export type ExportFormat = 'markdown' | 'anki';
@@ -216,7 +247,7 @@ export interface SubmitEvidenceArgs {
 
 // ─── Auxiliary types used by IpcApi ──────────────────────────────────────────
 
-export type ProviderId      = 'groq' | 'anthropic';
+export type ProviderId      = 'groq' | 'anthropic' | 'local';
 export type ExtractionMode  = 'deterministic' | 'candidate_gated' | 'full';
 export type ParseRunStatus  = 'success' | 'failed' | 'interrupted';
 
@@ -229,9 +260,145 @@ export interface SettingsSnapshot {
   heavyModel: string;
   lightModel: string;
   modelChoices: Record<ProviderId, { heavy: string[]; light: string[] }>;
+  // Effective value (explicit choice, else provider default).
+  gradeSelfConsistency: boolean;
+  // provider === 'local'. Empty string = use the default.
+  localBaseUrl: string;
+  localModel: string;
+  defaultLocalBaseUrl: string;
+  embeddingsEnabled: boolean;
+  embeddingModel: string;   // '' = default
+  defaultEmbeddingModel: string;
+  srsScheduler: 'sm2' | 'fsrs';
+  // PDF parser: built-in geometry parser, or the user's own docling-serve.
+  pdfParser: 'builtin' | 'docling';
+  doclingBaseUrl: string;          // '' = default
+  defaultDoclingBaseUrl: string;
+}
+
+export interface EmbeddingsStatus {
+  enabled: boolean;
+  model: string;
+  concepts: number;
+  spans: number;
+  sources: number;
+  totalSources: number;
+}
+
+export type EmbeddingsIndexResult =
+  | { ok: true; sources: number; embedded: number }
+  | { ok: false; error: string };
+
+// ─── Re-extract outdated sources ─────────────────────────────────────────────
+
+export type { ReextractProgress, ReextractSummary };
+
+export interface ReextractStatus {
+  running: boolean;
+  progress: ReextractProgress | null;
+  // Outdated = processed sources whose latest successful parse run predates
+  // the current parser/grammar/layout versions (or has no run at all).
+  plan: Omit<ReextractPlan, 'items'> & {
+    items: Array<{ source_id: number; title: string; reasons: ReextractPlan['items'][number]['reasons'] }>;
+  };
+  last: ReextractSummary | null;    // most recent run this session
+}
+
+// ─── Local Ask (RAG) ─────────────────────────────────────────────────────────
+
+export type { AskResult, AskHistoryEntry, LibraryIndexProgress, LibraryIndexSummary };
+
+export interface RagLibraryStatus {
+  running: boolean;
+  progress: LibraryIndexProgress | null;
+  plan: Omit<LibraryIndexPlan, 'items'>;   // coverage now (unindexed / stale / embed_missing)
+  last: LibraryIndexSummary | null;        // most recent run this session
+}
+
+export interface RagSourceStatus {
+  source_id: number;
+  title: string;
+  chunks: number;     // 0 => not indexed yet (processed before the chunk index existed)
+  embedded: number;   // chunks with a vector for the configured embedding model
+  stale: boolean;     // chunks predate the current chunker/layout (re-chunked by library index)
+}
+
+export interface RagStatus {
+  // Local model that will answer, or null (answers fall back to passages only).
+  askModel: string | null;
+  askBaseUrl: string | null;
+  embeddingsEnabled: boolean;
+  embeddingModel: string;
+  sources: RagSourceStatus[];
+}
+
+export type RagIndexSourceResult =
+  | { ok: true; chunks: number }
+  | { ok: false; error: string };
+
+export interface RagAskArgs {
+  question: string;
+  sourceIds?: number[];   // omitted/empty = all sources (or the concept's source)
+  // "Ask about this": focus retrieval on this concept and save the result
+  // to its Ask history. sourceIds then defaults to the concept's source.
+  conceptId?: number;
+}
+
+// Streamed while Ask lazily embeds chunk vectors for the selected sources.
+export interface RagProgress {
+  phase: 'embedding';
+  sourceId: number;
+  done: number;
+  total: number;
+}
+
+// candidateId → its most similar other candidate (embeddings; hint only).
+export type CandidateNearDuplicates = Record<number, { id: number; term: string; similarity: number }>;
+
+export interface RelatedConceptSuggestion {
+  id: number;
+  name: string;
+  source_id: number;
+  source_title: string;
+  similarity: number;
+}
+
+export type LocalModelsResult = { ok: true; models: string[] } | { ok: false; error: string };
+
+export type DoclingTestResult =
+  | { ok: true; docling: string | null; serve: string | null }
+  | { ok: false; error: string };
+
+// Persisted LLM call trace aggregates (llm_calls, migration 0031).
+export interface LlmPassSummary {
+  pass: string;
+  calls: number;
+  errors: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cache_read_tokens: number;
+  avg_duration_ms: number;
+  p95_duration_ms: number;
+  retries: number;
+}
+
+export interface LlmTraceSummary {
+  days: number;
+  total_calls: number;
+  total_errors: number;
+  total_tokens: number;
+  by_pass: LlmPassSummary[];
 }
 
 export interface SettingsPatch {
+  gradeSelfConsistency?: boolean;
+  localBaseUrl?: string;
+  localModel?: string;
+  embeddingsEnabled?: boolean;
+  embeddingModel?: string;
+  srsScheduler?: 'sm2' | 'fsrs';
+  pdfParser?: 'builtin' | 'docling';
+  doclingBaseUrl?: string;
   provider?: ProviderId;
   groqApiKey?: string;
   anthropicApiKey?: string;
@@ -665,8 +832,55 @@ export interface IpcApi {
     get: () => Promise<SettingsSnapshot>;
     set: (input: SettingsPatch) => Promise<{ ok: true }>;
   };
+  llm: {
+    traceSummary: (days?: number) => Promise<LlmTraceSummary>;
+    // Probe an OpenAI-compatible server (GET {baseUrl}/models). Never throws.
+    listLocalModels: (baseUrl: string) => Promise<LocalModelsResult>;
+  };
+  docling: {
+    // Probe a docling-serve (GET {baseUrl}/version). Never throws.
+    test: (baseUrl: string) => Promise<DoclingTestResult>;
+  };
+  embeddings: {
+    status: () => Promise<EmbeddingsStatus>;
+    // Index every source (incremental). Never throws.
+    indexLibrary: () => Promise<EmbeddingsIndexResult>;
+    // Similar concepts across sources; [] when embeddings are off/unavailable.
+    // Suggestions only — the renderer must route a pick through the normal
+    // constellation add flow (user supplies the reason).
+    related: (conceptId: number) => Promise<RelatedConceptSuggestion[]>;
+  };
+  rag: {
+    status: () => Promise<RagStatus>;
+    // Build the chunk index for one source (backfill for pre-0036 sources).
+    // Re-segments the file only; candidates and concepts are untouched.
+    indexSource: (sourceId: number) => Promise<RagIndexSourceResult>;
+    // Answer from local sources with validated citations. Never throws for
+    // offline model/embeddings — degrades to passages (see AskResult.status).
+    ask: (args: RagAskArgs) => Promise<AskResult>;
+    onProgress: (cb: (p: RagProgress) => void) => () => void;
+    // Per-concept saved answers, newest first. Each is independent (no chat).
+    history: (conceptId: number) => Promise<AskHistoryEntry[]>;
+    historyDelete: (id: number) => Promise<{ ok: true }>;
+    // Whole-library index: user-started, resumable, never runs at startup.
+    libraryStatus: () => Promise<RagLibraryStatus>;
+    libraryStart: () => Promise<{ ok: true } | { ok: false; error: string }>;
+    libraryStop: () => Promise<{ ok: true }>;
+    onLibraryProgress: (cb: (p: LibraryIndexProgress) => void) => () => void;
+    onLibraryDone: (cb: (s: LibraryIndexSummary | null) => void) => () => void;
+  };
+  // Bulk re-extract of outdated sources: user-started, Stop-able, resumable.
+  reextract: {
+    status: () => Promise<ReextractStatus>;
+    start: () => Promise<{ ok: true } | { ok: false; error: string }>;
+    stop: () => Promise<{ ok: true }>;
+    onProgress: (cb: (p: ReextractProgress) => void) => () => void;
+    onDone: (cb: (s: ReextractSummary | null) => void) => () => void;
+  };
   candidates: {
     bySource: (sourceId: number) => Promise<CandidatesBundle>;
+    // {} when embeddings are off/unreachable. Hints only — never auto-merge.
+    nearDuplicates: (sourceId: number) => Promise<CandidateNearDuplicates>;
     promote: (candidateId: number) => Promise<Concept>;
     promoteBulk: (candidateIds: number[]) => Promise<PromoteBulkResult>;
     reject: (candidateId: number) => Promise<{ ok: true }>;
