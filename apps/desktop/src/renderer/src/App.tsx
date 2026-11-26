@@ -149,7 +149,7 @@ export default function App() {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'transparent', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif', position: 'relative', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'transparent', color: 'var(--slate-200)', fontFamily: 'system-ui, sans-serif', position: 'relative', overflow: 'hidden' }}>
       {profile.backgroundDataUrl && (
         <>
           {profile.backgroundDataUrl.startsWith('data:video') ? (
@@ -216,11 +216,11 @@ export default function App() {
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 background: topLevel === 'review' ? 'rgba(245, 158, 11, 0.18)' : 'rgba(245, 158, 11, 0.12)',
                 border: '1px solid rgba(245, 158, 11, 0.45)', borderRadius: 999,
-                padding: '3px 11px', fontSize: 11, fontWeight: 700, color: '#f59e0b',
+                padding: '3px 11px', fontSize: 11, fontWeight: 700, color: 'var(--amber-500)',
                 cursor: 'pointer', whiteSpace: 'nowrap',
               }}
             >
-              <span style={{ width: 6, height: 6, borderRadius: 999, background: '#f59e0b', display: 'inline-block' }} />
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--amber-500)', display: 'inline-block' }} />
               {label}
             </button>
           );
@@ -233,22 +233,22 @@ export default function App() {
             background: topLevel === 'profile' ? '#1a1a2e' : 'transparent',
             border: `1px solid ${topLevel === 'profile' ? '#4338ca' : '#1f2937'}`,
             borderRadius: 8, padding: '5px 8px', cursor: 'pointer',
-            color: '#e2e8f0',
+            color: 'var(--slate-200)',
           }}
         >
           <Avatar profile={profile} size={28} />
           {progress && (
             <div style={{ width: 185, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, lineHeight: 1.1 }}>
-                <span style={{ fontSize: 11, color: '#e2e8f0', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 11, color: 'var(--slate-200)', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {profile.name}
                 </span>
-                <span className={xpPulse ? 'xp-pulse' : undefined} style={{ fontSize: 10, color: '#94a3b8', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                <span className={xpPulse ? 'xp-pulse' : undefined} style={{ fontSize: 10, color: 'var(--slate-400)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                   Lv {progress.level} · {progress.total_xp} XP
                 </span>
               </div>
               <div style={{ marginTop: 4, height: 4, borderRadius: 2, background: 'rgba(31, 41, 55, 0.35)', overflow: 'hidden' }} title={`${xpToNext(progress)} XP to next milestone`}>
-                <div style={{ height: '100%', width: `${Math.max(0, Math.min(1, progress.progress_ratio)) * 100}%`, background: '#818cf8' }} />
+                <div style={{ height: '100%', width: `${Math.max(0, Math.min(1, progress.progress_ratio)) * 100}%`, background: 'var(--indigo-400)' }} />
               </div>
             </div>
           )}
@@ -342,7 +342,7 @@ export default function App() {
               )}
             </div>
           ) : (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 14 }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray-700)', fontSize: 14 }}>
               Add a PDF source to get started.
             </div>
           )}
@@ -388,14 +388,14 @@ function LevelUpOverlay({ level, onDone }: { level: number; onDone: () => void }
         <div className={reduced ? undefined : 'lvlup-badge'} style={{
           position: 'relative',
           padding: '14px 30px', borderRadius: 14,
-          background: 'linear-gradient(135deg, #312e81, #6d28d9)',
+          background: 'linear-gradient(135deg, var(--indigo-900), #6d28d9)',
           border: '1px solid #a78bfa', color: '#ede9fe',
           fontWeight: 900, fontSize: 30, letterSpacing: '0.04em',
           boxShadow: '0 0 38px rgba(167,139,250,0.65)', textAlign: 'center',
         }}>
           LEVEL {level}
         </div>
-        <div className={reduced ? undefined : 'lvlup-sub'} style={{ position: 'relative', fontSize: 13, color: '#c7d2fe', fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' }}>
+        <div className={reduced ? undefined : 'lvlup-sub'} style={{ position: 'relative', fontSize: 13, color: 'var(--indigo-200)', fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' }}>
           Level Up
         </div>
       </div>

@@ -88,7 +88,7 @@ export function InlineEditor({
           return (
             <select key={f.key} value={draft[f.key] ?? ''} onChange={e => set(f.key, e.target.value)} style={{ ...style, colorScheme: 'dark' }}>
               {f.options.map(o => (
-                <option key={o} value={o} style={{ background: '#0d0d16', color: '#e2e8f0' }}>
+                <option key={o} value={o} style={{ background: 'var(--app-panel)', color: 'var(--slate-200)' }}>
                   {f.optionLabel ? f.optionLabel(o) : o}
                 </option>
               ))}
@@ -144,17 +144,17 @@ export function EditorModal({ title, onClose, children }: {
         style={{
           width: 620, maxWidth: '92vw',
           padding: 16, borderRadius: 12,
-          background: 'rgba(13, 13, 22, 0.6)', backdropFilter: 'blur(14px)', border: '1px solid #312e81',
+          background: 'rgba(13, 13, 22, 0.6)', backdropFilter: 'blur(14px)', border: '1px solid var(--indigo-900)',
           boxShadow: '0 24px 64px rgba(0, 0, 0, 0.6)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: '#c7d2fe', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--indigo-200)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</div>
           <button
             onClick={onClose}
             title="Cancel"
             aria-label="Cancel"
-            style={{ marginLeft: 'auto', width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, color: '#94a3b8', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}
+            style={{ marginLeft: 'auto', width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 4, color: 'var(--slate-400)', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}
           >
             ×
           </button>

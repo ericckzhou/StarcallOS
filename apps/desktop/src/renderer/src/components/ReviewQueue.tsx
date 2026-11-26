@@ -312,7 +312,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
 
   if (loading) {
     return (
-      <aside style={{ width, borderRight: '1px solid #1f2937', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 13 }}>
+      <aside style={{ width, borderRight: '1px solid var(--gray-800)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray-700)', fontSize: 13 }}>
         Loading review queue...
       </aside>
     );
@@ -321,14 +321,14 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
   if (collapsed) {
     return (
       <aside style={{
-        width: 36, borderRight: '1px solid #1f2937', background: 'rgba(13, 13, 22, 0.5)',
+        width: 36, borderRight: '1px solid var(--gray-800)', background: 'rgba(13, 13, 22, 0.5)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 8,
       }}>
         <button
           onClick={() => setCollapsed(false)}
           title={`Review queue (${items.length}) - click to expand`}
           style={{
-            background: 'transparent', border: '1px solid #1f2937', borderRadius: 3,
+            background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 3,
             color: selectedConcept ? '#c7d2fe' : '#9ca3af', fontSize: 12, padding: '4px 6px', cursor: 'pointer',
             writingMode: 'vertical-rl', textOrientation: 'mixed', maxHeight: 190,
           }}
@@ -341,14 +341,14 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
 
   if (items.length === 0) {
     return (
-      <aside style={{ width, borderRight: '1px solid #1f2937', padding: 40, boxSizing: 'border-box', textAlign: 'center', color: '#374151', fontSize: 13, lineHeight: 1.6 }}>
+      <aside style={{ width, borderRight: '1px solid var(--gray-800)', padding: 40, boxSizing: 'border-box', textAlign: 'center', color: 'var(--gray-700)', fontSize: 13, lineHeight: 1.6 }}>
         Nothing to review. Promote candidates or extract more sources to populate the queue.
       </aside>
     );
   }
 
   return (
-    <aside style={{ width, flexShrink: 0, borderRight: '1px solid #1f2937', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+    <aside style={{ width, flexShrink: 0, borderRight: '1px solid var(--gray-800)', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
       <div
         onMouseDown={beginResize}
         title="Drag to resize review queue"
@@ -358,14 +358,14 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
         }}
       />
       <div style={{
-        padding: '9px 14px', borderBottom: '1px solid #1f2937',
+        padding: '9px 14px', borderBottom: '1px solid var(--gray-800)',
         display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 10,
       }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em', whiteSpace: 'nowrap' }}>
-            Review Queue <span style={{ color: '#94a3b8' }}>{items.length}</span>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.12em', whiteSpace: 'nowrap' }}>
+            Review Queue <span style={{ color: 'var(--slate-400)' }}>{items.length}</span>
           </div>
-          <div style={{ marginTop: 2, fontSize: 10, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ marginTop: 2, fontSize: 10, color: 'var(--slate-600)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {items.filter(i => i.due_at == null).length} new · {items.filter(i => i.due_at != null && new Date(i.due_at).getTime() <= Date.now()).length} due · {items.filter(i => i.due_at != null && new Date(i.due_at).getTime() > Date.now()).length} scheduled
           </div>
         </div>
@@ -374,8 +374,8 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
             onClick={cycleSort}
             title="Cycle sort: default → importance → stage"
             style={{
-              background: 'transparent', border: '1px solid #263244', borderRadius: 4,
-              padding: '3px 10px', fontSize: 10, cursor: 'pointer', color: '#94a3b8',
+              background: 'transparent', border: '1px solid var(--app-line)', borderRadius: 4,
+              padding: '3px 10px', fontSize: 10, cursor: 'pointer', color: 'var(--slate-400)',
               whiteSpace: 'nowrap',
             }}
           >
@@ -387,8 +387,8 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
             aria-label="Minimize review queue"
             style={{
               width: 24, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              background: '#111827', border: '1px solid #263244', borderRadius: 4,
-              padding: 0, fontSize: 13, lineHeight: 1, cursor: 'pointer', color: '#94a3b8',
+              background: 'var(--gray-900)', border: '1px solid var(--app-line)', borderRadius: 4,
+              padding: 0, fontSize: 13, lineHeight: 1, cursor: 'pointer', color: 'var(--slate-400)',
             }}
           >
             ‹
@@ -404,25 +404,25 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
               alignItems: 'center',
               gap: 10,
               margin: '8px 12px',
-              background: '#111827',
-              border: '1px solid #312e81',
+              background: 'var(--gray-900)',
+              border: '1px solid var(--indigo-900)',
               borderRadius: 6,
               padding: '8px 10px',
-              color: '#cbd5e1',
+              color: 'var(--slate-300)',
               fontSize: 12,
             }}
           >
-            <span style={{ color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ color: 'var(--slate-400)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               Deleted {item.concept.name}.
             </span>
             <button
               onClick={() => undoDeleteConcept(item)}
               style={{
                 marginLeft: 'auto',
-                background: '#1e1b4b',
-                border: '1px solid #6366f1',
+                background: 'var(--indigo-950)',
+                border: '1px solid var(--indigo-500)',
                 borderRadius: 4,
-                color: '#c7d2fe',
+                color: 'var(--indigo-200)',
                 cursor: 'pointer',
                 fontSize: 11,
                 fontWeight: 700,
@@ -444,7 +444,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
               style={{
               position: 'sticky', top: 0, zIndex: 2,
               padding: '8px 20px 7px',
-              borderBottom: '1px solid #1f2937',
+              borderBottom: '1px solid var(--gray-800)',
               borderLeft: `2px solid ${isActive ? '#818cf8' : '#2a2f45'}`,
               borderRight: 'none',
               borderTop: 'none',
@@ -488,14 +488,14 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                   }}
                   style={{
                     padding: '12px 16px 11px 20px',
-                    borderBottom: '1px solid #111827',
+                    borderBottom: '1px solid var(--gray-900)',
                     borderLeft: `2px solid ${selected ? '#818cf8' : 'transparent'}`,
                     background: selected ? 'rgba(129, 140, 248, 0.14)' : 'transparent',
                     cursor: 'pointer',
                   }}
                 >
                   <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'center', gap: 8 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--slate-200)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {c.name}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, position: 'relative' }}>
@@ -548,12 +548,12 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                             background: 'rgba(4, 6, 26, 0.34)',
                             backdropFilter: 'blur(14px)',
                             WebkitBackdropFilter: 'blur(14px)',
-                            border: '1px solid #263244', borderRadius: 8,
+                            border: '1px solid var(--app-line)', borderRadius: 8,
                             boxShadow: '0 14px 34px rgba(0, 0, 0, 0.6)',
                             padding: 10,
                           }}
                         >
-                          <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0 2px 7px' }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0 2px 7px' }}>
                             Reschedule
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
@@ -566,7 +566,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                                 title={`Due again in ${p.label}`}
                                 style={{
                                   background: 'transparent', border: '1px solid rgba(129, 140, 248, 0.28)', borderRadius: 6,
-                                  padding: '6px 0', fontSize: 11, color: '#c7d2fe', cursor: 'pointer', textAlign: 'center',
+                                  padding: '6px 0', fontSize: 11, color: 'var(--indigo-200)', cursor: 'pointer', textAlign: 'center',
                                   transition: 'background 120ms ease, border-color 120ms ease, color 120ms ease',
                                 }}
                               >
@@ -576,7 +576,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                           </div>
                           <label
                             onClick={e => e.stopPropagation()}
-                            style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 11, color: '#94a3b8' }}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 11, color: 'var(--slate-400)' }}
                           >
                             <span style={{ whiteSpace: 'nowrap' }}>Pick date</span>
                             <input
@@ -586,8 +586,8 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                               onChange={e => { e.stopPropagation(); rescheduleToDate(it, e.target.value); }}
                               style={{
                                 flex: 1, minWidth: 0,
-                                background: 'rgba(129, 140, 248, 0.08)', border: '1px solid #263244', borderRadius: 6,
-                                padding: '4px 6px', fontSize: 11, color: '#e2e8f0', colorScheme: 'dark', cursor: 'pointer',
+                                background: 'rgba(129, 140, 248, 0.08)', border: '1px solid var(--app-line)', borderRadius: 6,
+                                padding: '4px 6px', fontSize: 11, color: 'var(--slate-200)', colorScheme: 'dark', cursor: 'pointer',
                               }}
                             />
                           </label>
@@ -599,7 +599,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                             style={{
                               width: '100%', display: 'flex', alignItems: 'center', gap: 6,
                               background: 'transparent', border: '1px solid rgba(245, 158, 11, 0.4)', borderRadius: 6,
-                              padding: '5px 8px', fontSize: 11, color: '#f59e0b', cursor: 'pointer',
+                              padding: '5px 8px', fontSize: 11, color: 'var(--amber-500)', cursor: 'pointer',
                               transition: 'background 120ms ease, border-color 120ms ease',
                             }}
                           >
@@ -653,7 +653,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                           background: actionsVisible ? 'rgba(248, 113, 113, 0.10)' : 'transparent',
                           border: actionsVisible ? '1px solid rgba(248, 113, 113, 0.45)' : '1px solid transparent',
                           borderRadius: 4,
-                          color: '#f87171',
+                          color: 'var(--red-400)',
                           fontSize: 13,
                           lineHeight: 1,
                           cursor: 'pointer',
@@ -666,7 +666,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                       </button>
                     </div>
                   </div>
-                  <div style={{ paddingRight: 32, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#6b7280' }}>
+                  <div style={{ paddingRight: 32, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'var(--gray-500)' }}>
                     <span style={{
                       color: IMP_COLOR[c.importance] ?? '#94a3b8',
                       background: 'rgba(129, 140, 248, 0.10)',
@@ -694,7 +694,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                       title={`Master these prerequisites first: ${it.blocked_prerequisites.join(', ')}`}
                       style={{
                         paddingRight: 32, marginTop: 5, display: 'flex', alignItems: 'center', gap: 5,
-                        fontSize: 10, color: '#fbbf24',
+                        fontSize: 10, color: 'var(--amber-400)',
                       }}
                     >
                       <span aria-hidden="true">⚠</span>

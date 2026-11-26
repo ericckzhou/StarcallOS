@@ -422,15 +422,15 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
             background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
             <div style={{
-              background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 8,
+              background: 'var(--app-panel)', border: '1px solid var(--gray-800)', borderRadius: 8,
               padding: 20, width: 440, display: 'flex', flexDirection: 'column', gap: 12,
             }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#bbf7d0' }}>
                 Promote {targetList.length} concept{targetList.length === 1 ? '' : 's'}?
               </div>
-              <div style={{ fontSize: 12, color: '#9ca3af', lineHeight: 1.6 }}>
+              <div style={{ fontSize: 12, color: 'var(--gray-400)', lineHeight: 1.6 }}>
                 {description}
-                <div style={{ marginTop: 8, color: '#6b7280', fontSize: 11 }}>
+                <div style={{ marginTop: 8, color: 'var(--gray-500)', fontSize: 11 }}>
                   Top of list: {targetList.slice(0, 3).map(c => c.term).join(' · ')}{targetList.length > 3 ? ` … +${targetList.length - 3} more` : ''}
                 </div>
               </div>
@@ -438,14 +438,14 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                 <button
                   onClick={() => setConfirming(false)}
                   disabled={bulkBusy}
-                  style={{ background: 'transparent', border: '1px solid #374151', borderRadius: 4, padding: '5px 14px', color: '#9ca3af', fontSize: 12, cursor: 'pointer' }}
+                  style={{ background: 'transparent', border: '1px solid var(--gray-700)', borderRadius: 4, padding: '5px 14px', color: 'var(--gray-400)', fontSize: 12, cursor: 'pointer' }}
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => promoteAllFiltered(targetList.map(c => c.id))}
                   disabled={bulkBusy}
-                  style={{ background: '#14532d', border: '1px solid #22c55e', borderRadius: 4, padding: '5px 14px', color: '#bbf7d0', fontSize: 12, cursor: bulkBusy ? 'wait' : 'pointer', fontWeight: 600 }}
+                  style={{ background: '#14532d', border: '1px solid var(--green-500)', borderRadius: 4, padding: '5px 14px', color: '#bbf7d0', fontSize: 12, cursor: bulkBusy ? 'wait' : 'pointer', fontWeight: 600 }}
                 >
                   {bulkBusy ? 'Promoting…' : `Promote ${targetList.length}`}
                 </button>
@@ -461,15 +461,15 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <div style={{
-            background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 8,
+            background: 'var(--app-panel)', border: '1px solid var(--gray-800)', borderRadius: 8,
             padding: 20, width: 440, display: 'flex', flexDirection: 'column', gap: 12,
           }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#fca5a5' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--red-300)' }}>
               Reject {filtered.length} candidate{filtered.length === 1 ? '' : 's'}?
             </div>
-            <div style={{ fontSize: 12, color: '#9ca3af', lineHeight: 1.6 }}>
+            <div style={{ fontSize: 12, color: 'var(--gray-400)', lineHeight: 1.6 }}>
               Rejects every visible candidate (bucket "{BUCKET_LABEL[bucket]}", signal "{signalFilter}", min score {minConf.toFixed(2)}). This deletes the candidate rows; it does not touch already-promoted concepts. Re-extract can regenerate candidates.
-              <div style={{ marginTop: 8, color: '#6b7280', fontSize: 11 }}>
+              <div style={{ marginTop: 8, color: 'var(--gray-500)', fontSize: 11 }}>
                 Top of list: {filtered.slice(0, 3).map(c => c.term).join(' · ')}{filtered.length > 3 ? ` … +${filtered.length - 3} more` : ''}
               </div>
             </div>
@@ -477,14 +477,14 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               <button
                 onClick={() => setRejectConfirming(false)}
                 disabled={bulkBusy}
-                style={{ background: 'transparent', border: '1px solid #374151', borderRadius: 4, padding: '5px 14px', color: '#9ca3af', fontSize: 12, cursor: 'pointer' }}
+                style={{ background: 'transparent', border: '1px solid var(--gray-700)', borderRadius: 4, padding: '5px 14px', color: 'var(--gray-400)', fontSize: 12, cursor: 'pointer' }}
               >
                 Cancel
               </button>
               <button
                 onClick={() => rejectAllFiltered(filtered.map(c => c.id))}
                 disabled={bulkBusy}
-                style={{ background: '#3f1d1d', border: '1px solid #ef4444', borderRadius: 4, padding: '5px 14px', color: '#fecaca', fontSize: 12, cursor: bulkBusy ? 'wait' : 'pointer', fontWeight: 600 }}
+                style={{ background: '#3f1d1d', border: '1px solid var(--red-500)', borderRadius: 4, padding: '5px 14px', color: '#fecaca', fontSize: 12, cursor: bulkBusy ? 'wait' : 'pointer', fontWeight: 600 }}
               >
                 {bulkBusy ? 'Rejecting…' : `Reject ${filtered.length}`}
               </button>
@@ -495,12 +495,12 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
 
       {bulkMsg && (
         <div style={{
-          padding: '6px 16px', background: '#0d0d16', borderBottom: '1px solid #1f2937',
+          padding: '6px 16px', background: 'var(--app-panel)', borderBottom: '1px solid var(--gray-800)',
           fontSize: 11, color: bulkMsg.startsWith('Bulk promote failed') ? '#fca5a5' : '#86efac',
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
           <span>{bulkMsg}</span>
-          <button onClick={() => setBulkMsg(null)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: '#4b5563', cursor: 'pointer', fontSize: 14 }}>×</button>
+          <button onClick={() => setBulkMsg(null)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'var(--gray-600)', cursor: 'pointer', fontSize: 14 }}>×</button>
         </div>
       )}
 
@@ -513,14 +513,14 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <div style={{
-            background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 8,
+            background: 'var(--app-panel)', border: '1px solid var(--gray-800)', borderRadius: 8,
             padding: 20, width: 640, maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 14,
             overflow: 'hidden',
           }}>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#c7d2fe' }}>LLM topic-fit filter</div>
-              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4, lineHeight: 1.5 }}>
-                Source: <span style={{ color: '#9ca3af' }}>{sourceTitle || '(no title set)'}</span>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--indigo-200)' }}>LLM topic-fit filter</div>
+              <div style={{ fontSize: 11, color: 'var(--gray-500)', marginTop: 4, lineHeight: 1.5 }}>
+                Source: <span style={{ color: 'var(--gray-400)' }}>{sourceTitle || '(no title set)'}</span>
                 <br />
                 Filters all {filtered.length} visible candidate{filtered.length === 1 ? '' : 's'} in paced batches across your configured provider(s).
               </div>
@@ -553,7 +553,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                     {filtered.length} visible
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: '#64748b', lineHeight: 1.45, marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: 'var(--slate-500)', lineHeight: 1.45, marginTop: 4 }}>
                   Runs a compact API batch using your Profile settings, then saves the kept concepts.
                 </div>
               </div>
@@ -581,23 +581,23 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 11, color: '#9ca3af' }}>1. Copy this prompt to ChatGPT (or any LLM):</span>
+              <span style={{ fontSize: 11, color: 'var(--gray-400)' }}>1. Copy this prompt to ChatGPT (or any LLM):</span>
               <button onClick={copyTopicFitPrompt} style={{
-                marginLeft: 'auto', background: '#1e1b4b', border: '1px solid #4338ca', borderRadius: 3,
+                marginLeft: 'auto', background: 'var(--indigo-950)', border: '1px solid var(--indigo-700)', borderRadius: 3,
                 padding: '3px 10px', fontSize: 11, color: llmCopied ? '#86efac' : '#c7d2fe', cursor: 'pointer', fontWeight: 600,
               }}>
                 {llmCopied ? '✓ Copied' : 'Copy Prompt'}
               </button>
             </div>
             <pre style={{
-              margin: 0, padding: '10px 12px', background: '#000', border: '1px solid #1f2937', borderRadius: 4,
-              color: '#9ca3af', fontSize: 10, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              margin: 0, padding: '10px 12px', background: '#000', border: '1px solid var(--gray-800)', borderRadius: 4,
+              color: 'var(--gray-400)', fontSize: 10, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               fontFamily: 'ui-monospace, Consolas, monospace', maxHeight: 140, overflow: 'auto',
             }}>
               {topicFitPrompt.slice(0, 600)}{topicFitPrompt.length > 600 ? '\n… (truncated; full prompt is on your clipboard)' : ''}
             </pre>
 
-            <div style={{ fontSize: 11, color: '#9ca3af' }}>2. Paste the LLM&apos;s JSON answer here (auto-parses on paste):</div>
+            <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>2. Paste the LLM&apos;s JSON answer here (auto-parses on paste):</div>
             <textarea
               autoFocus
               value={llmPaste}
@@ -615,7 +615,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               style={{
                 width: '100%', boxSizing: 'border-box', resize: 'vertical',
                 background: '#000', border: `1px solid ${llmFilterMsg?.startsWith('Could not') ? '#7f1d1d' : '#312e81'}`,
-                borderRadius: 4, padding: '8px 10px', color: '#e2e8f0', fontSize: 11, lineHeight: 1.5,
+                borderRadius: 4, padding: '8px 10px', color: 'var(--slate-200)', fontSize: 11, lineHeight: 1.5,
                 fontFamily: 'ui-monospace, Consolas, monospace', outline: 'none',
               }}
             />
@@ -630,7 +630,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                 <button
                   onClick={() => { clearTopicFitFilter(); setLlmFilterOpen(false); }}
                   title="Wipe the saved LLM filter from this source"
-                  style={{ background: '#1a0a0a', border: '1px solid #7f1d1d', borderRadius: 4, padding: '5px 14px', color: '#fca5a5', fontSize: 12, cursor: 'pointer' }}
+                  style={{ background: '#1a0a0a', border: '1px solid var(--red-900)', borderRadius: 4, padding: '5px 14px', color: 'var(--red-300)', fontSize: 12, cursor: 'pointer' }}
                 >
                   Clear saved filter
                 </button>
@@ -638,7 +638,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               <div style={{ marginLeft: 'auto' }} />
               <button
                 onClick={() => { setLlmFilterOpen(false); setLlmPaste(''); setLlmFilterMsg(null); }}
-                style={{ background: 'transparent', border: '1px solid #374151', borderRadius: 4, padding: '5px 14px', color: '#9ca3af', fontSize: 12, cursor: 'pointer' }}
+                style={{ background: 'transparent', border: '1px solid var(--gray-700)', borderRadius: 4, padding: '5px 14px', color: 'var(--gray-400)', fontSize: 12, cursor: 'pointer' }}
               >
                 Close
               </button>
@@ -649,7 +649,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
 
       {/* Top bar â€” bucket chips, counters, slider, and run-extraction */}
       <div style={{
-        padding: '8px 16px', borderBottom: '1px solid #1f2937',
+        padding: '8px 16px', borderBottom: '1px solid var(--gray-800)',
         display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap',
         order: 2,
       }}>
@@ -666,8 +666,8 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               style={{
                 width: 160, boxSizing: 'border-box',
                 background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
-                border: '1px solid #263244', borderRadius: 3,
-                padding: '3px 22px 3px 8px', color: '#e2e8f0', fontSize: 11, outline: 'none',
+                border: '1px solid var(--app-line)', borderRadius: 3,
+                padding: '3px 22px 3px 8px', color: 'var(--slate-200)', fontSize: 11, outline: 'none',
               }}
             />
             {search && (
@@ -676,7 +676,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                 title="Clear search"
                 style={{
                   position: 'absolute', right: 5, background: 'transparent', border: 'none',
-                  color: '#6b7280', fontSize: 13, lineHeight: 1, cursor: 'pointer', padding: 0,
+                  color: 'var(--gray-500)', fontSize: 13, lineHeight: 1, cursor: 'pointer', padding: 0,
                 }}
               >×</button>
             )}
@@ -695,13 +695,13 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               title={BUCKET_HINT[b]}
               style={{
                 background: selected ? 'rgba(129, 140, 248, 0.10)' : 'transparent',
-                border: `1px solid ${selected ? color : '#1f2937'}`,
-                color: selected ? color : '#6b7280',
+                border: `1px solid ${selected ? color : 'var(--gray-800)'}`,
+                color: selected ? color : 'var(--gray-500)',
                 borderRadius: 3, padding: '3px 8px', fontSize: 10, cursor: 'pointer',
                 fontWeight: 600, letterSpacing: '0.03em',
               }}
             >
-              {BUCKET_LABEL[b]} <span style={{ color: selected ? color : '#4b5563', marginLeft: 4 }}>{count}</span>
+              {BUCKET_LABEL[b]} <span style={{ color: selected ? color : 'var(--gray-600)', marginLeft: 4 }}>{count}</span>
             </button>
           );
         })}
@@ -736,7 +736,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                     disabled={bulkBusy}
                     title={`Promote every candidate that passes the safe-default gate: final_score >= 0.80, no suspicious labels, with definition, strong typography, or repeated domain evidence. Ignores the current bucket filter.`}
                     style={{
-                      background: '#0e3a25', border: '1px solid #22c55e', borderRadius: 3,
+                      background: '#0e3a25', border: '1px solid var(--green-500)', borderRadius: 3,
                       padding: '3px 10px', fontSize: 10, cursor: bulkBusy ? 'wait' : 'pointer',
                       color: '#bbf7d0', opacity: bulkBusy ? 0.5 : 1, fontWeight: 700,
                     }}
@@ -753,7 +753,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                     disabled={bulkBusy}
                     title={`Bulk-promote every concept currently visible (respects bucket + signal + slider). No LLM calls.`}
                     style={{
-                      background: '#14532d', border: '1px solid #22c55e', borderRadius: 3,
+                      background: '#14532d', border: '1px solid var(--green-500)', borderRadius: 3,
                       padding: '3px 10px', fontSize: 10, cursor: bulkBusy ? 'wait' : 'pointer',
                       color: '#bbf7d0', opacity: bulkBusy ? 0.5 : 1, fontWeight: 600,
                     }}
@@ -767,7 +767,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                     disabled={bulkBusy}
                     title={`Reject every concept currently visible (respects bucket + signal + slider). Deletes the candidate rows; promoted concepts are untouched.`}
                     style={{
-                      background: '#3f1d1d', border: '1px solid #ef4444', borderRadius: 3,
+                      background: '#3f1d1d', border: '1px solid var(--red-500)', borderRadius: 3,
                       padding: '3px 10px', fontSize: 10, cursor: bulkBusy ? 'wait' : 'pointer',
                       color: '#fecaca', opacity: bulkBusy ? 0.5 : 1, fontWeight: 600,
                     }}
@@ -779,9 +779,9 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                   onClick={() => setLlmFilterOpen(true)}
                   title={`Generate a prompt for ChatGPT (or any LLM). Paste the JSON answer back, soft-filters the list to candidates the LLM agrees fit the book's topic.`}
                   style={{
-                    background: '#1e1b4b', border: '1px solid #818cf8', borderRadius: 3,
+                    background: 'var(--indigo-950)', border: '1px solid var(--indigo-400)', borderRadius: 3,
                     padding: '3px 10px', fontSize: 10, cursor: 'pointer',
-                    color: '#c7d2fe', fontWeight: 600,
+                    color: 'var(--indigo-200)', fontWeight: 600,
                   }}
                 >
                   LLM topic filter
@@ -799,7 +799,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                 background: 'rgba(4, 6, 26, 0.38)',
                 backdropFilter: 'blur(10px)',
               }}>
-                <span style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>min score</span>
+                <span style={{ fontSize: 10, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>min score</span>
                 <input
                   className="score-range"
                   type="range" min={0} max={1} step={0.05} value={minConf}
@@ -829,7 +829,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           background: 'transparent',
           order: 3,
         }}>
-          <span style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 4 }}>tag</span>
+          <span style={{ fontSize: 9, color: 'var(--gray-600)', textTransform: 'uppercase', letterSpacing: '0.1em', marginRight: 4 }}>tag</span>
           {(() => {
             const anyCount = withBucket.filter(c =>
               (bucket === 'all' || c.bucket === bucket) &&
@@ -849,13 +849,13 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                 onClick={() => setSignalFilter(key)}
                 style={{
                   background: selected ? 'rgba(129, 140, 248, 0.10)' : 'transparent',
-                  border: `1px solid ${selected ? color : '#1f2937'}`,
-                  color: selected ? color : '#6b7280',
+                  border: `1px solid ${selected ? color : 'var(--gray-800)'}`,
+                  color: selected ? color : 'var(--gray-500)',
                   borderRadius: 3, padding: '2px 7px', fontSize: 10, cursor: 'pointer',
                   fontWeight: 500,
                 }}
               >
-                {label} <span style={{ color: selected ? color : '#4b5563', marginLeft: 3 }}>{count}</span>
+                {label} <span style={{ color: selected ? color : 'var(--gray-600)', marginLeft: 3 }}>{count}</span>
               </button>
             );
             });
@@ -865,7 +865,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
 
       <div style={{ flex: 1, overflowY: 'auto', order: 4 }}>
         {loading && (
-          <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>Loading candidates…</div>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-700)', fontSize: 12 }}>Loading candidates…</div>
         )}
 
         {!loading && subTab === 'concepts' && (

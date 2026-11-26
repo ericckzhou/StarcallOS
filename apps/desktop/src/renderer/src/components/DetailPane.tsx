@@ -171,37 +171,37 @@ function RescheduleButton({ conceptId }: { conceptId: number }) {
         <div role="menu" onClick={e => e.stopPropagation()} style={{
           position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 30, minWidth: 216,
           background: 'rgba(4,6,26,0.34)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-          border: '1px solid #263244', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 10,
+          border: '1px solid var(--app-line)', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 10,
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '0 2px 7px' }}>
-            <span style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Reschedule</span>
-            <span style={{ fontSize: 10, color: '#94a3b8' }}>{dueState.text}</span>
+            <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Reschedule</span>
+            <span style={{ fontSize: 10, color: 'var(--slate-400)' }}>{dueState.text}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
             {RESCHEDULE_PRESETS_DP.map(p => (
               <button key={p.label} className="rel-opt" role="menuitem"
                 onClick={e => { e.stopPropagation(); apply(new Date(Date.now() + p.days * 86_400_000).toISOString()); }}
                 title={`Due again in ${p.label}`}
-                style={{ background: 'transparent', border: '1px solid rgba(129,140,248,0.28)', borderRadius: 6, padding: '6px 0', fontSize: 11, color: '#c7d2fe', cursor: 'pointer', textAlign: 'center' }}>
+                style={{ background: 'transparent', border: '1px solid rgba(129,140,248,0.28)', borderRadius: 6, padding: '6px 0', fontSize: 11, color: 'var(--indigo-200)', cursor: 'pointer', textAlign: 'center' }}>
                 {p.label}
               </button>
             ))}
           </div>
-          <label onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 11, color: '#94a3b8' }}>
+          <label onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 11, color: 'var(--slate-400)' }}>
             <span style={{ whiteSpace: 'nowrap' }}>Pick date</span>
             <input
               type="date"
               onClick={e => e.stopPropagation()}
               min={new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)}
               onChange={e => { e.stopPropagation(); const v = e.target.value; if (v) { const d = new Date(`${v}T00:00:00`); if (!Number.isNaN(d.getTime())) apply(d.toISOString()); } }}
-              style={{ flex: 1, minWidth: 0, background: 'rgba(129,140,248,0.08)', border: '1px solid #263244', borderRadius: 6, padding: '4px 6px', fontSize: 11, color: '#e2e8f0', colorScheme: 'dark', cursor: 'pointer' }}
+              style={{ flex: 1, minWidth: 0, background: 'rgba(129,140,248,0.08)', border: '1px solid var(--app-line)', borderRadius: 6, padding: '4px 6px', fontSize: 11, color: 'var(--slate-200)', colorScheme: 'dark', cursor: 'pointer' }}
             />
           </label>
           <div style={{ height: 1, background: 'rgba(129,140,248,0.16)', margin: '9px 0' }} />
           <button role="menuitem"
             onClick={e => { e.stopPropagation(); apply(null); }}
             title="Clear schedule — make this due now"
-            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 6, padding: '5px 8px', fontSize: 11, color: '#f59e0b', cursor: 'pointer' }}>
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 6, padding: '5px 8px', fontSize: 11, color: 'var(--amber-500)', cursor: 'pointer' }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
             Reset (due now)
           </button>
@@ -225,7 +225,7 @@ function AskAboutButton({ concept }: { concept: Concept }) {
       }))}
       title={`Ask a question about ${concept.name} (answers from your sources, local model)`}
       style={{
-        background: 'rgba(129,140,248,0.10)', border: '1px solid rgba(129,140,248,0.35)', color: '#c7d2fe',
+        background: 'rgba(129,140,248,0.10)', border: '1px solid rgba(129,140,248,0.35)', color: 'var(--indigo-200)',
         borderRadius: 6, padding: '3px 9px', fontSize: 11, fontWeight: 600, cursor: 'pointer', flexShrink: 0,
       }}
     >
@@ -284,9 +284,9 @@ function ExportButton({ conceptId }: { conceptId: number }) {
   const optStyle: React.CSSProperties = {
     width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
     background: 'transparent', border: '1px solid rgba(129,140,248,0.28)', borderRadius: 6,
-    padding: '6px 9px', marginTop: 6, fontSize: 11, color: '#c7d2fe', cursor: 'pointer',
+    padding: '6px 9px', marginTop: 6, fontSize: 11, color: 'var(--indigo-200)', cursor: 'pointer',
   };
-  const extStyle: React.CSSProperties = { fontSize: 9, color: '#64748b', fontVariantNumeric: 'tabular-nums' };
+  const extStyle: React.CSSProperties = { fontSize: 9, color: 'var(--slate-500)', fontVariantNumeric: 'tabular-nums' };
 
   return (
     <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -315,9 +315,9 @@ function ExportButton({ conceptId }: { conceptId: number }) {
         <div role="menu" onClick={e => e.stopPropagation()} style={{
           position: 'fixed', top: menuPos.top, left: menuPos.left, zIndex: 200, width: MENU_WIDTH,
           background: 'rgba(4,6,26,0.5)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-          border: '1px solid #263244', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 9,
+          border: '1px solid var(--app-line)', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 9,
         }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0 2px' }}>Export as</div>
+          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0 2px' }}>Export as</div>
           <button className="rel-opt" role="menuitem" onClick={e => { e.stopPropagation(); doExport('markdown'); }} title="Export as Markdown (.md)" style={optStyle}>
             <span>Markdown</span><span style={extStyle}>.md</span>
           </button>
@@ -540,7 +540,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: '#374151',
+        color: 'var(--gray-700)',
         fontSize: 14,
         position: 'relative',
         overflow: 'hidden',
@@ -613,7 +613,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
         <section style={{
           flex: `0 0 ${sourcePreviewNotesWidth}px`, minWidth: 360, maxWidth: '70%',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          borderRight: '1px solid #1f2937',
+          borderRight: '1px solid var(--gray-800)',
         }}>
           <header style={{
             padding: '12px 24px 0',
@@ -638,7 +638,7 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
               <button
                 onClick={() => setSourcePreviewOpen(false)}
                 title="Hide source"
-                style={{ background: '#1e1b4b', border: '1px solid #4338ca', borderRadius: 4, padding: '3px 10px', color: '#c7d2fe', fontSize: 0, cursor: 'pointer', flexShrink: 0 }}
+                style={{ background: 'var(--indigo-950)', border: '1px solid var(--indigo-700)', borderRadius: 4, padding: '3px 10px', color: 'var(--indigo-200)', fontSize: 0, cursor: 'pointer', flexShrink: 0 }}
               >
                 ×
                 <span style={{ fontSize: 11 }}>Source</span>
@@ -690,9 +690,9 @@ export default function DetailPane({ concept, onDeleted, profile }: Props) {
             title="Show source on the right"
             style={{
               background: 'transparent',
-              border: '1px solid #1f2937',
+              border: '1px solid var(--gray-800)',
               borderRadius: 4, padding: '3px 10px',
-              color: '#6b7280',
+              color: 'var(--gray-500)',
               fontSize: 11, cursor: 'pointer',
             }}
           >
@@ -795,7 +795,7 @@ function PaperTab({ conceptId }: { conceptId: number }) {
           padding: 0, minHeight: '58vh',
         }}
       />
-      <div style={{ fontSize: 10, color: '#374151', marginTop: 8, height: 12 }}>
+      <div style={{ fontSize: 10, color: 'var(--gray-700)', marginTop: 8, height: 12 }}>
         {savedAt ? 'Saved' : ''}
       </div>
     </div>
@@ -1033,19 +1033,19 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
     // own rounded corners below so it still hugs the card edge cleanly.
   };
   const sectionHeading: React.CSSProperties = {
-    fontSize: 10, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em',
+    fontSize: 10, fontWeight: 700, color: 'var(--gray-600)', textTransform: 'uppercase', letterSpacing: '0.1em',
   };
   const inp: React.CSSProperties = {
     background: 'rgba(17,24,39,0.45)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
-    border: '1px solid #263244', borderRadius: 4, padding: '5px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none', boxSizing: 'border-box',
+    border: '1px solid var(--app-line)', borderRadius: 4, padding: '5px 8px', color: 'var(--slate-200)', fontSize: 12, outline: 'none', boxSizing: 'border-box',
   };
   const ghostBtn: React.CSSProperties = {
-    background: 'transparent', border: '1px solid #1f2937', borderRadius: 4,
-    padding: '2px 8px', fontSize: 10, color: '#a5b4fc', cursor: 'pointer',
+    background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 4,
+    padding: '2px 8px', fontSize: 10, color: 'var(--indigo-300)', cursor: 'pointer',
   };
   const primaryBtn: React.CSSProperties = {
-    background: '#312e81', border: '1px solid #6366f1', borderRadius: 4,
-    padding: '3px 10px', fontSize: 11, color: '#e0e7ff', cursor: 'pointer',
+    background: 'var(--indigo-900)', border: '1px solid var(--indigo-500)', borderRadius: 4,
+    padding: '3px 10px', fontSize: 11, color: 'var(--indigo-100)', cursor: 'pointer',
   };
 
   function renderNoteEditor(): React.ReactNode {
@@ -1101,8 +1101,8 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
           aria-haspopup="true"
           aria-expanded={isOpen}
           style={{
-            background: 'transparent', border: '1px solid #1f2937', borderRadius: 4,
-            padding: '1px 8px', color: '#94a3b8', cursor: 'pointer',
+            background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 4,
+            padding: '1px 8px', color: 'var(--slate-400)', cursor: 'pointer',
             fontSize: 14, lineHeight: 1,
           }}
         >⋯</button>
@@ -1141,8 +1141,8 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
     <div style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 22 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, paddingBottom: 6, borderBottom: '1px solid rgba(31,41,55,0.7)' }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0' }}>Annotations</div>
-        <div style={{ fontSize: 11, color: '#64748b' }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--slate-200)' }}>Annotations</div>
+        <div style={{ fontSize: 11, color: 'var(--slate-500)' }}>
           {highlights.length} highlight{highlights.length === 1 ? '' : 's'} · {notes.length} note{notes.length === 1 ? '' : 's'} · {otherEvidence.length} evidence
         </div>
         <button onClick={() => void createStandaloneNote()} style={{ ...primaryBtn, marginLeft: 'auto' }}>+ Note</button>
@@ -1152,10 +1152,10 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
       <section>
         <div style={{ ...sectionHeading, marginBottom: 14 }}>Highlights</div>
         {loading ? (
-          <div style={{ fontSize: 12, color: '#4b5563' }}>Loading…</div>
+          <div style={{ fontSize: 12, color: 'var(--gray-600)' }}>Loading…</div>
         ) : highlights.length === 0 ? (
-          <div style={{ fontSize: 12, color: '#4b5563', padding: '14px', lineHeight: 1.6, ...card, borderStyle: 'dashed' }}>
-            No highlights yet. Open the <span style={{ color: '#a5b4fc' }}>Source</span> pane, select text, and click Highlight — it'll show up here paired with an optional note.
+          <div style={{ fontSize: 12, color: 'var(--gray-600)', padding: '14px', lineHeight: 1.6, ...card, borderStyle: 'dashed' }}>
+            No highlights yet. Open the <span style={{ color: 'var(--indigo-300)' }}>Source</span> pane, select text, and click Highlight — it'll show up here paired with an optional note.
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1175,8 +1175,8 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                   />
                   <div style={{ flex: 1, padding: '10px 12px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, minHeight: 22 }}>
-                      <span style={{ fontSize: 11, color: '#a5b4fc', fontWeight: 700 }}>p.{h.page}</span>
-                      {h.label && (<span style={{ fontSize: 10, color: '#94a3b8', fontStyle: 'italic' }}>{h.label}</span>)}
+                      <span style={{ fontSize: 11, color: 'var(--indigo-300)', fontWeight: 700 }}>p.{h.page}</span>
+                      {h.label && (<span style={{ fontSize: 10, color: 'var(--slate-400)', fontStyle: 'italic' }}>{h.label}</span>)}
                       <div className="anno-actions" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                         <button onClick={() => onJumpToAnnotation(h.page)} title="Jump to this highlight in source" style={{ ...ghostBtn, borderColor: `color-mix(in srgb, ${h.color} 55%, transparent)` }}>Jump</button>
                         <button onClick={() => void createNoteForHighlight(h)} title="Add a note linked to this highlight" style={{ ...ghostBtn, borderColor: `color-mix(in srgb, ${h.color} 55%, transparent)` }}>+ Note</button>
@@ -1187,16 +1187,16 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                     </div>
                     {/* Pull-quote treatment for the highlighted text */}
                     <div style={{
-                      fontSize: 13, color: '#cbd5e1', lineHeight: 1.55, fontStyle: 'italic',
+                      fontSize: 13, color: 'var(--slate-300)', lineHeight: 1.55, fontStyle: 'italic',
                       borderLeft: `2px solid ${h.color}`, paddingLeft: 10,
                       wordBreak: 'break-word',
                     }}>
-                      {snippet(h.selected_text) || <span style={{ color: '#475569', fontStyle: 'normal' }}>(no text captured)</span>}
+                      {snippet(h.selected_text) || <span style={{ color: 'var(--slate-600)', fontStyle: 'normal' }}>(no text captured)</span>}
                     </div>
                     {/* Optional memo (the popover's comment field) — only renders when set */}
                     {h.note_body && h.note_body.trim() && (
                       <div style={{
-                        marginTop: 8, fontSize: 11, color: '#94a3b8', lineHeight: 1.5,
+                        marginTop: 8, fontSize: 11, color: 'var(--slate-400)', lineHeight: 1.5,
                         paddingLeft: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                       }}>
                         {snippet(h.note_body, 240)}
@@ -1235,12 +1235,12 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                               </div>
                               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
                                 {canDrag && (
-                                  <span title="Drag to reorder" style={{ display: 'inline-flex', alignItems: 'center', height: '1.55em', fontSize: 12, color: '#475569', cursor: 'grab', flexShrink: 0 }}>
+                                  <span title="Drag to reorder" style={{ display: 'inline-flex', alignItems: 'center', height: '1.55em', fontSize: 12, color: 'var(--slate-600)', cursor: 'grab', flexShrink: 0 }}>
                                     {gripIcon}
                                   </span>
                                 )}
                                 <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#c4cfe4', whiteSpace: 'pre-wrap', lineHeight: 1.55, paddingRight: 22 }}>
-                                  {linked.body ? renderMarkdown(linked.body, `lnote-${linked.id}`) : <span style={{ color: '#475569' }}>(empty — open the ⋯ menu to edit)</span>}
+                                  {linked.body ? renderMarkdown(linked.body, `lnote-${linked.id}`) : <span style={{ color: 'var(--slate-600)' }}>(empty — open the ⋯ menu to edit)</span>}
                                 </div>
                               </div>
                             </>
@@ -1292,12 +1292,12 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
                         <span
                           title="Drag to reorder"
-                          style={{ display: 'inline-flex', alignItems: 'center', height: '1.55em', fontSize: 12, color: '#475569', cursor: 'grab', flexShrink: 0 }}
+                          style={{ display: 'inline-flex', alignItems: 'center', height: '1.55em', fontSize: 12, color: 'var(--slate-600)', cursor: 'grab', flexShrink: 0 }}
                         >
                           {gripIcon}
                         </span>
                         <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#c4cfe4', whiteSpace: 'pre-wrap', lineHeight: 1.55, paddingRight: 22 }}>
-                          {n.body ? renderMarkdown(n.body, `snote-${n.id}`) : <span style={{ color: '#475569' }}>(empty)</span>}
+                          {n.body ? renderMarkdown(n.body, `snote-${n.id}`) : <span style={{ color: 'var(--slate-600)' }}>(empty)</span>}
                         </div>
                       </div>
                       {linkingNoteId === n.id && (
@@ -1306,13 +1306,13 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                           background: 'rgba(13,13,22,0.5)', border: '1px dashed rgba(99,102,241,0.55)',
                         }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                            <span style={{ fontSize: 10, color: '#a5b4fc', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                            <span style={{ fontSize: 10, color: 'var(--indigo-300)', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
                               Link to a highlight
                             </span>
                             <button onClick={() => setLinkingNoteId(null)} style={{ marginLeft: 'auto', ...ghostBtn }}>Cancel</button>
                           </div>
                           {highlights.length === 0 ? (
-                            <div style={{ fontSize: 11, color: '#64748b' }}>No highlights yet — add one in the Source pane first.</div>
+                            <div style={{ fontSize: 11, color: 'var(--slate-500)' }}>No highlights yet — add one in the Source pane first.</div>
                           ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
                               {highlights.map(h => (
@@ -1325,15 +1325,15 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                                     display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
                                     background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.45)',
                                     borderRadius: 6, padding: '8px 10px',
-                                    fontSize: 11, color: '#cbd5e1', cursor: 'pointer',
+                                    fontSize: 11, color: 'var(--slate-300)', cursor: 'pointer',
                                   }}
                                 >
                                   <span style={{ width: 4, height: 14, borderRadius: 1, background: h.color, flexShrink: 0 }} />
-                                  <span style={{ color: '#a5b4fc', fontWeight: 700 }}>p.{h.page}</span>
+                                  <span style={{ color: 'var(--indigo-300)', fontWeight: 700 }}>p.{h.page}</span>
                                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {snippet(h.selected_text, 80)}
                                   </span>
-                                  <span style={{ flexShrink: 0, fontWeight: 700, color: '#a5b4fc', letterSpacing: '0.03em' }}>Link →</span>
+                                  <span style={{ flexShrink: 0, fontWeight: 700, color: 'var(--indigo-300)', letterSpacing: '0.03em' }}>Link →</span>
                                 </button>
                               ))}
                             </div>
@@ -1353,8 +1353,8 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
       <section>
         <div style={{ ...sectionHeading, marginBottom: 14 }}>Other Evidence</div>
         {otherEvidence.length === 0 ? (
-          <div style={{ fontSize: 11, color: '#4b5563', padding: '12px 14px', ...card, borderStyle: 'dashed' }}>
-            No non-highlight evidence yet — auto-derived spans (heading, chunk, equation, …) appear here once the concept is enriched, and you can add or edit them via the <span style={{ color: '#a5b4fc' }}>+</span> button in the source rail.
+          <div style={{ fontSize: 11, color: 'var(--gray-600)', padding: '12px 14px', ...card, borderStyle: 'dashed' }}>
+            No non-highlight evidence yet — auto-derived spans (heading, chunk, equation, …) appear here once the concept is enriched, and you can add or edit them via the <span style={{ color: 'var(--indigo-300)' }}>+</span> button in the source rail.
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1385,14 +1385,14 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                   ) : (
                     <>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap', minHeight: 22 }}>
-                        <span style={{ fontSize: 11, color: '#a5b4fc', fontWeight: 700 }}>p.{ev.page}</span>
+                        <span style={{ fontSize: 11, color: 'var(--indigo-300)', fontWeight: 700 }}>p.{ev.page}</span>
                         <span style={{
                           fontSize: 9, padding: '1px 6px', borderRadius: 3,
                           border: `1px solid ${EVIDENCE_KIND_COLOR[ev.kind] ?? '#374151'}`,
                           color: EVIDENCE_KIND_COLOR[ev.kind] ?? '#6b7280',
                           textTransform: 'uppercase', letterSpacing: '0.05em',
                         }}>{ev.kind}</span>
-                        {ev.label && (<span style={{ fontSize: 10, color: '#94a3b8' }}>{ev.label}</span>)}
+                        {ev.label && (<span style={{ fontSize: 10, color: 'var(--slate-400)' }}>{ev.label}</span>)}
                         <div className="anno-actions" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                           <button onClick={() => onJumpToAnnotation(ev.page)} style={ghostBtn}>Jump</button>
                         </div>
@@ -1403,7 +1403,7 @@ function AnnotationsTab({ conceptId, sourceId, onJumpToAnnotation }: {
                       </div>
                       {ev.quote && (
                         <div style={{
-                          fontSize: 12, color: '#cbd5e1', fontStyle: 'italic', lineHeight: 1.5,
+                          fontSize: 12, color: 'var(--slate-300)', fontStyle: 'italic', lineHeight: 1.5,
                           borderLeft: '2px solid rgba(67,56,202,0.45)', paddingLeft: 10,
                           wordBreak: 'break-word',
                         }}>
@@ -1777,7 +1777,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 24 }}>
       {enrichErr && (
-        <div style={{ background: '#1a0a0a', border: '1px solid #3f1515', borderRadius: 6, padding: '8px 12px', color: '#fca5a5', fontSize: 12 }}>
+        <div style={{ background: '#1a0a0a', border: '1px solid var(--app-danger-bg)', borderRadius: 6, padding: '8px 12px', color: 'var(--red-300)', fontSize: 12 }}>
           {enrichErr}
         </div>
       )}
@@ -1839,7 +1839,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
               disabled={equationBusy}
               style={{
                 background: addingEquation ? '#1e1b4b' : 'transparent',
-                border: '1px dashed #374151',
+                border: '1px dashed var(--gray-700)',
                 borderRadius: 4,
                 padding: '5px 12px',
                 color: addingEquation ? '#c7d2fe' : '#a5b4fc',
@@ -1850,7 +1850,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
             >
               {addingEquation ? 'Cancel' : '+ Add equation'}
             </button>
-            {equationErr && <span style={{ fontSize: 11, color: '#fca5a5' }}>{equationErr}</span>}
+            {equationErr && <span style={{ fontSize: 11, color: 'var(--red-300)' }}>{equationErr}</span>}
           </div>
 
           {pendingEquationDeletes.map(eq => (
@@ -1861,22 +1861,22 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                 alignItems: 'center',
                 gap: 10,
                 background: 'rgba(17, 24, 39, 0.4)',
-                border: '1px solid #312e81',
+                border: '1px solid var(--indigo-900)',
                 borderRadius: 6,
                 padding: '8px 10px',
-                color: '#cbd5e1',
+                color: 'var(--slate-300)',
                 fontSize: 12,
               }}
             >
-              <span style={{ color: '#94a3b8' }}>Equation deleted.</span>
+              <span style={{ color: 'var(--slate-400)' }}>Equation deleted.</span>
               <button
                 onClick={() => undoDeleteEquation(eq)}
                 style={{
                   marginLeft: 'auto',
-                  background: '#1e1b4b',
-                  border: '1px solid #6366f1',
+                  background: 'var(--indigo-950)',
+                  border: '1px solid var(--indigo-500)',
                   borderRadius: 4,
-                  color: '#c7d2fe',
+                  color: 'var(--indigo-200)',
                   cursor: 'pointer',
                   fontSize: 11,
                   fontWeight: 700,
@@ -1892,7 +1892,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
             const attached = new Set(equations.map(e => e.latex.trim()));
             const available = eqOptions.filter(o => !attached.has(o.latex.trim()));
             return (
-            <div style={{ background: 'rgba(13, 13, 22, 0.5)', border: '1px solid #312e81', borderRadius: 6, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ background: 'rgba(13, 13, 22, 0.5)', border: '1px solid var(--indigo-900)', borderRadius: 6, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {available.length > 0 && (
                 <div style={{ position: 'relative' }}>
                   <button
@@ -1901,17 +1901,17 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                     onBlur={() => setTimeout(() => setEqPickerOpen(false), 150)}
                     style={{
                       width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      background: 'transparent', border: '1px solid #263244', borderRadius: 4,
-                      padding: '6px 9px', color: '#c7d2fe', fontSize: 11, cursor: 'pointer',
+                      background: 'transparent', border: '1px solid var(--app-line)', borderRadius: 4,
+                      padding: '6px 9px', color: 'var(--indigo-200)', fontSize: 11, cursor: 'pointer',
                     }}
                   >
                     <span>Pick from {available.length} detected equation{available.length === 1 ? '' : 's'}…</span>
-                    <span style={{ color: '#6b7280' }}>▾</span>
+                    <span style={{ color: 'var(--gray-500)' }}>▾</span>
                   </button>
                   {eqPickerOpen && (
                     <div role="listbox" style={{
                       position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 2, zIndex: 20,
-                      background: 'rgba(13,13,22,0.6)', backdropFilter: 'blur(12px)', border: '1px solid #312e81', borderRadius: 6,
+                      background: 'rgba(13,13,22,0.6)', backdropFilter: 'blur(12px)', border: '1px solid var(--indigo-900)', borderRadius: 6,
                       maxHeight: 220, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
                     }}>
                       {available.map((opt, i) => (
@@ -1932,7 +1932,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                           }}
                         >
                           <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#fde68a', fontFamily: 'ui-monospace, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{opt.latex}</span>
-                          {opt.page > 0 && <span style={{ fontSize: 9, color: '#64748b', flexShrink: 0 }}>p.{opt.page}</span>}
+                          {opt.page > 0 && <span style={{ fontSize: 9, color: 'var(--slate-500)', flexShrink: 0 }}>p.{opt.page}</span>}
                         </button>
                       ))}
                     </div>
@@ -1946,7 +1946,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                 rows={3}
                 style={{
                   width: '100%', boxSizing: 'border-box', resize: 'vertical',
-                  background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937', borderRadius: 4,
+                  background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--gray-800)', borderRadius: 4,
                   padding: '8px 10px', color: '#fde68a', fontSize: 13,
                   lineHeight: 1.55, fontFamily: 'inherit', outline: 'none',
                 }}
@@ -1958,8 +1958,8 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                   placeholder="page"
                   inputMode="numeric"
                   style={{
-                    width: 80, background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937',
-                    borderRadius: 4, padding: '6px 8px', color: '#cbd5e1', fontSize: 12,
+                    width: 80, background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--gray-800)',
+                    borderRadius: 4, padding: '6px 8px', color: 'var(--slate-300)', fontSize: 12,
                   }}
                 />
                 <input
@@ -1967,8 +1967,8 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                   onChange={e => setEquationVarsDraft(e.target.value)}
                   placeholder="vars, comma separated (optional)"
                   style={{
-                    flex: '1 1 220px', background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937',
-                    borderRadius: 4, padding: '6px 8px', color: '#cbd5e1', fontSize: 12,
+                    flex: '1 1 220px', background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--gray-800)',
+                    borderRadius: 4, padding: '6px 8px', color: 'var(--slate-300)', fontSize: 12,
                   }}
                 />
                 <button onClick={() => void addEquation()} disabled={equationBusy} style={btnSecondary(equationBusy)}>
@@ -1980,12 +1980,12 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
           })()}
 
           {equations.length === 0 && !addingEquation && (
-            <div style={{ color: '#4b5563', fontSize: 12 }}>No equations attached yet.</div>
+            <div style={{ color: 'var(--gray-600)', fontSize: 12 }}>No equations attached yet.</div>
           )}
 
           {equations.length > 0 && equations.map(eq => (
               editingEquationId === eq.id ? (
-                <div key={eq.id} style={{ background: '#0d0d16', border: '1px solid #312e81', borderRadius: 6, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div key={eq.id} style={{ background: 'var(--app-panel)', border: '1px solid var(--indigo-900)', borderRadius: 6, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <input
                     value={editEqLatex}
                     onChange={e => setEditEqLatex(e.target.value)}
@@ -1998,7 +1998,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                     <input value={editEqPage} onChange={e => setEditEqPage(e.target.value)} placeholder="page" style={{ ...eqEditInput, width: 70 }} />
                     <input value={editEqVars} onChange={e => setEditEqVars(e.target.value)} placeholder="vars (comma-separated)" style={{ ...eqEditInput, flex: 1 }} />
                   </div>
-                  {equationErr && <div style={{ fontSize: 11, color: '#fca5a5' }}>{equationErr}</div>}
+                  {equationErr && <div style={{ fontSize: 11, color: 'var(--red-300)' }}>{equationErr}</div>}
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={() => void saveEditEquation(eq)} disabled={equationBusy} style={btnSecondary(equationBusy)}>
                       {equationBusy ? 'Saving…' : 'Save'}
@@ -2007,7 +2007,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                   </div>
                 </div>
               ) : (
-              <div key={eq.id} style={{ position: 'relative', background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 6, padding: '10px 70px 10px 12px' }}>
+              <div key={eq.id} style={{ position: 'relative', background: 'var(--app-panel)', border: '1px solid var(--gray-800)', borderRadius: 6, padding: '10px 70px 10px 12px' }}>
                 <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 6 }}>
                   <button
                     onClick={() => startEditEquation(eq)}
@@ -2015,8 +2015,8 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                     title="Edit equation"
                     style={{
                       width: 36, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      background: 'transparent', border: '1px solid #1f2937', borderRadius: 4,
-                      color: '#9ca3af', padding: 0, cursor: equationBusy ? 'wait' : 'pointer', fontSize: 11,
+                      background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 4,
+                      color: 'var(--gray-400)', padding: 0, cursor: equationBusy ? 'wait' : 'pointer', fontSize: 11,
                     }}
                   >
                     Edit
@@ -2027,8 +2027,8 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                     title="Delete equation"
                     style={{
                       width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      background: 'transparent', border: '1px solid #3f1515', borderRadius: 4,
-                      color: '#fca5a5', padding: 0, cursor: equationBusy ? 'wait' : 'pointer',
+                      background: 'transparent', border: '1px solid var(--app-danger-bg)', borderRadius: 4,
+                      color: 'var(--red-300)', padding: 0, cursor: equationBusy ? 'wait' : 'pointer',
                       fontSize: 13, lineHeight: 1, opacity: equationBusy ? 0.5 : 1,
                     }}
                   >
@@ -2040,11 +2040,11 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
                   title="Click to edit"
                   style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: eq.variables.length ? 6 : 0, flexWrap: 'wrap', cursor: 'pointer' }}
                 >
-                  <span style={{ fontSize: 10, color: '#4b5563' }}>p.{eq.page}</span>
+                  <span style={{ fontSize: 10, color: 'var(--gray-600)' }}>p.{eq.page}</span>
                   <LatexMath value={eq.latex} size={14} />
                 </div>
                 {eq.variables.length > 0 && (
-                  <div style={{ fontSize: 10, color: '#6b7280' }}>
+                  <div style={{ fontSize: 10, color: 'var(--gray-500)' }}>
                     vars: {eq.variables.slice(0, 8).join(', ')}
                   </div>
                 )}
@@ -2057,13 +2057,13 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
         <Section title={`Common Misconceptions (${misconceptions.length})`}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {misconceptions.map(m => (
-              <div key={m.id} style={{ background: '#1a0a0a', border: '1px solid #3f1515', borderRadius: 6, padding: '12px 14px' }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#fca5a5', marginBottom: 6 }}>{m.description}</div>
-                <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 3 }}>
-                  <span style={{ color: '#6b7280' }}>Why believed: </span>{m.why_think_it}
+              <div key={m.id} style={{ background: '#1a0a0a', border: '1px solid var(--app-danger-bg)', borderRadius: 6, padding: '12px 14px' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--red-300)', marginBottom: 6 }}>{m.description}</div>
+                <div style={{ fontSize: 12, color: 'var(--gray-400)', marginBottom: 3 }}>
+                  <span style={{ color: 'var(--gray-500)' }}>Why believed: </span>{m.why_think_it}
                 </div>
-                <div style={{ fontSize: 12, color: '#9ca3af' }}>
-                  <span style={{ color: '#6b7280' }}>Why wrong: </span>{m.why_wrong}
+                <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>
+                  <span style={{ color: 'var(--gray-500)' }}>Why wrong: </span>{m.why_wrong}
                 </div>
               </div>
             ))}
@@ -2083,8 +2083,8 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
         display: 'flex', flexDirection: 'column', gap: 10,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ flex: 1, fontSize: 12, color: '#9ca3af', lineHeight: 1.5 }}>
-            <div style={{ fontWeight: 600, color: '#c7d2fe', marginBottom: 2 }}>Ask ChatGPT (free)</div>
+          <div style={{ flex: 1, fontSize: 12, color: 'var(--gray-400)', lineHeight: 1.5 }}>
+            <div style={{ fontWeight: 600, color: 'var(--indigo-200)', marginBottom: 2 }}>Ask ChatGPT (free)</div>
             Copy a structured prompt, paste it into ChatGPT, paste the JSON answer back here, auto-fills the fields.
           </div>
           <button onClick={copyPrompt} style={btnSecondary(false)}>
@@ -2098,7 +2098,7 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
           </button>
         </div>
         {pasteApplied && (
-          <div style={{ fontSize: 11, color: '#86efac' }}>✓ Applied. Fields updated and saved.</div>
+          <div style={{ fontSize: 11, color: 'var(--green-300)' }}>✓ Applied. Fields updated and saved.</div>
         )}
         {pasteOpen && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -2133,12 +2133,12 @@ function OverviewTab({ concept, misconceptions, equations, onEquationsChange }: 
               style={{
                 width: '100%', boxSizing: 'border-box', resize: 'vertical',
                 background: '#000', border: `1px solid ${pasteErr ? '#7f1d1d' : '#312e81'}`, borderRadius: 4,
-                padding: '8px 10px', color: '#e2e8f0', fontSize: 11, lineHeight: 1.5,
+                padding: '8px 10px', color: 'var(--slate-200)', fontSize: 11, lineHeight: 1.5,
                 fontFamily: 'ui-monospace, Consolas, monospace', outline: 'none',
               }}
             />
             {pasteErr && (
-              <div style={{ fontSize: 11, color: '#fca5a5' }}>{pasteErr}</div>
+              <div style={{ fontSize: 11, color: 'var(--red-300)' }}>{pasteErr}</div>
             )}
           </div>
         )}
@@ -2170,7 +2170,7 @@ function EditableSection({ title, value, saving, onChange, onSave, placeholder }
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{title}</div>
+        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--gray-600)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{title}</div>
         {dirty && (
           <button onClick={handleSave} disabled={saving} style={btnTiny(saving)}>
             {saving ? 'Saving…' : 'Save'}
@@ -2197,8 +2197,8 @@ function EditableSection({ title, value, saving, onChange, onSave, placeholder }
 }
 
 const eqEditInput: React.CSSProperties = {
-  background: 'rgba(13,13,22,0.6)', border: '1px solid #312e81', borderRadius: 4,
-  padding: '6px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none',
+  background: 'rgba(13,13,22,0.6)', border: '1px solid var(--indigo-900)', borderRadius: 4,
+  padding: '6px 10px', color: 'var(--slate-200)', fontSize: 12, outline: 'none',
   fontFamily: 'inherit', boxSizing: 'border-box',
 };
 function btnSecondary(busy: boolean): React.CSSProperties {
@@ -2218,7 +2218,7 @@ function btnTiny(busy: boolean): React.CSSProperties {
 
 function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete: (id: number) => void }) {
   if (records.length === 0) {
-    return <div style={{ color: '#374151', fontSize: 13 }}>No challenge attempts yet. Head to Challenge Me to start.</div>;
+    return <div style={{ color: 'var(--gray-700)', fontSize: 13 }}>No challenge attempts yet. Head to Challenge Me to start.</div>;
   }
   return (
     <div style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -2229,7 +2229,7 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
         const xp = r.xp_awarded ?? 0;
         const questionType = (r.task_kind_snapshot ?? 'challenge').replace(/_/g, ' ');
         return (
-          <div key={r.id} style={{ background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
+          <div key={r.id} style={{ background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--gray-800)', borderRadius: 8, padding: '14px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <span
                 style={{
@@ -2239,11 +2239,11 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
               <span style={{ fontSize: 12, color: scoreColor, fontWeight: 700, textTransform: 'lowercase' }}>
                 {SCORE_LABEL[r.score] ?? r.score}
               </span>
-              <span style={{ fontSize: 11, color: '#6b7280' }}>·</span>
-              <span style={{ fontSize: 11, color: '#6b7280' }}>{date}</span>
+              <span style={{ fontSize: 11, color: 'var(--gray-500)' }}>·</span>
+              <span style={{ fontSize: 11, color: 'var(--gray-500)' }}>{date}</span>
               <span style={{
-                fontSize: 10, color: '#a5b4fc', background: '#1e1b4b',
-                border: '1px solid #312e81', borderRadius: 10, padding: '2px 7px',
+                fontSize: 10, color: 'var(--indigo-300)', background: 'var(--indigo-950)',
+                border: '1px solid var(--indigo-900)', borderRadius: 10, padding: '2px 7px',
               }}>
                 {questionType} · diff {difficulty}/5
               </span>
@@ -2259,8 +2259,8 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
                 title="Delete this history entry"
                 style={{
                   marginLeft: 'auto',
-                  background: 'transparent', border: '1px solid #3f1515', borderRadius: 4,
-                  padding: '2px 8px', fontSize: 14, color: '#fca5a5', cursor: 'pointer', lineHeight: 1,
+                  background: 'transparent', border: '1px solid var(--app-danger-bg)', borderRadius: 4,
+                  padding: '2px 8px', fontSize: 14, color: 'var(--red-300)', cursor: 'pointer', lineHeight: 1,
                 }}
               >
                 ×
@@ -2269,28 +2269,28 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
             {r.task_prompt_snapshot && (
               <div style={{ marginBottom: 8 }}>
                 {r.task_kind_snapshot && (
-                  <div style={{ fontSize: 9, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
+                  <div style={{ fontSize: 9, color: 'var(--gray-600)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
                     {questionType} · difficulty {difficulty}/5
                   </div>
                 )}
-                <p style={{ margin: 0, fontSize: 12, color: '#cbd5e1', lineHeight: 1.55 }}>{r.task_prompt_snapshot}</p>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--slate-300)', lineHeight: 1.55 }}>{r.task_prompt_snapshot}</p>
               </div>
             )}
             {r.user_response && (
-              <div style={{ marginBottom: 8, background: '#0b1220', border: '1px solid #1f2937', borderRadius: 4, padding: '8px 10px' }}>
-                <div style={{ fontSize: 9, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Your Answer</div>
-                <p style={{ margin: 0, fontSize: 12, color: '#9ca3af', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{r.user_response}</p>
+              <div style={{ marginBottom: 8, background: '#0b1220', border: '1px solid var(--gray-800)', borderRadius: 4, padding: '8px 10px' }}>
+                <div style={{ fontSize: 9, color: 'var(--gray-600)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Your Answer</div>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--gray-400)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{r.user_response}</p>
               </div>
             )}
-            <p style={{ margin: 0, fontSize: 12, color: '#9ca3af', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--gray-400)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
               {r.grader_reasoning}
             </p>
             {r.gaps_detected.length > 0 && (
               <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {r.gaps_detected.slice(0, 3).map((g, i) => (
-                  <span key={i} style={{ fontSize: 10, background: '#2d1f00', color: '#f59e0b', padding: '1px 6px', borderRadius: 3 }}>{g}</span>
+                  <span key={i} style={{ fontSize: 10, background: '#2d1f00', color: 'var(--amber-500)', padding: '1px 6px', borderRadius: 3 }}>{g}</span>
                 ))}
-                {r.gaps_detected.length > 3 && <span style={{ fontSize: 10, color: '#4b5563' }}>+{r.gaps_detected.length - 3} more</span>}
+                {r.gaps_detected.length > 3 && <span style={{ fontSize: 10, color: 'var(--gray-600)' }}>+{r.gaps_detected.length - 3} more</span>}
               </div>
             )}
             {r.grounding_context_used && r.grounding_score != null && (() => {
@@ -2310,7 +2310,7 @@ function HistoryTab({ records, onDelete }: { records: HistoryRecord[]; onDelete:
                     {g.label} · {Math.round(r.grounding_score * 100)}%
                   </span>
                   {n > 0 && (
-                    <span style={{ fontSize: 10, color: '#9ca3af' }}>
+                    <span style={{ fontSize: 10, color: 'var(--gray-400)' }}>
                       {n} unsupported claim{n === 1 ? '' : 's'}
                     </span>
                   )}
@@ -2342,8 +2342,8 @@ function ConfidenceSlider({ value, onChange, disabled }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 360 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>How confident are you?</span>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: '#a5b4fc', fontWeight: 700 }}>
+        <span style={{ fontSize: 11, color: 'var(--gray-400)', fontWeight: 600 }}>How confident are you?</span>
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--indigo-300)', fontWeight: 700 }}>
           {confidenceLabel(value)} · {pct}%
         </span>
       </div>
@@ -2372,7 +2372,7 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
   if (tasks.length === 0) {
     return (
       <div style={{ maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div style={{ color: '#9ca3af', fontSize: 13, lineHeight: 1.6 }}>
+        <div style={{ color: 'var(--gray-400)', fontSize: 13, lineHeight: 1.6 }}>
           No evidence tasks for this concept yet. Generating them is one call to your configured LLM provider and only happens once per concept.
         </div>
         <button
@@ -2388,7 +2388,7 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
           {generatingTasks ? 'Generating tasks…' : 'Generate Tasks'}
         </button>
         {taskGenError && (
-          <div style={{ color: '#fca5a5', fontSize: 12, lineHeight: 1.5 }}>
+          <div style={{ color: 'var(--red-300)', fontSize: 12, lineHeight: 1.5 }}>
             {taskGenError}
           </div>
         )}
@@ -2428,7 +2428,7 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
             width: 28, height: 28, flexShrink: 0,
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             background: 'transparent',
-            border: '1px solid #1f2937',
+            border: '1px solid var(--gray-800)',
             borderRadius: 6,
             color: generatingTasks ? '#4b5563' : '#9ca3af',
             cursor: generatingTasks ? 'wait' : 'pointer',
@@ -2441,14 +2441,14 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
         </button>
       </div>
       {taskGenError && (
-        <div style={{ color: '#fca5a5', fontSize: 12, lineHeight: 1.5 }}>{taskGenError}</div>
+        <div style={{ color: 'var(--red-300)', fontSize: 12, lineHeight: 1.5 }}>{taskGenError}</div>
       )}
       {selectedTask && (
-        <div style={{ background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
-          <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+        <div style={{ background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--gray-800)', borderRadius: 8, padding: '14px 16px' }}>
+          <div style={{ fontSize: 10, color: 'var(--gray-600)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
             {selectedTask.kind.replace(/_/g, ' ')} · difficulty {selectedTask.difficulty}/5
           </div>
-          <p style={{ margin: 0, fontSize: 14, color: '#e2e8f0', lineHeight: 1.65 }}>{selectedTask.prompt}</p>
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--slate-200)', lineHeight: 1.65 }}>{selectedTask.prompt}</p>
         </div>
       )}
       <textarea
@@ -2457,8 +2457,8 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
         placeholder="Write your response here…"
         rows={7}
         style={{
-          background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937', borderRadius: 6, padding: 12,
-          color: '#e2e8f0', fontSize: 13, lineHeight: 1.65, resize: 'vertical', outline: 'none',
+          background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--gray-800)', borderRadius: 6, padding: 12,
+          color: 'var(--slate-200)', fontSize: 13, lineHeight: 1.65, resize: 'vertical', outline: 'none',
           fontFamily: 'inherit', width: '100%', boxSizing: 'border-box',
         }}
       />
@@ -2471,9 +2471,9 @@ function ChallengeTab({ tasks, selectedTask, onSelectTask, response, onResponseC
         {grading ? 'Grading…' : 'Submit Response'}
       </button>
       {gradeError && !grading && (
-        <div role="alert" style={{ fontSize: 12, color: '#fca5a5', lineHeight: 1.5 }}>
+        <div role="alert" style={{ fontSize: 12, color: 'var(--red-300)', lineHeight: 1.5 }}>
           Grading failed — nothing was recorded and your answer is kept. Try submitting again.
-          <div style={{ color: '#9ca3af', marginTop: 2 }}>{gradeError}</div>
+          <div style={{ color: 'var(--gray-400)', marginTop: 2 }}>{gradeError}</div>
         </div>
       )}
     </div>
@@ -2490,7 +2490,7 @@ function StageHeader({ stage, score }: { stage: number; score: EvidenceScore }) 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>Stage {stage}/{MAX_STAGE}</span>
+        <span style={{ fontSize: 11, color: 'var(--gray-500)', fontWeight: 600 }}>Stage {stage}/{MAX_STAGE}</span>
         <span style={{ fontSize: 17, fontWeight: 700, color: stageColor }}>{STAGES[stage]}</span>
         <span
           title={`Grader: ${SCORE_LABEL[score] ?? score}`}
@@ -2552,7 +2552,7 @@ function GroundingSection({ groundingScore, contextUsed, claims }: {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <span style={{ fontSize: 11, color: '#818cf8', fontWeight: 600 }}>Source Grounding</span>
+        <span style={{ fontSize: 11, color: 'var(--indigo-400)', fontWeight: 600 }}>Source Grounding</span>
         <span
           title={`How well your answer is backed by the source (${Math.round(groundingScore * 100)}%)`}
           style={{
@@ -2566,18 +2566,18 @@ function GroundingSection({ groundingScore, contextUsed, claims }: {
       </div>
       {list.length > 0 && (
         <>
-          <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 4 }}>Claims the source doesn’t support</div>
+          <div style={{ fontSize: 10, color: 'var(--gray-500)', marginBottom: 4 }}>Claims the source doesn’t support</div>
           <ul style={{ margin: 0, paddingLeft: 18 }}>
             {list.map((c, i) => (
-              <li key={i} style={{ fontSize: 12, color: '#9ca3af', marginBottom: 5, lineHeight: 1.5 }}>
+              <li key={i} style={{ fontSize: 12, color: 'var(--gray-400)', marginBottom: 5, lineHeight: 1.5 }}>
                 <span style={{
                   fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
                   color: c.severity === 'major' ? '#ef4444' : '#f59e0b',
                   border: `1px solid ${(c.severity === 'major' ? '#ef4444' : '#f59e0b')}55`,
                   borderRadius: 4, padding: '1px 5px', marginRight: 6,
                 }}>{c.severity}</span>
-                <span style={{ color: '#cbd5e1' }}>{c.claim}</span>
-                {c.reason && <span style={{ color: '#6b7280' }}> — {c.reason}</span>}
+                <span style={{ color: 'var(--slate-300)' }}>{c.claim}</span>
+                {c.reason && <span style={{ color: 'var(--gray-500)' }}> — {c.reason}</span>}
               </li>
             ))}
           </ul>
@@ -2606,36 +2606,36 @@ function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task:
         +{xp} XP
       </div>
       {task && (
-        <div style={{ background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937', borderRadius: 8, padding: '14px 16px' }}>
-          <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
+        <div style={{ background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--gray-800)', borderRadius: 8, padding: '14px 16px' }}>
+          <div style={{ fontSize: 10, color: 'var(--gray-600)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
             {task.kind.replace(/_/g, ' ')} · difficulty {task.difficulty}/5
           </div>
-          <p style={{ margin: 0, fontSize: 14, color: '#e2e8f0', lineHeight: 1.65 }}>{task.prompt}</p>
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--slate-200)', lineHeight: 1.65 }}>{task.prompt}</p>
         </div>
       )}
       {userResponse.trim().length > 0 && (
-        <div style={{ background: '#0b1220', border: '1px solid #1f2937', borderRadius: 8, padding: '12px 14px' }}>
-          <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Your Answer</div>
-          <p style={{ margin: 0, fontSize: 13, color: '#cbd5e1', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{userResponse}</p>
+        <div style={{ background: '#0b1220', border: '1px solid var(--gray-800)', borderRadius: 8, padding: '12px 14px' }}>
+          <div style={{ fontSize: 10, color: 'var(--gray-600)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Your Answer</div>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--slate-300)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{userResponse}</p>
         </div>
       )}
-      <div style={{ background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #1f2937', borderRadius: 6, padding: '12px 14px' }}>
-        <div style={{ fontSize: 10, color: '#4b5563', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Grader Feedback</div>
-        <p style={{ margin: 0, fontSize: 13, color: '#9ca3af', lineHeight: 1.6 }}>{grade.grader_reasoning}</p>
+      <div style={{ background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--gray-800)', borderRadius: 6, padding: '12px 14px' }}>
+        <div style={{ fontSize: 10, color: 'var(--gray-600)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Grader Feedback</div>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--gray-400)', lineHeight: 1.6 }}>{grade.grader_reasoning}</p>
       </div>
       {grade.gaps_detected.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 600, marginBottom: 6 }}>Gaps Detected</div>
+          <div style={{ fontSize: 11, color: 'var(--amber-500)', fontWeight: 600, marginBottom: 6 }}>Gaps Detected</div>
           <ul style={{ margin: 0, paddingLeft: 18 }}>
-            {grade.gaps_detected.map((g, i) => <li key={i} style={{ fontSize: 12, color: '#9ca3af', marginBottom: 3 }}>{g}</li>)}
+            {grade.gaps_detected.map((g, i) => <li key={i} style={{ fontSize: 12, color: 'var(--gray-400)', marginBottom: 3 }}>{g}</li>)}
           </ul>
         </div>
       )}
       {grade.misconceptions_detected.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600, marginBottom: 6 }}>Misconceptions Flagged</div>
+          <div style={{ fontSize: 11, color: 'var(--red-500)', fontWeight: 600, marginBottom: 6 }}>Misconceptions Flagged</div>
           <ul style={{ margin: 0, paddingLeft: 18 }}>
-            {grade.misconceptions_detected.map((m, i) => <li key={i} style={{ fontSize: 12, color: '#9ca3af', marginBottom: 3 }}>{m}</li>)}
+            {grade.misconceptions_detected.map((m, i) => <li key={i} style={{ fontSize: 12, color: 'var(--gray-400)', marginBottom: 3 }}>{m}</li>)}
           </ul>
         </div>
       )}
@@ -2648,8 +2648,8 @@ function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task:
         const v = calibrationVerdict(grade.calibration_gap);
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, color: '#818cf8', fontWeight: 600 }}>Calibration</span>
-            <span style={{ fontSize: 11, color: '#9ca3af' }}>
+            <span style={{ fontSize: 11, color: 'var(--indigo-400)', fontWeight: 600 }}>Calibration</span>
+            <span style={{ fontSize: 11, color: 'var(--gray-400)' }}>
               {Math.round(grade.confidence_before * 100)}% confident →
             </span>
             <span style={{
@@ -2661,8 +2661,8 @@ function GradeCard({ grade, task, userResponse, onReset }: { grade: Grade; task:
         );
       })()}
       <button onClick={onReset} style={{
-        background: '#1e1e2e', border: '1px solid #374151', borderRadius: 6,
-        padding: '8px 16px', color: '#818cf8', fontSize: 13, cursor: 'pointer', alignSelf: 'flex-start',
+        background: 'var(--app-raised)', border: '1px solid var(--gray-700)', borderRadius: 6,
+        padding: '8px 16px', color: 'var(--indigo-400)', fontSize: 13, cursor: 'pointer', alignSelf: 'flex-start',
       }}>
         Try Another Challenge
       </button>
@@ -2761,7 +2761,7 @@ function TagBar({ concept }: { concept: Concept }) {
         <span key={t} className="tag-chip" style={{
           display: 'inline-flex', alignItems: 'center', gap: 4,
           fontSize: 10, padding: '2px 6px', borderRadius: 3,
-          border: `1px solid ${c}`, color: '#e2e8f0', background: `${c}33`,
+          border: `1px solid ${c}`, color: 'var(--slate-200)', background: `${c}33`,
           letterSpacing: '0.03em', flexShrink: 0,
         }}>
           {t}
@@ -2779,8 +2779,8 @@ function TagBar({ concept }: { concept: Concept }) {
         title="Add a tag"
         style={{
           fontSize: 10, padding: '2px 6px', borderRadius: 3,
-          border: '1px dashed #374151', background: 'transparent',
-          color: '#a5b4fc', cursor: 'pointer', flexShrink: 0,
+          border: '1px dashed var(--gray-700)', background: 'transparent',
+          color: 'var(--indigo-300)', cursor: 'pointer', flexShrink: 0,
         }}
       >+ tag</button>
       {adding && (
@@ -2789,7 +2789,7 @@ function TagBar({ concept }: { concept: Concept }) {
           style={{
             position: 'absolute', top: '100%', left: 0, zIndex: 40, marginTop: 4, minWidth: 180, maxWidth: 260,
             background: 'rgba(13,13,22,0.92)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-            border: '1px solid #312e81', borderRadius: 6, boxShadow: '0 16px 50px rgba(0,0,0,0.55)', padding: 4,
+            border: '1px solid var(--indigo-900)', borderRadius: 6, boxShadow: '0 16px 50px rgba(0,0,0,0.55)', padding: 4,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
@@ -2798,7 +2798,7 @@ function TagBar({ concept }: { concept: Concept }) {
               value={newColor}
               onChange={e => setNewColor(e.target.value)}
               title="Color for a new tag"
-              style={{ width: 26, height: 26, padding: 0, border: '1px solid #263244', borderRadius: 4, background: 'transparent', cursor: 'pointer', flexShrink: 0 }}
+              style={{ width: 26, height: 26, padding: 0, border: '1px solid var(--app-line)', borderRadius: 4, background: 'transparent', cursor: 'pointer', flexShrink: 0 }}
             />
             <input
               autoFocus
@@ -2811,7 +2811,7 @@ function TagBar({ concept }: { concept: Concept }) {
               placeholder="Pick or type a new tag…"
               style={{
                 flex: 1, minWidth: 0, boxSizing: 'border-box', fontSize: 11, padding: '5px 7px', borderRadius: 4,
-                background: 'rgba(17,24,39,0.5)', border: '1px solid #263244', color: '#e2e8f0', outline: 'none',
+                background: 'rgba(17,24,39,0.5)', border: '1px solid var(--app-line)', color: 'var(--slate-200)', outline: 'none',
               }}
             />
           </div>
@@ -2821,7 +2821,7 @@ function TagBar({ concept }: { concept: Concept }) {
                 key={t}
                 className="rel-opt"
                 onClick={() => addTag(t)}
-                style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '5px 8px', color: '#c7d2fe', fontSize: 11 }}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '5px 8px', color: 'var(--indigo-200)', fontSize: 11 }}
               >
                 <span style={{ width: 9, height: 9, borderRadius: 2, background: colorOf(t), flexShrink: 0 }} />
                 {t}
@@ -2831,14 +2831,14 @@ function TagBar({ concept }: { concept: Concept }) {
               <button
                 className="rel-opt"
                 onClick={() => addTag(draft, newColor)}
-                style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '5px 8px', color: '#a5b4fc', fontSize: 11 }}
+                style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '5px 8px', color: 'var(--indigo-300)', fontSize: 11 }}
               >
                 <span style={{ width: 9, height: 9, borderRadius: 2, background: newColor, flexShrink: 0 }} />
                 + create “{draft.trim()}”
               </button>
             )}
             {suggestions.length === 0 && !draft.trim() && (
-              <div style={{ padding: '5px 8px', fontSize: 10, color: '#6b7280' }}>No other tags yet — type to create one.</div>
+              <div style={{ padding: '5px 8px', fontSize: 10, color: 'var(--gray-500)' }}>No other tags yet — type to create one.</div>
             )}
           </div>
         </div>
@@ -2871,7 +2871,7 @@ function ImportancePill({ concept, compact = false }: { concept: Concept; compac
         {value} <span style={{ opacity: 0.6, marginLeft: compact ? 1 : 2 }}>▾</span>
       </button>
       {open && (
-        <div role="listbox" style={{ position: 'absolute', top: '100%', left: 0, marginTop: 2, zIndex: 30, background: 'rgba(13,13,22,0.6)', backdropFilter: 'blur(12px)', border: '1px solid #312e81', borderRadius: 6, minWidth: 150, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+        <div role="listbox" style={{ position: 'absolute', top: '100%', left: 0, marginTop: 2, zIndex: 30, background: 'rgba(13,13,22,0.6)', backdropFilter: 'blur(12px)', border: '1px solid var(--indigo-900)', borderRadius: 6, minWidth: 150, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
           {IMPORTANCE_ORDER.map(imp => (
             <button
               key={imp}
@@ -2959,8 +2959,8 @@ function EditableTitle({ concept, compact = false }: { concept: Concept; compact
         style={{
           ...heading,
           minWidth: 0, flex: '1 1 auto',
-          background: '#111827', border: '1px solid #312e81', borderRadius: 4,
-          color: '#e2e8f0', padding: '2px 8px', outline: 'none',
+          background: 'var(--gray-900)', border: '1px solid var(--indigo-900)', borderRadius: 4,
+          color: 'var(--slate-200)', padding: '2px 8px', outline: 'none',
           fontFamily: 'inherit',
         }}
       />
@@ -2981,7 +2981,7 @@ function EditableTitle({ concept, compact = false }: { concept: Concept; compact
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <div style={{ fontSize: 10, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>{title}</div>
+      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--gray-600)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>{title}</div>
       {children}
     </div>
   );

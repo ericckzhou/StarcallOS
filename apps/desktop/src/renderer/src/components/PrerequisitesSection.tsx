@@ -172,9 +172,9 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
                     display: 'inline-flex', alignItems: 'center', gap: 6,
                     background: blocked ? 'rgba(120, 53, 15, 0.35)' : '#1e1b4b',
                     border: `1px solid ${blocked ? '#b45309' : '#312e81'}`,
-                    borderRadius: 999, padding: '3px 9px', fontSize: 11, color: '#e0e7ff',
+                    borderRadius: 999, padding: '3px 9px', fontSize: 11, color: 'var(--indigo-100)',
                   }}>
-                  <span style={{ fontSize: 9, color: '#94a3b8' }}>{i + 1}</span>
+                  <span style={{ fontSize: 9, color: 'var(--slate-400)' }}>{i + 1}</span>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: stageColor(n.mastery_stage), flexShrink: 0 }} aria-hidden="true" />
                   {n.name}
                 </span>
@@ -183,7 +183,7 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
           </div>
         )}
         {data.hasCycle && (
-          <div style={{ marginTop: 6, fontSize: 10, color: '#fca5a5' }}>
+          <div style={{ marginTop: 6, fontSize: 10, color: 'var(--red-300)' }}>
             ⚠ A prerequisite cycle was detected — order is approximate.
           </div>
         )}
@@ -195,11 +195,11 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
           <Label>Direct prerequisites</Label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             {data.direct.map(n => (
-              <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(17,24,39,0.4)', border: '1px solid #312e81', borderRadius: 6, padding: '5px 6px 5px 9px' }}>
+              <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(17,24,39,0.4)', border: '1px solid var(--indigo-900)', borderRadius: 6, padding: '5px 6px 5px 9px' }}>
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: stageColor(n.mastery_stage), flexShrink: 0 }} aria-hidden="true" />
-                <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#e0e7ff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--indigo-100)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
                 <button onClick={() => removePrerequisite(n)} disabled={busy} title={`Remove "${n.name}" as a prerequisite`}
-                  style={{ background: 'transparent', border: 'none', color: '#a5b4fc', fontSize: 15, lineHeight: 1, cursor: busy ? 'wait' : 'pointer', width: 22, height: 22, borderRadius: 5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                  style={{ background: 'transparent', border: 'none', color: 'var(--indigo-300)', fontSize: 15, lineHeight: 1, cursor: busy ? 'wait' : 'pointer', width: 22, height: 22, borderRadius: 5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
               </div>
             ))}
           </div>
@@ -215,16 +215,16 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
           onBlur={() => setTimeout(() => setOpen(false), 120)}
           placeholder="Add a prerequisite concept…"
           disabled={busy}
-          style={{ width: '100%', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid #1f2937', borderRadius: 4, padding: '6px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
+          style={{ width: '100%', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid var(--gray-800)', borderRadius: 4, padding: '6px 10px', color: 'var(--slate-200)', fontSize: 12, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
         />
         {open && hits.length > 0 && (
-          <div role="listbox" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 2, zIndex: 10, background: '#0d0d16', border: '1px solid #1f2937', borderRadius: 4, maxHeight: 240, overflowY: 'auto', boxShadow: '0 6px 20px rgba(0,0,0,0.45)' }}>
+          <div role="listbox" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 2, zIndex: 10, background: 'var(--app-panel)', border: '1px solid var(--gray-800)', borderRadius: 4, maxHeight: 240, overflowY: 'auto', boxShadow: '0 6px 20px rgba(0,0,0,0.45)' }}>
             {hits.map(h => (
               <button key={h.id} role="option" onMouseDown={e => e.preventDefault()} onClick={() => addPrerequisite(h)}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'transparent', border: 'none', textAlign: 'left', padding: '6px 10px', fontSize: 12, color: '#e2e8f0', cursor: 'pointer' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'transparent', border: 'none', textAlign: 'left', padding: '6px 10px', fontSize: 12, color: 'var(--slate-200)', cursor: 'pointer' }}>
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
                 {h.source_filename && (
-                  <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: '#64748b' }}>{h.source_filename}</span>
+                  <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: 'var(--slate-500)' }}>{h.source_filename}</span>
                 )}
               </button>
             ))}
@@ -238,12 +238,12 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
           <Label inline>Suggested ({suggestions.length})</Label>
           <button onClick={scan} disabled={scanning || suggesting}
             title="Derive prerequisites from the source text (free, deterministic)"
-            style={{ background: 'transparent', border: '1px dashed #374151', borderRadius: 4, padding: '3px 9px', color: '#a5b4fc', fontSize: 10, fontWeight: 700, cursor: scanning ? 'wait' : 'pointer' }}>
+            style={{ background: 'transparent', border: '1px dashed var(--gray-700)', borderRadius: 4, padding: '3px 9px', color: 'var(--indigo-300)', fontSize: 10, fontWeight: 700, cursor: scanning ? 'wait' : 'pointer' }}>
             {scanning ? 'Scanning…' : 'Scan source'}
           </button>
           <button onClick={suggestWithAi} disabled={scanning || suggesting}
             title="Ask the configured LLM provider to propose prerequisites (uses your API quota)"
-            style={{ background: 'transparent', border: '1px dashed #4338ca', borderRadius: 4, padding: '3px 9px', color: '#c7d2fe', fontSize: 10, fontWeight: 700, cursor: suggesting ? 'wait' : 'pointer' }}>
+            style={{ background: 'transparent', border: '1px dashed var(--indigo-700)', borderRadius: 4, padding: '3px 9px', color: 'var(--indigo-200)', fontSize: 10, fontWeight: 700, cursor: suggesting ? 'wait' : 'pointer' }}>
             {suggesting ? 'Asking…' : 'Suggest with AI'}
           </button>
         </div>
@@ -257,16 +257,16 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             {suggestions.map(s => (
-              <div key={s.id} title={s.reason || undefined} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(30,27,75,0.5)', border: '1px solid #4338ca', borderRadius: 6, padding: '5px 6px 5px 9px' }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#c7d2fe', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div key={s.id} title={s.reason || undefined} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(30,27,75,0.5)', border: '1px solid var(--indigo-700)', borderRadius: 6, padding: '5px 6px 5px 9px' }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: 'var(--indigo-200)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   <strong>{s.from_name}</strong>
-                  <span style={{ color: '#818cf8' }}> {s.edge_type === 'requires' ? '→ prerequisite of →' : '→ enables →'} </span>
+                  <span style={{ color: 'var(--indigo-400)' }}> {s.edge_type === 'requires' ? '→ prerequisite of →' : '→ enables →'} </span>
                   <strong>{s.to_name}</strong>
                 </span>
                 <button onClick={() => acceptSuggestion(s.id)} disabled={busy} title="Accept — create this edge"
                   style={{ background: '#14532d', border: '1px solid #16a34a', borderRadius: 4, color: '#bbf7d0', fontSize: 12, lineHeight: 1, cursor: busy ? 'wait' : 'pointer', width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>✓</button>
                 <button onClick={() => rejectSuggestion(s.id)} disabled={busy} title="Dismiss this suggestion"
-                  style={{ background: 'transparent', border: 'none', color: '#a5b4fc', fontSize: 15, lineHeight: 1, cursor: busy ? 'wait' : 'pointer', width: 22, height: 22, borderRadius: 5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                  style={{ background: 'transparent', border: 'none', color: 'var(--indigo-300)', fontSize: 15, lineHeight: 1, cursor: busy ? 'wait' : 'pointer', width: 22, height: 22, borderRadius: 5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
               </div>
             ))}
           </div>
@@ -293,12 +293,12 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
 
 function Label({ children, inline }: { children: React.ReactNode; inline?: boolean }) {
   return (
-    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: '#64748b', marginBottom: inline ? 0 : 6 }}>
+    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--slate-500)', marginBottom: inline ? 0 : 6 }}>
       {children}
     </div>
   );
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 11, color: '#475569', fontStyle: 'italic' }}>{children}</div>;
+  return <div style={{ fontSize: 11, color: 'var(--slate-600)', fontStyle: 'italic' }}>{children}</div>;
 }

@@ -513,6 +513,12 @@ Candidate rows and parse runs stamp these versions for auditability.
 - All renderer delete buttons render `×`, never the word "Delete", and carry a
   descriptive `title`. Standalone Cancel buttons that sit beside a primary
   action also render `×` (the `+ Add` toggles stay as text triggers).
+- Palette colors are CSS custom properties in `global.css` `:root`
+  (`--gray-500`, `--indigo-400`, `--app-line`, …); inline style objects use
+  `'var(--name)'`. Keep DATA colors as hex (tag/hub colors persisted to
+  DB/localStorage, `<input type=color>` values, SVG presentation attributes,
+  and anything concatenated with an alpha suffix like `${c}33`) — `var()` breaks
+  those.
 - Background customization accepts video (`mp4`/`webm`) and images; video
   backgrounds render via `<video autoplay muted loop playsinline>`.
 

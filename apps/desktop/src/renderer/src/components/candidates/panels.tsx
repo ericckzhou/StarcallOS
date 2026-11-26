@@ -27,12 +27,12 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
 }) {
   if (filtered.length === 0) {
     return (
-      <div style={{ padding: 40, textAlign: 'center', color: '#374151', fontSize: 12 }}>
+      <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-700)', fontSize: 12 }}>
         {totalConcepts === 0
           ? 'No candidates for this source. Click "Re-extract" on the source in the left panel to (re-)parse it.'
           : 'All candidates filtered out. Lower the confidence threshold.'}
         {extractMsg && (
-          <div style={{ marginTop: 12, color: '#9ca3af', fontSize: 11 }}>{extractMsg}</div>
+          <div style={{ marginTop: 12, color: 'var(--gray-400)', fontSize: 11 }}>{extractMsg}</div>
         )}
       </div>
     );
@@ -47,11 +47,11 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
         const attachedEqs = equationsByTerm.get(c.normalized) ?? [];
         const llmKept = !!llmKeepIds?.has(c.id);
         return (
-          <div key={c.id} style={{ borderBottom: '1px solid #111827', padding: '10px 16px' }}>
+          <div key={c.id} style={{ borderBottom: '1px solid var(--gray-900)', padding: '10px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button
                 onClick={() => setExpanded(isOpen ? null : c.id)}
-                style={{ background: 'transparent', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: 11, width: 14 }}
+                style={{ background: 'transparent', border: 'none', color: 'var(--gray-500)', cursor: 'pointer', fontSize: 11, width: 14 }}
               >
                 {isOpen ? 'v' : '>'}
               </button>
@@ -62,7 +62,7 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                 {(c.final_score ?? c.concept_score ?? c.confidence).toFixed(2)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--slate-200)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {c.term}
                 </div>
                 <div style={{ marginTop: 2, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -74,10 +74,10 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                       ≈ {nearDuplicates[c.id].term}
                     </span>
                   )}
-                  <span style={{ fontSize: 10, color: '#6b7280' }}>x{c.mention_count}</span>
-                  <span style={{ fontSize: 10, color: '#6b7280' }}>p.{c.first_page}</span>
+                  <span style={{ fontSize: 10, color: 'var(--gray-500)' }}>x{c.mention_count}</span>
+                  <span style={{ fontSize: 10, color: 'var(--gray-500)' }}>p.{c.first_page}</span>
                   {c.section_path.length > 0 && (
-                    <span style={{ fontSize: 10, color: '#4b5563', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
+                    <span style={{ fontSize: 10, color: 'var(--gray-600)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
                       {c.section_path.join(' > ')}
                     </span>
                   )}
@@ -101,7 +101,7 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                   ))}
                   {attachedEqs.length > 0 && (
                     <span style={{
-                      fontSize: 9, color: '#fbbf24',
+                      fontSize: 9, color: 'var(--amber-400)',
                       border: '1px solid #b45309',
                       borderRadius: 2, padding: '1px 5px',
                     }}>
@@ -123,8 +123,8 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                       key={r}
                       title="Deterministic reject reason. Lower the score so the LLM filter / promote gate skips this."
                       style={{
-                        fontSize: 9, color: '#fca5a5',
-                        border: '1px solid #7f1d1d',
+                        fontSize: 9, color: 'var(--red-300)',
+                        border: '1px solid var(--red-900)',
                         borderRadius: 2, padding: '1px 5px',
                         fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em',
                       }}>
@@ -133,8 +133,8 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                   ))}
                   {llmKept && (
                     <span title="Kept by your saved LLM topic-fit filter" style={{
-                      fontSize: 9, color: '#c7d2fe',
-                      border: '1px solid #4338ca',
+                      fontSize: 9, color: 'var(--indigo-200)',
+                      border: '1px solid var(--indigo-700)',
                       borderRadius: 2, padding: '1px 5px',
                       fontWeight: 700, letterSpacing: '0.03em',
                     }}>
@@ -147,7 +147,7 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                 disabled={isBusy}
                 onClick={() => act(c.id, () => window.api.candidates.promote(c.id))}
                 style={{
-                  background: '#14532d', border: '1px solid #22c55e', borderRadius: 3,
+                  background: '#14532d', border: '1px solid var(--green-500)', borderRadius: 3,
                   padding: '4px 10px', fontSize: 11, cursor: isBusy ? 'wait' : 'pointer',
                   color: '#bbf7d0', opacity: isBusy ? 0.5 : 1,
                 }}
@@ -158,9 +158,9 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                 disabled={isBusy}
                 onClick={() => act(c.id, () => window.api.candidates.reject(c.id))}
                 style={{
-                  background: 'transparent', border: '1px solid #374151', borderRadius: 3,
+                  background: 'transparent', border: '1px solid var(--gray-700)', borderRadius: 3,
                   padding: '4px 10px', fontSize: 11, cursor: isBusy ? 'wait' : 'pointer',
-                  color: '#9ca3af', opacity: isBusy ? 0.5 : 1,
+                  color: 'var(--gray-400)', opacity: isBusy ? 0.5 : 1,
                 }}
               >
                 Reject
@@ -168,7 +168,7 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
             </div>
 
             {!isOpen && topQuote && (
-              <div style={{ marginLeft: 64, marginTop: 4, fontSize: 11, color: '#6b7280', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ marginLeft: 64, marginTop: 4, fontSize: 11, color: 'var(--gray-500)', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 "{c.context_snippet || topQuote}"
               </div>
             )}
@@ -183,8 +183,8 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                     ['context', c.context_score],
                   ].map(([label, value]) => (
                     <span key={label as string} style={{
-                      fontSize: 10, color: '#9ca3af',
-                      border: '1px solid #1f2937', borderRadius: 3, padding: '2px 6px',
+                      fontSize: 10, color: 'var(--gray-400)',
+                      border: '1px solid var(--gray-800)', borderRadius: 3, padding: '2px 6px',
                       background: '#080812',
                     }}>
                       {label}: {typeof value === 'number' ? value.toFixed(2) : '0.00'}
@@ -193,11 +193,11 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                 </div>
                 {c.context_snippet && (
                   <div style={{
-                    fontSize: 11, color: '#cbd5e1', lineHeight: 1.5,
-                    border: '1px solid #1f2937', borderRadius: 4,
+                    fontSize: 11, color: 'var(--slate-300)', lineHeight: 1.5,
+                    border: '1px solid var(--gray-800)', borderRadius: 4,
                     background: '#0b1020', padding: '8px 10px',
                   }}>
-                    <span style={{ color: '#64748b', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 6 }}>context</span>
+                    <span style={{ color: 'var(--slate-500)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 6 }}>context</span>
                     {c.context_snippet}
                   </div>
                 )}
@@ -210,21 +210,21 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                     return q.length > 0 && q !== normTerm;
                   });
                   return meaningful.map((e, i) => (
-                    <div key={i} style={{ fontSize: 11, color: '#9ca3af', lineHeight: 1.5 }}>
+                    <div key={i} style={{ fontSize: 11, color: 'var(--gray-400)', lineHeight: 1.5 }}>
                       <span style={{
                         display: 'inline-block', minWidth: 72, color: SIGNAL_COLOR[e.source] ?? '#6b7280',
                         fontWeight: 600, fontSize: 10,
                       }}>
                         {e.source}{e.pattern ? `:${e.pattern}` : ''}
                       </span>
-                      <span style={{ color: '#4b5563', marginRight: 6 }}>p.{e.page}</span>
+                      <span style={{ color: 'var(--gray-600)', marginRight: 6 }}>p.{e.page}</span>
                       <span style={{ fontStyle: 'italic' }}>"{e.quote}"</span>
                     </div>
                   ));
                 })()}
                 {attachedEqs.length > 0 && (
-                  <div style={{ marginTop: 4, paddingTop: 6, borderTop: '1px dashed #1f2937' }}>
-                    <div style={{ fontSize: 10, color: '#fbbf24', fontWeight: 600, marginBottom: 4 }}>
+                  <div style={{ marginTop: 4, paddingTop: 6, borderTop: '1px dashed var(--gray-800)' }}>
+                    <div style={{ fontSize: 10, color: 'var(--amber-400)', fontWeight: 600, marginBottom: 4 }}>
                       EQUATIONS ({attachedEqs.length})
                     </div>
                     {attachedEqs.map(eq => (
@@ -252,8 +252,8 @@ function CandidateSearch({ value, onChange, placeholder }: { value: string; onCh
         placeholder={placeholder}
         style={{
           width: '100%', boxSizing: 'border-box',
-          background: 'rgba(17, 24, 39, 0.4)', border: '1px solid #263244', borderRadius: 4,
-          padding: '6px 9px', color: '#e2e8f0', fontSize: 12, outline: 'none',
+          background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--app-line)', borderRadius: 4,
+          padding: '6px 9px', color: 'var(--slate-200)', fontSize: 12, outline: 'none',
         }}
       />
     </div>
@@ -399,7 +399,7 @@ function RelationRow({ relation: r, fromKnown, toKnown, color, busy, setBusy, se
             </span>
             <Term name={r.to} known={toKnown} />
           </div>
-          <div style={{ fontSize: 11, color: '#9ca3af', fontStyle: 'italic', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11, color: 'var(--gray-400)', fontStyle: 'italic', lineHeight: 1.5 }}>
             "{r.quote}"
           </div>
         </div>
@@ -563,18 +563,18 @@ function MisconceptionRow({ item: m, busy, setBusy, setErr, onUpdate, onDelete }
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
             <span style={{
-              fontSize: 9, color: '#fca5a5', border: '1px solid rgba(248, 113, 113, 0.65)',
+              fontSize: 9, color: 'var(--red-300)', border: '1px solid rgba(248, 113, 113, 0.65)',
               borderRadius: 3, padding: '1px 6px', textTransform: 'uppercase', letterSpacing: '0.05em',
               background: 'rgba(127, 29, 29, 0.18)',
             }}>
               misconception phrase
             </span>
           </div>
-          <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.6, fontStyle: 'italic' }}>
+          <div style={{ fontSize: 12, color: 'var(--slate-200)', lineHeight: 1.6, fontStyle: 'italic' }}>
             "{m.quote}"
           </div>
           {m.section_path.length > 0 && (
-            <div style={{ marginTop: 4, fontSize: 10, color: '#64748b' }}>
+            <div style={{ marginTop: 4, fontSize: 10, color: 'var(--slate-500)' }}>
               {m.section_path.join(' > ')}
             </div>
           )}
@@ -670,10 +670,10 @@ export function EquationsPanel({ equations, unattached, byTerm, onCreate, onUpda
       {err && <ErrorLine message={err} />}
       {noneShown && !adding && <EmptyState>{query ? 'No matching equations.' : 'No equation candidates.'}</EmptyState>}
       {attached.map(([term, eqs]) => (
-        <div key={term} style={{ borderBottom: '1px solid #111827', padding: '10px 16px' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#c7d2fe', marginBottom: 6 }}>
+        <div key={term} style={{ borderBottom: '1px solid var(--gray-900)', padding: '10px 16px' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--indigo-200)', marginBottom: 6 }}>
             {equationGroupLabel(term, eqs)}
-            <span style={{ color: '#4b5563', fontWeight: 400, fontSize: 10 }}> * {eqs.length} equation{eqs.length === 1 ? '' : 's'}</span>
+            <span style={{ color: 'var(--gray-600)', fontWeight: 400, fontSize: 10 }}> * {eqs.length} equation{eqs.length === 1 ? '' : 's'}</span>
           </div>
           {eqs.map(eq => (
             <EquationRow key={eq.id} eq={eq} busy={busyId === eq.id} setBusy={setBusyId} setErr={setErr} onUpdate={onUpdate} onDelete={onDelete} />
@@ -681,8 +681,8 @@ export function EquationsPanel({ equations, unattached, byTerm, onCreate, onUpda
         </div>
       ))}
       {shownUnattached.length > 0 && (
-        <div style={{ borderTop: '1px solid #1f2937', padding: '12px 16px' }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+        <div style={{ borderTop: '1px solid var(--gray-800)', padding: '12px 16px' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--amber-400)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
             Unattached ({shownUnattached.length})
           </div>
           {shownUnattached.map(eq => <EquationRow key={eq.id} eq={eq} busy={busyId === eq.id} setBusy={setBusyId} setErr={setErr} onUpdate={onUpdate} onDelete={onDelete} />)}
@@ -771,7 +771,7 @@ function EquationRow({ eq, busy, setBusy, setErr, onUpdate, onDelete }: {
             <LatexMath value={eq.latex} size={12} />
           </span>
           {eq.variables.length > 0 && (
-            <span style={{ fontSize: 10, color: '#64748b' }}>
+            <span style={{ fontSize: 10, color: 'var(--slate-500)' }}>
               vars: {eq.variables.slice(0, 6).join(', ')}
             </span>
           )}
@@ -826,7 +826,7 @@ function CrudHeader({ title, adding, setAdding }: { title: string; adding: boole
       background: 'rgba(4, 6, 26, 0.18)',
       backdropFilter: 'blur(10px)',
     }}>
-      <span style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 800 }}>{title}</span>
+      <span style={{ fontSize: 10, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 800 }}>{title}</span>
       <span style={{ marginLeft: 'auto' }}>
         <RowButton
           label={adding ? 'Cancel' : '+ Add'}
@@ -850,7 +850,7 @@ function RowActions({ page, active, children }: { page?: number; active: boolean
       transition: 'opacity 140ms ease',
     }}>
       {page != null && (
-        <span style={{ fontSize: 10, color: '#64748b', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 10, color: 'var(--slate-500)', whiteSpace: 'nowrap' }}>
           p.{page}
         </span>
       )}
@@ -939,11 +939,11 @@ function RowButton({
 }
 
 function EmptyState({ children }: { children: React.ReactNode }) {
-  return <div style={{ padding: 40, textAlign: 'center', color: '#64748b', fontSize: 12, background: 'rgba(4, 6, 26, 0.10)' }}>{children}</div>;
+  return <div style={{ padding: 40, textAlign: 'center', color: 'var(--slate-500)', fontSize: 12, background: 'rgba(4, 6, 26, 0.10)' }}>{children}</div>;
 }
 
 function ErrorLine({ message }: { message: string }) {
-  return <div style={{ padding: '8px 16px', color: '#fca5a5', fontSize: 11, borderBottom: '1px solid rgba(31, 41, 55, 0.55)', background: 'rgba(127, 29, 29, 0.08)' }}>{message}</div>;
+  return <div style={{ padding: '8px 16px', color: 'var(--red-300)', fontSize: 11, borderBottom: '1px solid rgba(31, 41, 55, 0.55)', background: 'rgba(127, 29, 29, 0.08)' }}>{message}</div>;
 }
 
 const candidateRowStyle: React.CSSProperties = {
