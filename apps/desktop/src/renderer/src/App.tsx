@@ -243,7 +243,7 @@ export default function App() {
                 <span style={{ fontSize: 11, color: 'var(--text)', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {profile.name}
                 </span>
-                <span className={xpPulse ? 'xp-pulse' : undefined} style={{ fontSize: 10, color: 'var(--slate-400)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                <span className={xpPulse ? 'xp-pulse' : undefined} style={{ fontSize: 10, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                   Lv {progress.level} · {progress.total_xp} XP
                 </span>
               </div>

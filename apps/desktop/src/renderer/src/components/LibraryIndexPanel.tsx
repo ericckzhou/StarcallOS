@@ -69,7 +69,7 @@ export default function LibraryIndexPanel({ compact = false }: { compact?: boole
   const failures = last?.failures ?? [];
 
   return (
-    <div style={{ fontSize: 11, color: 'var(--slate-400)', lineHeight: 1.5 }}>
+    <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
       <div title={plan.embedding_model ? `Embedding model: ${plan.embedding_model}` : 'Embeddings are off: passages get keyword search only'}>
         {coverage}
       </div>

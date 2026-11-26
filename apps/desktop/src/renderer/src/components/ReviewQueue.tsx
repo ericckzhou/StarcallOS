@@ -362,10 +362,10 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
         display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 10,
       }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.12em', whiteSpace: 'nowrap' }}>
-            Review Queue <span style={{ color: 'var(--slate-400)' }}>{items.length}</span>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', whiteSpace: 'nowrap' }}>
+            Review Queue <span style={{ color: 'var(--text-secondary)' }}>{items.length}</span>
           </div>
-          <div style={{ marginTop: 2, fontSize: 10, color: 'var(--slate-600)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ marginTop: 2, fontSize: 10, color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {items.filter(i => i.due_at == null).length} new · {items.filter(i => i.due_at != null && new Date(i.due_at).getTime() <= Date.now()).length} due · {items.filter(i => i.due_at != null && new Date(i.due_at).getTime() > Date.now()).length} scheduled
           </div>
         </div>
@@ -375,7 +375,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
             title="Cycle sort: default → importance → stage"
             style={{
               background: 'transparent', border: '1px solid var(--border-control)', borderRadius: 4,
-              padding: '3px 10px', fontSize: 10, cursor: 'pointer', color: 'var(--slate-400)',
+              padding: '3px 10px', fontSize: 10, cursor: 'pointer', color: 'var(--text-secondary)',
               whiteSpace: 'nowrap',
             }}
           >
@@ -388,7 +388,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
             style={{
               width: 24, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
               background: 'var(--gray-900)', border: '1px solid var(--border-control)', borderRadius: 4,
-              padding: 0, fontSize: 13, lineHeight: 1, cursor: 'pointer', color: 'var(--slate-400)',
+              padding: 0, fontSize: 13, lineHeight: 1, cursor: 'pointer', color: 'var(--text-secondary)',
             }}
           >
             ‹
@@ -408,11 +408,11 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
               border: '1px solid var(--border-accent-subtle)',
               borderRadius: 6,
               padding: '8px 10px',
-              color: 'var(--slate-300)',
+              color: 'var(--text-soft)',
               fontSize: 12,
             }}
           >
-            <span style={{ color: 'var(--slate-400)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               Deleted {item.concept.name}.
             </span>
             <button
@@ -553,7 +553,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                             padding: 10,
                           }}
                         >
-                          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0 2px 7px' }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0 2px 7px' }}>
                             Reschedule
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
@@ -576,7 +576,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                           </div>
                           <label
                             onClick={e => e.stopPropagation()}
-                            style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 11, color: 'var(--slate-400)' }}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 11, color: 'var(--text-secondary)' }}
                           >
                             <span style={{ whiteSpace: 'nowrap' }}>Pick date</span>
                             <input

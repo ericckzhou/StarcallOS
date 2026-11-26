@@ -242,7 +242,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
           })}
           {status && status.sources.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: 8 }}>Add a source first.</div>}
         </div>
-        <div style={{ borderTop: '1px solid rgba(31,41,55,0.72)', padding: '10px 14px', fontSize: 11, color: 'var(--slate-400)', lineHeight: 1.6 }}>
+        <div style={{ borderTop: '1px solid rgba(31,41,55,0.72)', padding: '10px 14px', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
           <div title={status?.askBaseUrl ?? undefined}>
             Answers: {status?.askModel ? <span style={{ color: 'var(--text)' }}>{status.askModel}</span> : <span style={{ color: 'var(--text-warning)' }}>no local model (passages only)</span>}
           </div>
@@ -260,7 +260,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                 <span style={{ ...badge, color: 'var(--text-accent)', borderColor: 'rgba(129,140,248,0.5)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   About: {context.name}
-                  <button onClick={onClearContext} title="Stop asking about this concept" style={{ ...linkBtn, color: 'var(--slate-400)', fontSize: 12 }}>×</button>
+                  <button onClick={onClearContext} title="Stop asking about this concept" style={{ ...linkBtn, color: 'var(--text-secondary)', fontSize: 12 }}>×</button>
                 </span>
                 {!question.trim() && starters(context.name).map(s => (
                   <button key={s} onClick={() => setQuestion(s)} style={smallBtn} title="Use this question (you still choose to ask)">{s}</button>
@@ -285,7 +285,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
               <button onClick={() => void ask()} disabled={asking || !question.trim()} style={primaryBtn}>{asking ? 'Asking…' : 'Ask'}</button>
             </div>
             {asking && progress && (
-              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--slate-400)' }}>
+              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
                 Embedding passages for “{titleById.get(progress.sourceId) ?? progress.sourceId}”: {progress.done}/{progress.total}
                 <div style={{ marginTop: 4, height: 3, borderRadius: 2, background: 'rgba(31,41,55,0.5)', overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%`, background: 'var(--indigo-400)' }} />
@@ -333,7 +333,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                   <span title={meta.hint} style={{ ...badge, color: meta.color, borderColor: meta.color }}>{meta.label}</span>
                   <span
                     title={result.retrieval.vector_error ?? 'Keyword (BM25) and vector results fused'}
-                    style={{ ...badge, color: 'var(--slate-400)', borderColor: 'rgba(148,163,184,0.4)' }}
+                    style={{ ...badge, color: 'var(--text-secondary)', borderColor: 'rgba(148,163,184,0.4)' }}
                   >
                     {result.retrieval.mode_used === 'hybrid' ? 'Hybrid retrieval' : 'Keyword only'}
                   </span>
@@ -351,7 +351,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                 {result.answer ? (
                   <div style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--text)', whiteSpace: 'pre-wrap' }}>{renderAnswer(result.answer)}</div>
                 ) : (
-                  <div style={{ fontSize: 12, color: 'var(--slate-400)' }}>{meta.hint}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{meta.hint}</div>
                 )}
                 {result.citations.length > 0 && (
                   <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -359,9 +359,9 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                     {result.citations.map((c, i) => {
                       const p = result.passages.find(x => x.n === c.n);
                       return (
-                        <button key={i} onClick={() => jumpTo(c.n, c.quote)} title={pdfSources.has(c.source_id) ? 'Open the page with this quote highlighted' : 'Show the passage'} style={{ textAlign: 'left', background: 'transparent', border: 'none', padding: '2px 0', cursor: 'pointer', fontSize: 12, color: 'var(--slate-400)', lineHeight: 1.5 }}>
+                        <button key={i} onClick={() => jumpTo(c.n, c.quote)} title={pdfSources.has(c.source_id) ? 'Open the page with this quote highlighted' : 'Show the passage'} style={{ textAlign: 'left', background: 'transparent', border: 'none', padding: '2px 0', cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                           <span style={chip}>{c.n}</span>
-                          <span style={{ color: 'var(--slate-300)' }}>{p?.source_title}</span>, {pages(c.page_start, c.page_end)} — <i>“{c.quote}”</i>
+                          <span style={{ color: 'var(--text-soft)' }}>{p?.source_title}</span>, {pages(c.page_start, c.page_end)} — <i>“{c.quote}”</i>
                         </button>
                       );
                     })}
@@ -372,7 +372,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                 )}
                 {result.index_warning && <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-warning)' }}>{result.index_warning}</div>}
                 {result.dropped.length > 0 && (
-                  <details style={{ marginTop: 10, fontSize: 11, color: 'var(--slate-400)' }}>
+                  <details style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)' }}>
                     <summary style={{ cursor: 'pointer' }}>{result.dropped.length} citation{result.dropped.length === 1 ? '' : 's'} removed (could not be verified)</summary>
                     <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
                       {result.dropped.map((d, i) => (
@@ -394,7 +394,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                         ref={el => { if (el) passageRefs.current.set(p.n, el); else passageRefs.current.delete(p.n); }}
                         style={{ ...panel, padding: '10px 14px', borderColor: focusN === p.n ? '#818cf8' : cited ? 'rgba(34,197,94,0.35)' : panel.borderColor }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 11, color: 'var(--slate-400)', marginBottom: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>
                           <span style={{ ...chip, cursor: 'default' }}>{p.n}</span>
                           <span style={{ color: 'var(--text)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '40%' }} title={p.source_title}>{p.source_title}</span>
                           {p.section_path.length > 0 && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{p.section_path.join(' › ')}</span>}
@@ -407,7 +407,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                             >Open page ↗</button>
                           )}
                         </div>
-                        <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--slate-300)', whiteSpace: 'pre-wrap' }}>
+                        <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-soft)', whiteSpace: 'pre-wrap' }}>
                           {highlight(p.text, spansByN.get(p.n) ?? [])}
                         </div>
                       </div>

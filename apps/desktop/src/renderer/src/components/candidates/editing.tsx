@@ -154,7 +154,7 @@ export function EditorModal({ title, onClose, children }: {
             onClick={onClose}
             title="Cancel"
             aria-label="Cancel"
-            style={{ marginLeft: 'auto', width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--slate-400)', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}
+            style={{ marginLeft: 'auto', width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}
           >
             ×
           </button>

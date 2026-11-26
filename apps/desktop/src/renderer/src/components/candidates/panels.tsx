@@ -193,11 +193,11 @@ export function ConceptsPanel({ filtered, totalConcepts, extractMsg, expanded, s
                 </div>
                 {c.context_snippet && (
                   <div style={{
-                    fontSize: 11, color: 'var(--slate-300)', lineHeight: 1.5,
+                    fontSize: 11, color: 'var(--text-soft)', lineHeight: 1.5,
                     border: '1px solid var(--border)', borderRadius: 4,
                     background: '#0b1020', padding: '8px 10px',
                   }}>
-                    <span style={{ color: 'var(--slate-500)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 6 }}>context</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 6 }}>context</span>
                     {c.context_snippet}
                   </div>
                 )}
@@ -574,7 +574,7 @@ function MisconceptionRow({ item: m, busy, setBusy, setErr, onUpdate, onDelete }
             "{m.quote}"
           </div>
           {m.section_path.length > 0 && (
-            <div style={{ marginTop: 4, fontSize: 10, color: 'var(--slate-500)' }}>
+            <div style={{ marginTop: 4, fontSize: 10, color: 'var(--text-muted)' }}>
               {m.section_path.join(' > ')}
             </div>
           )}
@@ -771,7 +771,7 @@ function EquationRow({ eq, busy, setBusy, setErr, onUpdate, onDelete }: {
             <LatexMath value={eq.latex} size={12} />
           </span>
           {eq.variables.length > 0 && (
-            <span style={{ fontSize: 10, color: 'var(--slate-500)' }}>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
               vars: {eq.variables.slice(0, 6).join(', ')}
             </span>
           )}
@@ -826,7 +826,7 @@ function CrudHeader({ title, adding, setAdding }: { title: string; adding: boole
       background: 'rgba(4, 6, 26, 0.18)',
       backdropFilter: 'blur(10px)',
     }}>
-      <span style={{ fontSize: 10, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 800 }}>{title}</span>
+      <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 800 }}>{title}</span>
       <span style={{ marginLeft: 'auto' }}>
         <RowButton
           label={adding ? 'Cancel' : '+ Add'}
@@ -850,7 +850,7 @@ function RowActions({ page, active, children }: { page?: number; active: boolean
       transition: 'opacity 140ms ease',
     }}>
       {page != null && (
-        <span style={{ fontSize: 10, color: 'var(--slate-500)', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
           p.{page}
         </span>
       )}
@@ -939,7 +939,7 @@ function RowButton({
 }
 
 function EmptyState({ children }: { children: React.ReactNode }) {
-  return <div style={{ padding: 40, textAlign: 'center', color: 'var(--slate-500)', fontSize: 12, background: 'rgba(4, 6, 26, 0.10)' }}>{children}</div>;
+  return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12, background: 'rgba(4, 6, 26, 0.10)' }}>{children}</div>;
 }
 
 function ErrorLine({ message }: { message: string }) {

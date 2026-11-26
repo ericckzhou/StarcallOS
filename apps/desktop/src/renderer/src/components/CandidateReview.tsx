@@ -553,7 +553,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                     {filtered.length} visible
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--slate-500)', lineHeight: 1.45, marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.45, marginTop: 4 }}>
                   Runs a compact API batch using your Profile settings, then saves the kept concepts.
                 </div>
               </div>
@@ -799,7 +799,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
                 background: 'rgba(4, 6, 26, 0.38)',
                 backdropFilter: 'blur(10px)',
               }}>
-                <span style={{ fontSize: 10, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>min score</span>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>min score</span>
                 <input
                   className="score-range"
                   type="range" min={0} max={1} step={0.05} value={minConf}

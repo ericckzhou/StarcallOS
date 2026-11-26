@@ -56,7 +56,7 @@ export default function ReextractPanel() {
   const current = `parser ${plan.current.parser} · grammar ${plan.current.grammar} · layout ${plan.current.layout}`;
 
   return (
-    <div style={{ fontSize: 11, color: 'var(--slate-400)', lineHeight: 1.5 }}>
+    <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
       <div title={`Current versions: ${current}`}>
         {plan.outdated
           ? `${plan.outdated} of ${plan.processed_sources} processed sources are outdated`
