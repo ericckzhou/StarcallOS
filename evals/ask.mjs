@@ -9,7 +9,7 @@
 //   pnpm eval:ask -- --pdf <path-to-b36-txtbook.pdf> --model qwen3.5:4b
 //   pnpm eval:ask -- --pdf <path> --model <m> --limit 5        # smoke run
 //   pnpm eval:ask -- --pdf <path> --model <m> --save-baseline
-//   pnpm eval:ask -- --pdf <path> --model <m> --no-neighbors   # A/B without neighbor expansion
+//   pnpm eval:ask -- --pdf <path> --model <m> --neighbors      # A/B with neighbor expansion (opt-in)
 //
 // Env: RETRIEVAL_EVAL_PDF (instead of --pdf), EVAL_ASK_MODEL (instead of
 // --model), EVAL_BASE_URL (default Ollama's 127.0.0.1:11434/v1, used for both
@@ -46,7 +46,7 @@ if (!model) die('Pass --model <local chat model> (or set EVAL_ASK_MODEL), e.g. -
 const baseUrl = process.env.EVAL_BASE_URL ?? svc.DEFAULT_LOCAL_BASE_URL;
 const config = { provider: 'local', apiKey: '', model, baseUrl };
 const limit = opt('limit') ? Number(opt('limit')) : Infinity;
-const neighbors = !flag('no-neighbors');
+const neighbors = flag('neighbors');
 
 // ─── inputs / index / labels ─────────────────────────────────────────────────
 
@@ -131,6 +131,7 @@ const flat = {
 const baseFile = path.join(here, 'baselines', 'ask.json');
 if (flag('save-baseline')) {
   if (Number.isFinite(limit)) die('refusing to save a baseline from a --limit run.');
+  if (neighbors) die('refusing to save a baseline with --neighbors (not the app default).');
   const { results: _r, ...metricsOnly } = out;
   fs.writeFileSync(baseFile, JSON.stringify({ ...metricsOnly, flat }, null, 2) + '\n');
   console.log(`[ask-eval] baseline saved → ${path.relative(process.cwd(), baseFile)}`);

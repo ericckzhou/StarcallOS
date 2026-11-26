@@ -13,6 +13,7 @@ type Status = AskResult['status'];
 const STATUS_META: Record<Status, { label: string; color: string; hint: string }> = {
   grounded:       { label: 'Grounded',             color: '#22c55e', hint: 'Every citation quotes its passage verbatim.' },
   partial:        { label: 'Partially grounded',   color: '#f59e0b', hint: 'Some citations could not be verified and were removed.' },
+  qualified:      { label: 'Sources partly answer this', color: '#eab308', hint: 'The passages do not fully answer the question; the answer says what they do cover, and every citation was verified.' },
   unsupported:    { label: 'Unsupported',          color: '#ef4444', hint: 'The model answered, but none of its citations could be verified. Treat the answer as unreliable.' },
   insufficient:   { label: 'Not in sources',       color: '#94a3b8', hint: 'The model reports that the retrieved passages do not answer this.' },
   no_passages:    { label: 'No matching passages', color: '#94a3b8', hint: 'Retrieval found nothing in the selected sources; no model call was made.' },

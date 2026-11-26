@@ -150,6 +150,22 @@ what the app runs.
   contains answer text and stays in the gitignored `results/`). Local answers
   vary from run to run even at temperature 0, so the regression tolerance is
   0.075 (two questions out of 27), not the 0.03 the other evals use.
+- **Statuses**: `qualified` (the model flagged the passages as insufficient
+  but still gave a hedged answer with at least one verified citation) counts as
+  supported, not declined. Before it existed, the false-premise questions were
+  all scored as declines although the model cited the refuting passage.
+- **Experiments recorded here so they are not re-run blindly**:
+  - *Neighbor expansion* (`--neighbors`; off in the app): top 4 hits plus the
+    in-section follower of the top 2, at the same 6-passage budget. Retrieval
+    recall within the passages sent rose from 0.715 to 0.756 (multi-passage
+    0.604 to 0.750). End to end it raised citation precision (0.522 to 0.556)
+    and lowered dropped citations (0.140 to 0.096), but two false-premise
+    questions went back to plain declines (supported 0.962 to 0.885). Per-section
+    caps and skipping adjacent chunks lowered recall.
+  - *Pre-model abstention*: top-1 vector similarity does not separate the 3
+    unanswerable questions (0.604, 0.681, 0.708) from answerable ones (as low
+    as 0.629), and the model already declines all 3 itself. Not shipped;
+    revisit with more unanswerable questions in the golden set.
 - **Caveats**: the same `proposed` labels as the retrieval eval, so citation
   precision inherits their keyword bias. Six labels currently do not resolve
   after the running-header layout fix (they need relabelling), which lowers

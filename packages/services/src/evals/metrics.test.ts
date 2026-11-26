@@ -123,21 +123,22 @@ describe('ask metrics', () => {
       c({ id: '2', status: 'partial', cited: ['z'], dropped: 1, latency_ms: 300 }),
       c({ id: '3', status: 'insufficient', latency_ms: 200 }),
       c({ id: '4', status: 'retrieval_only', latency_ms: 50 }),
+      c({ id: '4b', status: 'qualified', cited: ['a'], latency_ms: 60 }),
       c({ id: '5', category: 'no_answer', answerable: false, relevant: [], status: 'insufficient', latency_ms: 80 }),
       c({ id: '6', category: 'no_answer', answerable: false, relevant: [], status: 'grounded', cited: ['q'], latency_ms: 90 }),
     ]);
-    expect(m.n).toBe(6);
+    expect(m.n).toBe(7);
     expect(m.answerable).toEqual({
-      n: 4, grounded_rate: 0.25, supported_rate: 0.5, declined_rate: 0.25, unsupported_rate: 0, failed_rate: 0.25,
+      n: 5, grounded_rate: 0.2, supported_rate: 0.6, declined_rate: 0.2, unsupported_rate: 0, failed_rate: 0.2,
     });
     expect(m.correct_abstention_rate).toBe(0.5);
     expect(m.n_unanswerable).toBe(2);
-    // answerable citations: a (rel), b, z → 1/3
-    expect(m.citation_precision).toBe(0.333);
-    // supported answerable: #1 cites a relevant chunk, #2 does not
-    expect(m.relevant_citation_rate).toBe(0.5);
-    // verified 4 (a,b,z,q) + dropped 1
-    expect(m.dropped_citation_rate).toBe(0.2);
+    // answerable citations: a (rel), b, z, a (rel) → 2/4
+    expect(m.citation_precision).toBe(0.5);
+    // supported answerable (qualified counts): #1 and #4b cite a relevant chunk, #2 does not
+    expect(m.relevant_citation_rate).toBe(0.667);
+    // verified 5 (a,b,z,a,q) + dropped 1
+    expect(m.dropped_citation_rate).toBe(0.167);
     expect(m.latency_p50_ms).toBe(90);
     expect(m.by_category.no_answer.n).toBe(2);
   });

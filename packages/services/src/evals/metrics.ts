@@ -334,7 +334,7 @@ export interface AskCaseResult {
 export interface AskGroupMetrics {
   n: number;
   grounded_rate: number;       // status 'grounded'
-  supported_rate: number;      // 'grounded' or 'partial'
+  supported_rate: number;      // 'grounded', 'partial' or 'qualified'
   declined_rate: number;       // 'insufficient' or 'no_passages'
   unsupported_rate: number;    // answered, nothing verified
   failed_rate: number;         // 'retrieval_only' (model error / invalid output)
@@ -358,6 +358,7 @@ export interface AskMetrics {
 }
 
 const DECLINED = new Set(['insufficient', 'no_passages']);
+const SUPPORTED = new Set(['grounded', 'partial', 'qualified']);
 
 function askGroup(cs: AskCaseResult[]): AskGroupMetrics {
   const n = cs.length;
@@ -365,7 +366,7 @@ function askGroup(cs: AskCaseResult[]): AskGroupMetrics {
   return {
     n,
     grounded_rate: share(c => c.status === 'grounded'),
-    supported_rate: share(c => c.status === 'grounded' || c.status === 'partial'),
+    supported_rate: share(c => SUPPORTED.has(c.status)),
     declined_rate: share(c => DECLINED.has(c.status)),
     unsupported_rate: share(c => c.status === 'unsupported'),
     failed_rate: share(c => c.status === 'retrieval_only'),
@@ -389,7 +390,7 @@ export function scoreAsk(results: AskCaseResult[]): AskMetrics {
     cites += c.cited.length;
     relevantCites += c.cited.filter(k => rel.has(k)).length;
   }
-  const supported = answerable.filter(c => c.status === 'grounded' || c.status === 'partial');
+  const supported = answerable.filter(c => SUPPORTED.has(c.status));
   const verified = results.reduce((a, c) => a + c.cited.length, 0);
   const dropped = results.reduce((a, c) => a + c.dropped, 0);
 

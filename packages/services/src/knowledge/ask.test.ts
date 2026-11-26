@@ -118,6 +118,15 @@ describe('validateAnswer', () => {
   it('honors the insufficient flag', () => {
     const v = validateAnswer({ answer: 'The passages do not cover this.', citations: [], insufficient: true }, P);
     expect(v.status).toBe('insufficient');
+    // A hedged answer with a verified citation is a caveated answer, not a decline.
+    const q = validateAnswer({
+      answer: 'The passages only define the Kleene star [2].', citations: [{ passage: 2, quote: 'concatenations of zero or more strings' }], insufficient: true,
+    }, P);
+    expect(q.status).toBe('qualified');
+    expect(q.citations).toHaveLength(1);
+    // ...but only when a citation survives verification.
+    const u = validateAnswer({ answer: 'Maybe [1].', citations: [{ passage: 1, quote: 'not in the passage at all' }], insufficient: true }, P);
+    expect(u.status).toBe('insufficient');
   });
 });
 
