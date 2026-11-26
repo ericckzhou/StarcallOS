@@ -73,8 +73,8 @@ Remember these as the active state of the repo:
   DetailPane Overview "Prerequisites" section (`PrerequisitesSection.tsx`) shows
   learn-first/unlocks, manual add/remove edges, and suggestion accept/reject +
   "Scan source"; the Constellation Map already draws accepted `requires`/`enables`
-  edges as directed arrows via the existing relation-edge path (a selection-scoped
-  sub-DAG highlight is a deliberate follow-up). The review queue shows a
+  edges as directed arrows via the existing relation-edge path, and selecting a
+  concept dims everything outside its prerequisite sub-DAG (`prereqFocus`). The review queue shows a
   "learn first" dependency-failure badge for due concepts with unmastered direct
   prerequisites (`listReviewQueue` carries `blocked_prerequisites`). IPC:
   `concepts.prerequisites` / `concepts.edgeCreate` / `concepts.edgeDelete` and the
@@ -192,7 +192,7 @@ Remember these as the active state of the repo:
   indented tree (`renderTree`/`renderHubCard`) with a Parent `<select>` in the
   edit form whose options exclude the hub and its descendants. Nesting is
   organizational only — the Constellation Map still draws each hub as its own
-  nebula by direct membership (Map-rail indentation is a deliberate follow-up).
+  nebula by direct membership.
   **Cross-hub edges are shipped**: user-curated relationships between two hubs
   (`star_hub_edges`, migration 0026; optional `label`, `directed` flag for
   one-way/mutual; cascades on hub delete). Repo CRUD `listHubEdges` /
@@ -224,7 +224,13 @@ Remember these as the active state of the repo:
   dismissible per concept via hover-× (persisted in localStorage); the
   `highlight` kind is filtered from the header chips entirely.
 - Source preview has find-in-source: a search box filters to matching pages
-  (PDF) or highlights matches inline (text source). "Related pages only" (was
+  (PDF) or highlights matches inline (text source). On PDFs the "≈" toggle
+  (persisted, `starcall.layout.meaningSearch`) searches by meaning instead:
+  `rag.searchSource` → `searchSourcePassages` (`knowledge/source_search.ts`),
+  hybrid retrieval over that source's passage index, one hit per page. It never
+  embeds or takes the source lock; no vectors / embeddings off / server down
+  (8s cap in main) degrade to keyword with a `note`, and an unindexed source
+  says so. The header toolbar wraps on narrow panes. "Related pages only" (was
   "Evidence pages only") scopes the rendered PDF to evidence pages. The « Ev / Ev »
   evidence-nav buttons were removed to declutter.
 - Constellation link reason is chosen via an evidence selector: it lists the

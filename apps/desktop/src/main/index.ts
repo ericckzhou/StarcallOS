@@ -74,7 +74,7 @@ import {
   planLibraryIndex, runLibraryIndex, type LibraryIndexProgress, type LibraryIndexSummary,
   planOutdatedSources, runReextractOutdated, currentReextractVersions, type ReextractProgress, type ReextractSummary,
   doclingServerInfo, DEFAULT_DOCLING_BASE_URL, LAYOUT_VERSION, CHUNKER_VERSION,
-  resolveAskConfig, askSources, saveAskHistory, listAskHistory, deleteAskHistory, chunkIndexStats, indexSourceChunkEmbeddings, RagAskArgsSchema,
+  resolveAskConfig, askSources, saveAskHistory, listAskHistory, deleteAskHistory, chunkIndexStats, indexSourceChunkEmbeddings, RagAskArgsSchema, RagSourceSearchArgsSchema, searchSourcePassages,
   type Embedder, buildCandidateLlmFilterPrompt, parseCandidateLlmFilterResponse, createLlmCallSink, summarizeLlmCalls,
 } from '@starcall/services';
 import { IPC } from '@starcall/shared';
@@ -1379,6 +1379,21 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.RAG_LIBRARY_STOP, () => {
     if (libraryJob) libraryJob.stop = true;
     return { ok: true as const };
+  });
+
+  // Find-in-source "≈" mode. Read-only: never embeds passages or takes the
+  // source lock. A hung embedding server gets 8s, then keyword matches.
+  ipcMain.handle(IPC.RAG_SEARCH_SOURCE, async (_e, rawArgs: unknown) => {
+    const { sourceId, query } = validateIpc(RagSourceSearchArgsSchema, rawArgs, IPC.RAG_SEARCH_SOURCE);
+    const embedder = getEmbedder();
+    const r = embedder
+      ? await softTimeout(searchSourcePassages(db, sourceId, query, embedder), 8_000, null, 'source meaning search')
+      : null;
+    if (r) return r;
+    const fallback = await searchSourcePassages(db, sourceId, query, null);
+    return embedder && fallback.hits.length > 0
+      ? { ...fallback, note: 'Embedding server did not respond, so these are keyword matches.' }
+      : fallback;
   });
 
   ipcMain.handle(IPC.RAG_ASK, async (e, rawArgs: unknown) => {
