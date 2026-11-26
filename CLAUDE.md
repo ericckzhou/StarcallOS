@@ -334,6 +334,14 @@ Remember these as the active state of the repo:
   (hidden on Challenges until graded) opens Ask with that concept as context:
   retrieval `focus` only, per-concept `ask_history` (migration 0037, newest
   50). This is NOT a chat: never feed earlier answers back into the prompt.
+- PDF segmentation runs off the main thread: every main-process `segmentPdf`
+  call goes through `segmentPdfIsolated` (`apps/desktop/src/main/pdf_parser.ts`)
+  → a Node **worker thread** (`parse_worker.ts`, second electron-vite main
+  entry, 2 GB heap cap). NOT an Electron utilityProcess: pdf.js keys its
+  Node detection off `process.type`, which is `'utility'` there, so it crashes
+  on load (`DOMMatrix is not defined`). Worker death fails in-flight parses
+  (never retried in-process); a worker that cannot start falls back to
+  in-process; `STARCALL_PDF_PARSER=inprocess` forces the old path.
 - User-facing provider text should say "configured LLM provider" unless a
   feature is truly Groq-specific.
 - `.claude/agents/ipc-contract-reviewer.md` is a project review agent that

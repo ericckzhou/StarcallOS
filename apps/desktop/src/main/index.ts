@@ -76,6 +76,7 @@ import {
   type Embedder, buildCandidateLlmFilterPrompt, parseCandidateLlmFilterResponse, createLlmCallSink, summarizeLlmCalls,
 } from '@starcall/services';
 import { IPC } from '@starcall/shared';
+import { segmentPdfIsolated, stopPdfParser } from './pdf_parser';
 import type {
   CandidateLlmFilterArgs,
   CandidateLlmFilterDecision,
@@ -449,7 +450,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         updateSourceStatus(db, sourceId, 'processing', { page_count: pageCount });
         console.log(`[EXTRACT] text blocks: ${blocksForLLM.length}`);
       } else {
-        const { blocks: allBlocks, pageCount: pc, diagnostics: diag, runningHeaderSections: rhSections } = await segmentPdf(source.file_path);
+        const { blocks: allBlocks, pageCount: pc, diagnostics: diag, runningHeaderSections: rhSections } = await segmentPdfIsolated(source.file_path);
         pageCount = pc;
         runningHeaderSections = rhSections;
         layoutDiagnostics = { ...diag };
@@ -1251,7 +1252,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     if (source.file_path.endsWith('.txt')) {
       blocks = segmentText(fs.readFileSync(source.file_path, 'utf-8'));
     } else {
-      const out = await segmentPdf(source.file_path);
+      const out = await segmentPdfIsolated(source.file_path);
       blocks = out.blocks;
       runningHeaderSections = out.runningHeaderSections;
     }
@@ -1629,7 +1630,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       console.log(`[CANDIDATES] (manual) text blocks=${blocks.length}`);
     } else {
       try {
-        const out = await segmentPdf(source.file_path);
+        const out = await segmentPdfIsolated(source.file_path);
         blocks = out.blocks;
         runningHeaderSections = out.runningHeaderSections;
         console.log(`[CANDIDATES] (manual) pdf pages=${out.pageCount} blocks=${blocks.length}`);
@@ -1799,4 +1800,5 @@ app.whenReady().then(() => {
   createWindow();
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('will-quit', () => stopPdfParser());
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
