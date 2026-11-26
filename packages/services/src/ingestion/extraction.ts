@@ -1,4 +1,9 @@
-import type { PageText } from './pdf';
+// One page of plain text (1-based page number), as fed to the legacy LLM
+// extraction passes.
+export interface PageText {
+  page: number;
+  text: string;
+}
 import type {
   BlockType,
   SectionNode,
