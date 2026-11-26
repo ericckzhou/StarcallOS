@@ -73,3 +73,21 @@ export function parseCandidateLlmFilterResponse(raw: string): TopicFilterDecisio
     })
     .filter((d): d is TopicFilterDecision => d !== null);
 }
+
+// Match key for a returned term against the batch's normalized terms: case-,
+// edge- and inner-whitespace-insensitive (models pad or re-space terms).
+export function topicFilterKey(term: string): string {
+  return term.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+// Kept terms from a batch's decisions, as the batch's own keys. Terms the
+// batch didn't send (hallucinated or stale) are dropped; duplicates collapse.
+export function keptBatchTerms(batch: TopicFilterCandidate[], decisions: TopicFilterDecision[]): string[] {
+  const sent = new Set(batch.map(c => topicFilterKey(c.normalized)));
+  const out = new Set<string>();
+  for (const d of decisions) {
+    const key = topicFilterKey(d.term);
+    if (d.keep && sent.has(key)) out.add(key);
+  }
+  return [...out];
+}
