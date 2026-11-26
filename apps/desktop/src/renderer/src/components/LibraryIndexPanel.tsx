@@ -99,7 +99,7 @@ export default function LibraryIndexPanel({ compact = false }: { compact?: boole
             {label}
           </button>
           {!compact && !plan.done && (
-            <span style={{ color: 'var(--gray-500)' }}>Runs in the background; stop any time and resume later.</span>
+            <span style={{ color: 'var(--text-muted)' }}>Runs in the background; stop any time and resume later.</span>
           )}
         </div>
       )}
@@ -118,16 +118,16 @@ export default function LibraryIndexPanel({ compact = false }: { compact?: boole
         </div>
       )}
       {plan.stale > 0 && !running && !compact && (
-        <div style={{ marginTop: 6, color: 'var(--gray-500)' }}>
+        <div style={{ marginTop: 6, color: 'var(--text-muted)' }}>
           Outdated sources get re-indexed passages only; re-extract their candidates under Outdated sources below.
         </div>
       )}
-      {error && <div style={{ marginTop: 6, color: 'var(--red-300)' }}>{error}</div>}
+      {error && <div style={{ marginTop: 6, color: 'var(--text-danger)' }}>{error}</div>}
     </div>
   );
 }
 
 const btn: React.CSSProperties = {
-  background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.4)', color: 'var(--indigo-200)',
+  background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.4)', color: 'var(--text-accent)',
   borderRadius: 6, padding: '2px 9px', fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap',
 };

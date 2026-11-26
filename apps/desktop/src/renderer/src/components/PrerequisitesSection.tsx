@@ -183,7 +183,7 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
           </div>
         )}
         {data.hasCycle && (
-          <div style={{ marginTop: 6, fontSize: 10, color: 'var(--red-300)' }}>
+          <div style={{ marginTop: 6, fontSize: 10, color: 'var(--text-danger)' }}>
             ⚠ A prerequisite cycle was detected — order is approximate.
           </div>
         )}
@@ -195,7 +195,7 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
           <Label>Direct prerequisites</Label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             {data.direct.map(n => (
-              <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(17,24,39,0.4)', border: '1px solid var(--indigo-900)', borderRadius: 6, padding: '5px 6px 5px 9px' }}>
+              <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(17,24,39,0.4)', border: '1px solid var(--border-accent-subtle)', borderRadius: 6, padding: '5px 6px 5px 9px' }}>
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: stageColor(n.mastery_stage), flexShrink: 0 }} aria-hidden="true" />
                 <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--indigo-100)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
                 <button onClick={() => removePrerequisite(n)} disabled={busy} title={`Remove "${n.name}" as a prerequisite`}
@@ -215,13 +215,13 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
           onBlur={() => setTimeout(() => setOpen(false), 120)}
           placeholder="Add a prerequisite concept…"
           disabled={busy}
-          style={{ width: '100%', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid var(--gray-800)', borderRadius: 4, padding: '6px 10px', color: 'var(--slate-200)', fontSize: 12, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
+          style={{ width: '100%', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 10px', color: 'var(--text)', fontSize: 12, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
         />
         {open && hits.length > 0 && (
-          <div role="listbox" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 2, zIndex: 10, background: 'var(--app-panel)', border: '1px solid var(--gray-800)', borderRadius: 4, maxHeight: 240, overflowY: 'auto', boxShadow: '0 6px 20px rgba(0,0,0,0.45)' }}>
+          <div role="listbox" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 2, zIndex: 10, background: 'var(--surface-panel)', border: '1px solid var(--border)', borderRadius: 4, maxHeight: 240, overflowY: 'auto', boxShadow: '0 6px 20px rgba(0,0,0,0.45)' }}>
             {hits.map(h => (
               <button key={h.id} role="option" onMouseDown={e => e.preventDefault()} onClick={() => addPrerequisite(h)}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'transparent', border: 'none', textAlign: 'left', padding: '6px 10px', fontSize: 12, color: 'var(--slate-200)', cursor: 'pointer' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'transparent', border: 'none', textAlign: 'left', padding: '6px 10px', fontSize: 12, color: 'var(--text)', cursor: 'pointer' }}>
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
                 {h.source_filename && (
                   <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, color: 'var(--slate-500)' }}>{h.source_filename}</span>
@@ -243,7 +243,7 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
           </button>
           <button onClick={suggestWithAi} disabled={scanning || suggesting}
             title="Ask the configured LLM provider to propose prerequisites (uses your API quota)"
-            style={{ background: 'transparent', border: '1px dashed var(--indigo-700)', borderRadius: 4, padding: '3px 9px', color: 'var(--indigo-200)', fontSize: 10, fontWeight: 700, cursor: suggesting ? 'wait' : 'pointer' }}>
+            style={{ background: 'transparent', border: '1px dashed var(--border-accent-muted)', borderRadius: 4, padding: '3px 9px', color: 'var(--text-accent)', fontSize: 10, fontWeight: 700, cursor: suggesting ? 'wait' : 'pointer' }}>
             {suggesting ? 'Asking…' : 'Suggest with AI'}
           </button>
         </div>
@@ -257,8 +257,8 @@ export default function PrerequisitesSection({ conceptId, sourceId, conceptName 
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             {suggestions.map(s => (
-              <div key={s.id} title={s.reason || undefined} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(30,27,75,0.5)', border: '1px solid var(--indigo-700)', borderRadius: 6, padding: '5px 6px 5px 9px' }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: 'var(--indigo-200)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div key={s.id} title={s.reason || undefined} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(30,27,75,0.5)', border: '1px solid var(--border-accent-muted)', borderRadius: 6, padding: '5px 6px 5px 9px' }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: 'var(--text-accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   <strong>{s.from_name}</strong>
                   <span style={{ color: 'var(--indigo-400)' }}> {s.edge_type === 'requires' ? '→ prerequisite of →' : '→ enables →'} </span>
                   <strong>{s.to_name}</strong>

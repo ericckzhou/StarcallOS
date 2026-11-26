@@ -312,7 +312,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
 
   if (loading) {
     return (
-      <aside style={{ width, borderRight: '1px solid var(--gray-800)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray-700)', fontSize: 13 }}>
+      <aside style={{ width, borderRight: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray-700)', fontSize: 13 }}>
         Loading review queue...
       </aside>
     );
@@ -321,14 +321,14 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
   if (collapsed) {
     return (
       <aside style={{
-        width: 36, borderRight: '1px solid var(--gray-800)', background: 'rgba(13, 13, 22, 0.5)',
+        width: 36, borderRight: '1px solid var(--border)', background: 'rgba(13, 13, 22, 0.5)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 8,
       }}>
         <button
           onClick={() => setCollapsed(false)}
           title={`Review queue (${items.length}) - click to expand`}
           style={{
-            background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 3,
+            background: 'transparent', border: '1px solid var(--border)', borderRadius: 3,
             color: selectedConcept ? '#c7d2fe' : '#9ca3af', fontSize: 12, padding: '4px 6px', cursor: 'pointer',
             writingMode: 'vertical-rl', textOrientation: 'mixed', maxHeight: 190,
           }}
@@ -341,14 +341,14 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
 
   if (items.length === 0) {
     return (
-      <aside style={{ width, borderRight: '1px solid var(--gray-800)', padding: 40, boxSizing: 'border-box', textAlign: 'center', color: 'var(--gray-700)', fontSize: 13, lineHeight: 1.6 }}>
+      <aside style={{ width, borderRight: '1px solid var(--border)', padding: 40, boxSizing: 'border-box', textAlign: 'center', color: 'var(--gray-700)', fontSize: 13, lineHeight: 1.6 }}>
         Nothing to review. Promote candidates or extract more sources to populate the queue.
       </aside>
     );
   }
 
   return (
-    <aside style={{ width, flexShrink: 0, borderRight: '1px solid var(--gray-800)', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+    <aside style={{ width, flexShrink: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
       <div
         onMouseDown={beginResize}
         title="Drag to resize review queue"
@@ -358,7 +358,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
         }}
       />
       <div style={{
-        padding: '9px 14px', borderBottom: '1px solid var(--gray-800)',
+        padding: '9px 14px', borderBottom: '1px solid var(--border)',
         display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 10,
       }}>
         <div style={{ minWidth: 0 }}>
@@ -374,7 +374,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
             onClick={cycleSort}
             title="Cycle sort: default → importance → stage"
             style={{
-              background: 'transparent', border: '1px solid var(--app-line)', borderRadius: 4,
+              background: 'transparent', border: '1px solid var(--border-control)', borderRadius: 4,
               padding: '3px 10px', fontSize: 10, cursor: 'pointer', color: 'var(--slate-400)',
               whiteSpace: 'nowrap',
             }}
@@ -387,7 +387,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
             aria-label="Minimize review queue"
             style={{
               width: 24, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              background: 'var(--gray-900)', border: '1px solid var(--app-line)', borderRadius: 4,
+              background: 'var(--gray-900)', border: '1px solid var(--border-control)', borderRadius: 4,
               padding: 0, fontSize: 13, lineHeight: 1, cursor: 'pointer', color: 'var(--slate-400)',
             }}
           >
@@ -405,7 +405,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
               gap: 10,
               margin: '8px 12px',
               background: 'var(--gray-900)',
-              border: '1px solid var(--indigo-900)',
+              border: '1px solid var(--border-accent-subtle)',
               borderRadius: 6,
               padding: '8px 10px',
               color: 'var(--slate-300)',
@@ -419,10 +419,10 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
               onClick={() => undoDeleteConcept(item)}
               style={{
                 marginLeft: 'auto',
-                background: 'var(--indigo-950)',
-                border: '1px solid var(--indigo-500)',
+                background: 'var(--surface-accent)',
+                border: '1px solid var(--border-accent)',
                 borderRadius: 4,
-                color: 'var(--indigo-200)',
+                color: 'var(--text-accent)',
                 cursor: 'pointer',
                 fontSize: 11,
                 fontWeight: 700,
@@ -444,7 +444,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
               style={{
               position: 'sticky', top: 0, zIndex: 2,
               padding: '8px 20px 7px',
-              borderBottom: '1px solid var(--gray-800)',
+              borderBottom: '1px solid var(--border)',
               borderLeft: `2px solid ${isActive ? '#818cf8' : '#2a2f45'}`,
               borderRight: 'none',
               borderTop: 'none',
@@ -495,7 +495,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                   }}
                 >
                   <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'center', gap: 8 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--slate-200)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {c.name}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, position: 'relative' }}>
@@ -548,7 +548,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                             background: 'rgba(4, 6, 26, 0.34)',
                             backdropFilter: 'blur(14px)',
                             WebkitBackdropFilter: 'blur(14px)',
-                            border: '1px solid var(--app-line)', borderRadius: 8,
+                            border: '1px solid var(--border-control)', borderRadius: 8,
                             boxShadow: '0 14px 34px rgba(0, 0, 0, 0.6)',
                             padding: 10,
                           }}
@@ -566,7 +566,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                                 title={`Due again in ${p.label}`}
                                 style={{
                                   background: 'transparent', border: '1px solid rgba(129, 140, 248, 0.28)', borderRadius: 6,
-                                  padding: '6px 0', fontSize: 11, color: 'var(--indigo-200)', cursor: 'pointer', textAlign: 'center',
+                                  padding: '6px 0', fontSize: 11, color: 'var(--text-accent)', cursor: 'pointer', textAlign: 'center',
                                   transition: 'background 120ms ease, border-color 120ms ease, color 120ms ease',
                                 }}
                               >
@@ -586,8 +586,8 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                               onChange={e => { e.stopPropagation(); rescheduleToDate(it, e.target.value); }}
                               style={{
                                 flex: 1, minWidth: 0,
-                                background: 'rgba(129, 140, 248, 0.08)', border: '1px solid var(--app-line)', borderRadius: 6,
-                                padding: '4px 6px', fontSize: 11, color: 'var(--slate-200)', colorScheme: 'dark', cursor: 'pointer',
+                                background: 'rgba(129, 140, 248, 0.08)', border: '1px solid var(--border-control)', borderRadius: 6,
+                                padding: '4px 6px', fontSize: 11, color: 'var(--text)', colorScheme: 'dark', cursor: 'pointer',
                               }}
                             />
                           </label>
@@ -599,7 +599,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                             style={{
                               width: '100%', display: 'flex', alignItems: 'center', gap: 6,
                               background: 'transparent', border: '1px solid rgba(245, 158, 11, 0.4)', borderRadius: 6,
-                              padding: '5px 8px', fontSize: 11, color: 'var(--amber-500)', cursor: 'pointer',
+                              padding: '5px 8px', fontSize: 11, color: 'var(--text-warning)', cursor: 'pointer',
                               transition: 'background 120ms ease, border-color 120ms ease',
                             }}
                           >
@@ -666,7 +666,7 @@ export default function ReviewQueue({ onSelect, selectedConcept, onDeleted }: Pr
                       </button>
                     </div>
                   </div>
-                  <div style={{ paddingRight: 32, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'var(--gray-500)' }}>
+                  <div style={{ paddingRight: 32, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'var(--text-muted)' }}>
                     <span style={{
                       color: IMP_COLOR[c.importance] ?? '#94a3b8',
                       background: 'rgba(129, 140, 248, 0.10)',

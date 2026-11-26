@@ -261,14 +261,14 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   if (collapsed) {
     return (
       <aside style={{
-        width: 36, borderRight: '1px solid var(--gray-800)', background: 'rgba(13, 13, 22, 0.5)',
+        width: 36, borderRight: '1px solid var(--border)', background: 'rgba(13, 13, 22, 0.5)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 8,
       }}>
         <button
           onClick={() => setCollapsed(false)}
           title={`Concepts (${concepts.length}) - click to expand`}
           style={{
-            background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 3,
+            background: 'transparent', border: '1px solid var(--border)', borderRadius: 3,
             color: selectedConcept ? '#c7d2fe' : '#9ca3af', fontSize: 12, padding: '4px 6px', cursor: 'pointer',
             writingMode: 'vertical-rl', textOrientation: 'mixed', maxHeight: 180,
           }}
@@ -280,9 +280,9 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
   }
 
   return (
-    <aside style={{ width: 260, borderRight: '1px solid var(--gray-800)', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '10px 10px 10px 14px', borderBottom: '1px solid var(--gray-800)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--gray-600)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+    <aside style={{ width: 260, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '10px 10px 10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
           Concepts ({concepts.length})
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -292,14 +292,14 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           <button
             onClick={() => setCreateOpen(true)}
             title="Add your own concept to this source"
-            style={{ background: 'var(--indigo-950)', border: '1px solid var(--indigo-700)', borderRadius: 4, padding: '3px 7px', color: 'var(--indigo-200)', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}
+            style={{ background: 'var(--surface-accent)', border: '1px solid var(--border-accent-muted)', borderRadius: 4, padding: '3px 7px', color: 'var(--text-accent)', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}
           >
             +
           </button>
           <button
             onClick={() => setCollapsed(true)}
             title="Minimize concepts"
-            style={{ background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 4, padding: '3px 7px', color: 'var(--gray-500)', fontSize: 11, cursor: 'pointer' }}
+            style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, padding: '3px 7px', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}
           >
             &lt;
           </button>
@@ -320,16 +320,16 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             width: 380, maxWidth: '90vw',
             display: 'flex', flexDirection: 'column', gap: 8, padding: 16,
             borderRadius: 12, background: 'rgba(13, 13, 22, 0.6)', backdropFilter: 'blur(14px)',
-            border: '1px solid var(--indigo-900)', boxShadow: '0 24px 64px rgba(0, 0, 0, 0.6)',
+            border: '1px solid var(--border-accent-subtle)', boxShadow: '0 24px 64px rgba(0, 0, 0, 0.6)',
           }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ fontSize: 12, color: 'var(--indigo-200)', fontWeight: 800 }}>Add concept</div>
+            <div style={{ fontSize: 12, color: 'var(--text-accent)', fontWeight: 800 }}>Add concept</div>
             <button
               onClick={() => { setCreateOpen(false); setCreateError(null); }}
               disabled={createBusy}
               title="Cancel"
               aria-label="Cancel"
-              style={{ marginLeft: 'auto', width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 4, color: 'var(--slate-400)', cursor: createBusy ? 'wait' : 'pointer', fontSize: 14, lineHeight: 1 }}
+              style={{ marginLeft: 'auto', width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--slate-400)', cursor: createBusy ? 'wait' : 'pointer', fontSize: 14, lineHeight: 1 }}
             >
               ×
             </button>
@@ -346,15 +346,15 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             }}
             placeholder="Concept name"
             style={{
-              background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--app-line)', borderRadius: 4,
-              padding: '7px 8px', color: 'var(--slate-200)', fontSize: 12, outline: 'none',
+              background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--border-control)', borderRadius: 4,
+              padding: '7px 8px', color: 'var(--text)', fontSize: 12, outline: 'none',
             }}
           />
           <select
             value={createImportance}
             onChange={e => setCreateImportance(e.target.value)}
             style={{
-              background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--app-line)', borderRadius: 4,
+              background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--border-control)', borderRadius: 4,
               padding: '6px 8px', color: 'var(--slate-300)', fontSize: 12, outline: 'none',
             }}
           >
@@ -368,18 +368,18 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             placeholder="Optional starter definition..."
             rows={3}
             style={{
-              background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--app-line)', borderRadius: 4,
+              background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--border-control)', borderRadius: 4,
               padding: '7px 8px', color: 'var(--slate-300)', fontSize: 12, lineHeight: 1.5,
               resize: 'vertical', outline: 'none', fontFamily: 'inherit',
             }}
           />
-          {createError && <div style={{ fontSize: 11, color: 'var(--red-300)' }}>{createError}</div>}
+          {createError && <div style={{ fontSize: 11, color: 'var(--text-danger)' }}>{createError}</div>}
           <button
             onClick={() => void createManualConcept()}
             disabled={createBusy}
             style={{
               background: createBusy ? '#111827' : '#312e81',
-              border: '1px solid var(--indigo-500)',
+              border: '1px solid var(--border-accent)',
               borderRadius: 4,
               padding: '7px 10px',
               color: createBusy ? '#64748b' : '#e0e7ff',
@@ -393,7 +393,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
         </div>
         </div>
       )}
-      <div style={{ padding: '8px 10px 6px', borderBottom: '1px solid var(--gray-800)', position: 'relative' }}>
+      <div style={{ padding: '8px 10px 6px', borderBottom: '1px solid var(--border)', position: 'relative' }}>
         <input
           ref={searchRef}
           value={search}
@@ -408,8 +408,8 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           placeholder="Search concepts…  ( / )"
           style={{
             width: '100%', boxSizing: 'border-box',
-            background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--app-line)', borderRadius: 4,
-            padding: '6px 26px 6px 8px', color: 'var(--slate-200)', fontSize: 12, outline: 'none',
+            background: 'rgba(17, 24, 39, 0.4)', border: '1px solid var(--border-control)', borderRadius: 4,
+            padding: '6px 26px 6px 8px', color: 'var(--text)', fontSize: 12, outline: 'none',
           }}
         />
         {search && (
@@ -418,14 +418,14 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             title="Clear search"
             style={{
               position: 'absolute', right: 16, top: 13,
-              background: 'transparent', border: 'none', color: 'var(--gray-500)',
+              background: 'transparent', border: 'none', color: 'var(--text-muted)',
               fontSize: 14, lineHeight: 1, cursor: 'pointer', padding: 0,
             }}
           >×</button>
         )}
       </div>
       {selectMode && (
-        <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--gray-800)', background: 'rgba(30,27,75,0.45)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', position: 'relative' }}>
+        <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)', background: 'rgba(30,27,75,0.45)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', position: 'relative' }}>
           <button
             onClick={toggleSelectAll}
             title={allDisplayedSelected ? 'Deselect all shown' : 'Select all shown'}
@@ -437,13 +437,13 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
               color: allDisplayedSelected ? '#c7d2fe' : '#9ca3af', fontSize: 11, lineHeight: 1, cursor: 'pointer',
             }}
           >{allDisplayedSelected ? '✓' : '☐'}</button>
-          <span style={{ fontSize: 11, color: 'var(--indigo-200)', fontWeight: 700 }}>{selectedIds.size} selected</span>
+          <span style={{ fontSize: 11, color: 'var(--text-accent)', fontWeight: 700 }}>{selectedIds.size} selected</span>
           {hubs.length > 0 && (
             <button
               onClick={() => selectedIds.size && setAddMenuOpen(o => !o)}
               disabled={selectedIds.size === 0}
               title="Add selected concepts to a hub"
-              style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 4, padding: '3px 8px', color: selectedIds.size ? '#c7d2fe' : '#475569', fontSize: 10, cursor: selectedIds.size ? 'pointer' : 'not-allowed' }}
+              style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, padding: '3px 8px', color: selectedIds.size ? '#c7d2fe' : '#475569', fontSize: 10, cursor: selectedIds.size ? 'pointer' : 'not-allowed' }}
             >
               Add to ▾
             </button>
@@ -464,10 +464,10 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
             }}
           >×</button>
           {addMenuOpen && (
-            <div style={{ position: 'absolute', top: '100%', right: 8, zIndex: 20, marginTop: 2, background: 'var(--app-panel)', border: '1px solid var(--gray-800)', borderRadius: 4, minWidth: 150, maxHeight: 220, overflowY: 'auto', boxShadow: '0 6px 20px rgba(0,0,0,0.45)' }}>
+            <div style={{ position: 'absolute', top: '100%', right: 8, zIndex: 20, marginTop: 2, background: 'var(--surface-panel)', border: '1px solid var(--border)', borderRadius: 4, minWidth: 150, maxHeight: 220, overflowY: 'auto', boxShadow: '0 6px 20px rgba(0,0,0,0.45)' }}>
               {hubs.map(h => (
                 <button key={h.id} onClick={() => void addSelectionToHub(h.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', background: 'transparent', border: 'none', textAlign: 'left', padding: '6px 9px', fontSize: 11, color: 'var(--slate-200)', cursor: 'pointer' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', background: 'transparent', border: 'none', textAlign: 'left', padding: '6px 9px', fontSize: 11, color: 'var(--text)', cursor: 'pointer' }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: h.color, flexShrink: 0 }} />
                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
                   <span style={{ fontSize: 9, color: 'var(--slate-500)' }}>{h.member_count}</span>
@@ -477,7 +477,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           )}
         </div>
       )}
-      <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--gray-800)', display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+      <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 5, flexWrap: 'wrap' }}>
         {['all', ...IMPORTANCE_ORDER].map(imp => {
           const active = filter === imp;
           const color = IMP_COLOR[imp] ?? '#818cf8';
@@ -506,7 +506,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
       {pendingConceptDelete && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10, margin: '8px 10px',
-          background: 'rgba(13,13,22,0.6)', border: '1px solid var(--gray-800)', borderRadius: 6,
+          background: 'rgba(13,13,22,0.6)', border: '1px solid var(--border)', borderRadius: 6,
           padding: '8px 10px', fontSize: 11, color: 'var(--slate-400)',
         }}>
           <span style={{ flex: 1 }}>
@@ -514,7 +514,7 @@ export default function ConceptPane({ sourceId, selectedId, onSelect }: Props) {
           </span>
           <button
             onClick={undoConceptDelete}
-            style={{ background: 'var(--indigo-950)', border: '1px solid var(--indigo-500)', borderRadius: 4, color: 'var(--indigo-200)', cursor: 'pointer', fontSize: 11, fontWeight: 700, padding: '3px 9px' }}
+            style={{ background: 'var(--surface-accent)', border: '1px solid var(--border-accent)', borderRadius: 4, color: 'var(--text-accent)', cursor: 'pointer', fontSize: 11, fontWeight: 700, padding: '3px 9px' }}
           >Undo</button>
         </div>
       )}

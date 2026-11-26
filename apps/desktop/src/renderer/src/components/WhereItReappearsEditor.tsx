@@ -231,8 +231,8 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
       : undefined;
     const matchedLabel = matchedEv ? evidenceTitle(matchedEv) : null;
     return (
-      <div style={{ border: '1px solid var(--indigo-700)', borderRadius: 8, padding: 10, background: 'rgba(13,13,22,0.86)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ fontSize: 12, color: 'var(--indigo-200)' }}>
+      <div style={{ border: '1px solid var(--border-accent-muted)', borderRadius: 8, padding: 10, background: 'rgba(13,13,22,0.86)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-accent)' }}>
           Why does this relate to <span style={{ fontWeight: 800 }}>{pending.name}</span>?
         </div>
         <div style={{ position: 'relative' }}>
@@ -244,7 +244,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
             title={evOptions.length === 0 ? `${pending.name} has no evidence spans to link to` : `Link to an evidence span in ${pending.name}`}
             style={{
               width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              background: 'transparent', border: '1px solid var(--app-line)', borderRadius: 4,
+              background: 'transparent', border: '1px solid var(--border-control)', borderRadius: 4,
               padding: '5px 8px', color: evOptions.length === 0 ? '#475569' : '#c7d2fe', fontSize: 11,
               cursor: evOptions.length === 0 ? 'not-allowed' : 'pointer',
             }}
@@ -260,7 +260,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
                       ? `No evidence in ${pending.name}`
                       : `Link to evidence in ${pending.name}…`}
             </span>
-            <span style={{ color: 'var(--gray-500)' }}>▾</span>
+            <span style={{ color: 'var(--text-muted)' }}>▾</span>
           </button>
           {evOpen && evOptions.length > 0 && (
             <div
@@ -268,7 +268,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
               style={{
                 position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 2, zIndex: 20,
                 background: 'rgba(13,13,22,0.6)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-                border: '1px solid var(--indigo-900)', borderRadius: 6,
+                border: '1px solid var(--border-accent-subtle)', borderRadius: 6,
                 maxHeight: 240, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
               }}
             >
@@ -289,7 +289,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
                   }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', background: 'transparent',
-                    border: 'none', padding: '6px 10px', fontSize: 11, color: 'var(--slate-200)', cursor: 'pointer',
+                    border: 'none', padding: '6px 10px', fontSize: 11, color: 'var(--text)', cursor: 'pointer',
                   }}
                 >
                   <span style={{ flexShrink: 0, color: 'var(--indigo-400)', fontWeight: 700 }}>p.{ev.page}</span>
@@ -311,7 +311,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
           }}
           placeholder={`Pick an evidence span in ${pending.name} above, or write why they relate…`}
           rows={3}
-          style={{ background: 'rgba(13,13,22,0.4)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid var(--app-line)', borderRadius: 4, padding: '7px 9px', color: 'var(--slate-200)', fontSize: 12, lineHeight: 1.5, resize: 'vertical', outline: 'none', fontFamily: 'inherit' }}
+          style={{ background: 'rgba(13,13,22,0.4)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid var(--border-control)', borderRadius: 4, padding: '7px 9px', color: 'var(--text)', fontSize: 12, lineHeight: 1.5, resize: 'vertical', outline: 'none', fontFamily: 'inherit' }}
         />
         <div style={{ display: 'flex', gap: 8 }}>
           <button
@@ -324,7 +324,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
           </button>
           <button
             onClick={() => setPending(null)}
-            style={{ background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 4, padding: '5px 12px', color: 'var(--slate-400)', fontSize: 12, cursor: 'pointer' }}
+            style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 12px', color: 'var(--slate-400)', fontSize: 12, cursor: 'pointer' }}
           >
             Cancel
           </button>
@@ -351,7 +351,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
               title="Edit reason"
               style={{
                 display: 'flex', alignItems: 'center', gap: 8,
-                background: 'var(--indigo-950)', border: '1px solid var(--indigo-900)', borderRadius: 8,
+                background: 'var(--surface-accent)', border: '1px solid var(--border-accent-subtle)', borderRadius: 8,
                 padding: '7px 8px 7px 0', cursor: 'pointer', overflow: 'hidden',
               }}
             >
@@ -404,8 +404,8 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
               onBlur={() => setTimeout(() => setOpen(false), 120)}
               placeholder="Type to link any concept..."
               style={{
-                width: '100%', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid var(--gray-800)',
-                borderRadius: 4, padding: '6px 10px', color: 'var(--slate-200)', fontSize: 12,
+                width: '100%', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid var(--border)',
+                borderRadius: 4, padding: '6px 10px', color: 'var(--text)', fontSize: 12,
                 outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit',
               }}
             />
@@ -431,7 +431,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
               role="listbox"
               style={{
                 position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 2, zIndex: 10,
-                background: 'var(--app-panel)', border: '1px solid var(--gray-800)', borderRadius: 4,
+                background: 'var(--surface-panel)', border: '1px solid var(--border)', borderRadius: 4,
                 maxHeight: 240, overflowY: 'auto', boxShadow: '0 6px 20px rgba(0,0,0,0.45)',
               }}
             >
@@ -447,7 +447,7 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
                     display: 'flex', alignItems: 'center', gap: 8, width: '100%',
                     background: i === activeIdx ? '#1e1b4b' : 'transparent',
                     border: 'none', textAlign: 'left',
-                    padding: '6px 10px', fontSize: 12, color: 'var(--slate-200)', cursor: 'pointer',
+                    padding: '6px 10px', fontSize: 12, color: 'var(--text)', cursor: 'pointer',
                   }}
                 >
                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -482,8 +482,8 @@ export default function WhereItReappearsEditor({ conceptId, value, onChange }: P
                   onClick={() => beginAdd({ id: s.id, name: s.name, importance: '', source_filename: s.source_title })}
                   title={`Link ${s.name} (${s.source_title}) — ${Math.round(s.similarity * 100)}% similar`}
                   style={{
-                    background: 'rgba(30,27,75,0.5)', border: '1px dashed var(--indigo-700)', borderRadius: 999,
-                    padding: '2px 9px', color: 'var(--indigo-200)', fontSize: 11, cursor: 'pointer', maxWidth: 220,
+                    background: 'rgba(30,27,75,0.5)', border: '1px dashed var(--border-accent-muted)', borderRadius: 999,
+                    padding: '2px 9px', color: 'var(--text-accent)', fontSize: 11, cursor: 'pointer', maxWidth: 220,
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}
                 >

@@ -2,7 +2,7 @@
 
 /* Design tokens: the app palette as CSS custom properties. Inline styles
    reference these via var(--name). Primitive tier (Tailwind palette names +
-   a few app-specific shades); semantic aliases can layer on top later.
+   a few app-specific shades) plus semantic aliases below.
    Data colors (tag/hub colors, color-picker values, SVG attributes) stay hex. */
 :root {
   --amber-400: #fbbf24;
@@ -37,6 +37,26 @@
   --slate-500: #64748b;
   --slate-600: #475569;
   --violet-300: #c4b5fd;
+
+  /* Semantic aliases (role → palette). Prefer these in new code; each maps to
+     exactly one palette token so swapping a role is a one-line change here.
+     Text still mixes the gray-* and slate-* families at similar levels; that
+     consolidation is a visual change and is intentionally not made here. */
+  --text: var(--slate-200);
+  --text-secondary: var(--gray-400);
+  --text-muted: var(--gray-500);
+  --text-faint: var(--gray-600);
+  --text-accent: var(--indigo-200);
+  --text-danger: var(--red-300);
+  --text-warning: var(--amber-500);
+  --text-success: var(--green-300);
+  --border: var(--gray-800);
+  --border-control: var(--app-line);
+  --border-accent: var(--indigo-500);
+  --border-accent-muted: var(--indigo-700);
+  --border-accent-subtle: var(--indigo-900);
+  --surface-accent: var(--indigo-950);
+  --surface-panel: var(--app-panel);
 }
 
 html, body, #root {

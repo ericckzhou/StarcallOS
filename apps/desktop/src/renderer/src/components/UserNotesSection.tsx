@@ -144,18 +144,18 @@ export default function UserNotesSection({ conceptId, sourceId, onJumpToAnnotati
   return (
     <div>
       <div style={{
-        fontSize: 10, fontWeight: 700, color: 'var(--gray-600)',
+        fontSize: 10, fontWeight: 700, color: 'var(--text-faint)',
         textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12,
       }}>
         My Notes
       </div>
 
       {loading && (
-        <div style={{ color: 'var(--gray-600)', fontSize: 12 }}>Loading notes…</div>
+        <div style={{ color: 'var(--text-faint)', fontSize: 12 }}>Loading notes…</div>
       )}
 
       {!loading && notes.length === 0 && (
-        <div style={{ color: 'var(--gray-600)', fontSize: 12, marginBottom: 12 }}>
+        <div style={{ color: 'var(--text-faint)', fontSize: 12, marginBottom: 12 }}>
           Add your own follow-ups, connections, or reminders below — these are never
           touched by re-extract, enrich, or regenerate.
         </div>
@@ -184,13 +184,13 @@ export default function UserNotesSection({ conceptId, sourceId, onJumpToAnnotati
       {pendingDeletes.map(n => (
         <div key={`pending-${n.id}`} style={{
           display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8,
-          background: 'rgba(13,13,22,0.6)', border: '1px solid var(--gray-800)', borderRadius: 6,
+          background: 'rgba(13,13,22,0.6)', border: '1px solid var(--border)', borderRadius: 6,
           padding: '8px 10px', fontSize: 12, color: 'var(--slate-400)',
         }}>
           <span>Note deleted{n.heading && n.heading !== 'Untitled note' ? ` — “${n.heading}”` : ''}.</span>
           <button
             onClick={() => undoRemoveNote(n)}
-            style={{ marginLeft: 'auto', background: 'var(--indigo-950)', border: '1px solid var(--indigo-500)', borderRadius: 4, color: 'var(--indigo-200)', cursor: 'pointer', fontSize: 11, fontWeight: 700, padding: '3px 9px' }}
+            style={{ marginLeft: 'auto', background: 'var(--surface-accent)', border: '1px solid var(--border-accent)', borderRadius: 4, color: 'var(--text-accent)', cursor: 'pointer', fontSize: 11, fontWeight: 700, padding: '3px 9px' }}
           >Undo</button>
         </div>
       ))}
@@ -255,7 +255,7 @@ function NoteRow({
             flex: 1,
             background: 'transparent',
             border: 'none',
-            color: 'var(--gray-600)',
+            color: 'var(--text-faint)',
             fontSize: 10,
             fontWeight: 700,
             textTransform: 'uppercase',
@@ -281,7 +281,7 @@ function NoteRow({
           title="Delete note"
           style={{
             background: 'transparent', border: '1px solid var(--app-danger-bg)', borderRadius: 4,
-            padding: '2px 8px', fontSize: 14, color: 'var(--red-300)', cursor: 'pointer', lineHeight: 1,
+            padding: '2px 8px', fontSize: 14, color: 'var(--text-danger)', cursor: 'pointer', lineHeight: 1,
           }}
         >×</button>
       </div>
@@ -310,15 +310,15 @@ function NoteRow({
         {linkedHighlight ? (
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: 'rgba(30,27,75,0.55)', border: '1px solid var(--indigo-700)', borderRadius: 999,
-            padding: '2px 4px 2px 8px', fontSize: 11, color: 'var(--indigo-200)', maxWidth: '100%',
+            background: 'rgba(30,27,75,0.55)', border: '1px solid var(--border-accent-muted)', borderRadius: 999,
+            padding: '2px 4px 2px 8px', fontSize: 11, color: 'var(--text-accent)', maxWidth: '100%',
           }}>
             <span style={{ width: 8, height: 8, borderRadius: 2, background: linkedHighlight.color, flexShrink: 0 }} />
             <button
               onClick={() => onJump(linkedHighlight.page)}
               title="Jump to this highlight in the source"
               style={{
-                background: 'transparent', border: 'none', color: 'var(--indigo-200)', cursor: 'pointer',
+                background: 'transparent', border: 'none', color: 'var(--text-accent)', cursor: 'pointer',
                 fontSize: 11, padding: 0, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}
             >
@@ -334,7 +334,7 @@ function NoteRow({
           <button
             onClick={() => onLink(null)}
             title="The linked highlight was deleted. Click to clear."
-            style={{ background: 'transparent', border: '1px dashed var(--app-danger-bg)', borderRadius: 999, padding: '2px 9px', fontSize: 11, color: 'var(--gray-500)', cursor: 'pointer' }}
+            style={{ background: 'transparent', border: '1px dashed var(--app-danger-bg)', borderRadius: 999, padding: '2px 9px', fontSize: 11, color: 'var(--text-muted)', cursor: 'pointer' }}
           >
             ⚠ linked highlight removed — clear
           </button>
@@ -358,7 +358,7 @@ function NoteRow({
             position: 'absolute', top: '100%', left: 0, zIndex: 30, marginTop: 4,
             minWidth: 240, maxWidth: 360, maxHeight: 220, overflowY: 'auto',
             background: 'rgba(13,13,22,0.92)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-            border: '1px solid var(--indigo-900)', borderRadius: 6, boxShadow: '0 16px 50px rgba(0,0,0,0.55)', padding: 4,
+            border: '1px solid var(--border-accent-subtle)', borderRadius: 6, boxShadow: '0 16px 50px rgba(0,0,0,0.55)', padding: 4,
           }}>
             {highlights.map(h => (
               <button
@@ -372,7 +372,7 @@ function NoteRow({
                 }}
               >
                 <span style={{ width: 9, height: 9, borderRadius: 2, background: h.color, flexShrink: 0 }} />
-                <span style={{ flexShrink: 0, color: 'var(--gray-500)', fontSize: 11 }}>p.{h.page}</span>
+                <span style={{ flexShrink: 0, color: 'var(--text-muted)', fontSize: 11 }}>p.{h.page}</span>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.snippet}</span>
               </button>
             ))}
@@ -380,7 +380,7 @@ function NoteRow({
         )}
       </div>
       {saving && (
-        <div style={{ fontSize: 10, color: 'var(--gray-500)', marginTop: 4 }}>Saving…</div>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>Saving…</div>
       )}
     </div>
   );
