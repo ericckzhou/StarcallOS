@@ -96,6 +96,7 @@ export const IPC = {
   SETTINGS_SET:            'settings:set',
   LLM_TRACE_SUMMARY:       'llm:traceSummary',
   LLM_LIST_LOCAL_MODELS:   'llm:listLocalModels',
+  DOCLING_TEST:            'docling:test',
   EMBEDDINGS_STATUS:       'embeddings:status',
   EMBEDDINGS_INDEX_LIBRARY: 'embeddings:indexLibrary',
   CONCEPTS_RELATED:        'concepts:related',
@@ -269,6 +270,10 @@ export interface SettingsSnapshot {
   embeddingModel: string;   // '' = default
   defaultEmbeddingModel: string;
   srsScheduler: 'sm2' | 'fsrs';
+  // PDF parser: built-in geometry parser, or the user's own docling-serve.
+  pdfParser: 'builtin' | 'docling';
+  doclingBaseUrl: string;          // '' = default
+  defaultDoclingBaseUrl: string;
 }
 
 export interface EmbeddingsStatus {
@@ -360,6 +365,10 @@ export interface RelatedConceptSuggestion {
 
 export type LocalModelsResult = { ok: true; models: string[] } | { ok: false; error: string };
 
+export type DoclingTestResult =
+  | { ok: true; docling: string | null; serve: string | null }
+  | { ok: false; error: string };
+
 // Persisted LLM call trace aggregates (llm_calls, migration 0031).
 export interface LlmPassSummary {
   pass: string;
@@ -388,6 +397,8 @@ export interface SettingsPatch {
   embeddingsEnabled?: boolean;
   embeddingModel?: string;
   srsScheduler?: 'sm2' | 'fsrs';
+  pdfParser?: 'builtin' | 'docling';
+  doclingBaseUrl?: string;
   provider?: ProviderId;
   groqApiKey?: string;
   anthropicApiKey?: string;
@@ -825,6 +836,10 @@ export interface IpcApi {
     traceSummary: (days?: number) => Promise<LlmTraceSummary>;
     // Probe an OpenAI-compatible server (GET {baseUrl}/models). Never throws.
     listLocalModels: (baseUrl: string) => Promise<LocalModelsResult>;
+  };
+  docling: {
+    // Probe a docling-serve (GET {baseUrl}/version). Never throws.
+    test: (baseUrl: string) => Promise<DoclingTestResult>;
   };
   embeddings: {
     status: () => Promise<EmbeddingsStatus>;

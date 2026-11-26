@@ -60,6 +60,17 @@ describe('planLibraryIndex', () => {
     expect(p.items[2].embed_missing).toBe(1);
   });
 
+  it('uses the per-source expected layout (PDF parser choice)', () => {
+    const { db, b, c } = seed();
+    // Docling selected: c (built-in stamp) becomes stale; b stays stale.
+    const p = planLibraryIndex(db, { embeddingModel: null, expectLayout: s => (s.file_path === 'c.pdf' || s.file_path === 'b.pdf' ? 'docling-0.1.0' : LAYOUT_VERSION) });
+    expect(p.items.find(i => i.source_id === c.id)?.action).toBe('rechunk');
+    expect(p.items.find(i => i.source_id === b.id)?.action).toBe('rechunk');
+    syncSourceChunks(db, c.id, drafts('Trees'), { chunker: CHUNKER_VERSION, layout: 'docling-0.1.0' });
+    const p2 = planLibraryIndex(db, { embeddingModel: null, expectLayout: () => 'docling-0.1.0' });
+    expect(p2.items.find(i => i.source_id === c.id)?.action).toBeNull();
+  });
+
   it('with embeddings off, a current source needs nothing', () => {
     const { db, c } = seed();
     const p = planLibraryIndex(db, { embeddingModel: null });

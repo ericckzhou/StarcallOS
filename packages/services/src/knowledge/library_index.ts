@@ -42,6 +42,8 @@ export interface LibraryIndexPlan {
 export interface PlanOptions {
   embeddingModel: string | null;                  // null = embeddings off
   versions?: { chunker: string; layout: string };
+  // Per-source expected layout stamp (PDF parser choice); defaults to versions.layout.
+  expectLayout?: (source: { source_id: number; file_path: string }) => string;
 }
 
 const ACTION_RANK: Record<string, number> = { chunk: 0, rechunk: 1, none: 2 };
@@ -52,21 +54,25 @@ export function planLibraryIndex(db: DatabaseSync, opts: PlanOptions): LibraryIn
   const v = opts.versions ?? { chunker: CHUNKER_VERSION, layout: LAYOUT_VERSION };
   const model = opts.embeddingModel;
   const rows = db.prepare(
-    `SELECT s.id AS id, COALESCE(s.title, s.filename) AS title, s.page_count AS page_count,
+    `SELECT s.id AS id, COALESCE(s.title, s.filename) AS title, s.page_count AS page_count, s.file_path AS file_path,
             COUNT(c.id) AS chunks,
-            SUM(CASE WHEN c.id IS NOT NULL AND (c.chunker_version <> ? OR c.layout_version <> ?) THEN 1 ELSE 0 END) AS stale,
+            SUM(CASE WHEN c.id IS NOT NULL AND c.chunker_version <> ? THEN 1 ELSE 0 END) AS stale_chunker,
+            MIN(c.layout_version) AS layout_min, MAX(c.layout_version) AS layout_max,
             SUM(CASE WHEN c.id IS NOT NULL AND EXISTS (
                   SELECT 1 FROM embeddings e WHERE e.owner_kind = 'chunk' AND e.owner_id = c.id AND e.model = ?)
                 THEN 1 ELSE 0 END) AS embedded
        FROM sources s LEFT JOIN rag_chunks c ON c.source_id = s.id
       GROUP BY s.id`,
-  ).all(v.chunker, v.layout, model ?? '') as Array<{
-    id: number; title: string; page_count: number | null; chunks: number; stale: number; embedded: number;
+  ).all(v.chunker, model ?? '') as Array<{
+    id: number; title: string; page_count: number | null; file_path: string; chunks: number;
+    stale_chunker: number; layout_min: string | null; layout_max: string | null; embedded: number;
   }>;
 
   const items: LibraryIndexItem[] = rows.map(r => {
     const chunks = Number(r.chunks);
-    const action: ChunkAction = chunks === 0 ? 'chunk' : Number(r.stale) > 0 ? 'rechunk' : null;
+    const layout = opts.expectLayout ? opts.expectLayout({ source_id: Number(r.id), file_path: r.file_path }) : v.layout;
+    const stale = Number(r.stale_chunker) > 0 || r.layout_min !== layout || r.layout_max !== layout;
+    const action: ChunkAction = chunks === 0 ? 'chunk' : stale ? 'rechunk' : null;
     const embedded = model ? Number(r.embedded) : 0;
     return {
       source_id: Number(r.id), title: r.title ?? '', page_count: r.page_count == null ? null : Number(r.page_count),
@@ -134,12 +140,13 @@ export interface LibraryIndexDeps {
   onProgress?: (p: LibraryIndexProgress) => void;
   shouldStop?: () => boolean;
   versions?: { chunker: string; layout: string };
+  expectLayout?: PlanOptions['expectLayout'];
 }
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export async function runLibraryIndex(db: DatabaseSync, deps: LibraryIndexDeps): Promise<LibraryIndexSummary> {
-  const plan = planLibraryIndex(db, { embeddingModel: deps.embedder?.model ?? null, versions: deps.versions });
+  const plan = planLibraryIndex(db, { embeddingModel: deps.embedder?.model ?? null, versions: deps.versions, expectLayout: deps.expectLayout });
   const work = plan.items.filter(i => i.action || i.embed_missing > 0);
   const summary: LibraryIndexSummary = {
     stopped: false, sources_processed: 0, chunked: 0, rechunked: 0, embedded_chunks: 0, failures: [], embed_error: null,

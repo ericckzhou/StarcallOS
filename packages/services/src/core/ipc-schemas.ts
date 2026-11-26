@@ -92,6 +92,8 @@ export const SettingsPatchSchema = z.object({
   embeddingsEnabled: z.boolean().optional(),
   embeddingModel:  z.string().max(200).optional(),
   srsScheduler:    z.enum(['sm2', 'fsrs']).optional(),
+  pdfParser:       z.enum(['builtin', 'docling']).optional(),
+  doclingBaseUrl:  z.string().max(300).optional(),
 });
 
 export const SubmitEvidenceArgsSchema = z.object({

@@ -75,7 +75,7 @@ export default function SettingsPane() {
   // Auto-save non-secret settings the moment they change. Keys still need the
   // explicit "Save API Keys" button below (blank input means "keep current",
   // so we don't want auto-save wiping a stored key on first focus).
-  async function autoSave(patch: { provider?: ProviderId; extractionMode?: ExtractionMode; heavyModel?: string; lightModel?: string; gradeSelfConsistency?: boolean; localBaseUrl?: string; localModel?: string; embeddingsEnabled?: boolean; embeddingModel?: string; srsScheduler?: 'sm2' | 'fsrs' }): Promise<void> {
+  async function autoSave(patch: { provider?: ProviderId; extractionMode?: ExtractionMode; heavyModel?: string; lightModel?: string; gradeSelfConsistency?: boolean; localBaseUrl?: string; localModel?: string; embeddingsEnabled?: boolean; embeddingModel?: string; srsScheduler?: 'sm2' | 'fsrs'; pdfParser?: 'builtin' | 'docling'; doclingBaseUrl?: string }): Promise<void> {
     try {
       await window.api.settings.set(patch);
       const fresh = await window.api.settings.get();
@@ -339,6 +339,13 @@ export default function SettingsPane() {
           onSave={patch => autoSave(patch)}
         />
 
+        <PdfParserSection
+          parser={snap.pdfParser}
+          baseUrl={snap.doclingBaseUrl}
+          defaultBaseUrl={snap.defaultDoclingBaseUrl}
+          onSave={patch => autoSave(patch)}
+        />
+
         <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
           Passage index
         </h1>
@@ -459,6 +466,76 @@ function LocalProviderFields({ baseUrl, model, defaultBaseUrl, onSave }: {
       <div style={{ fontSize: 10, color: '#4b5563', marginTop: 10, lineHeight: 1.5 }}>
         One model is used for every LLM pass. Nothing leaves this machine unless the URL points elsewhere.
       </div>
+    </div>
+  );
+}
+
+// PDF parser: the built-in geometry parser (default) or the user's own
+// docling-serve. Switching marks PDF sources outdated (their layout stamp
+// changes), so Outdated sources / Passage index below can redo them.
+function PdfParserSection({ parser, baseUrl, defaultBaseUrl, onSave }: {
+  parser: 'builtin' | 'docling'; baseUrl: string; defaultBaseUrl: string;
+  onSave: (patch: { pdfParser?: 'builtin' | 'docling'; doclingBaseUrl?: string }) => Promise<void>;
+}) {
+  const [url, setUrl] = useState(baseUrl);
+  const [probe, setProbe] = useState<{ state: 'idle' | 'testing' } | { state: 'ok'; version: string } | { state: 'error'; error: string }>({ state: 'idle' });
+  useEffect(() => { setUrl(baseUrl); }, [baseUrl]);
+
+  async function test(): Promise<void> {
+    setProbe({ state: 'testing' });
+    const res = await window.api.docling.test(url.trim() || defaultBaseUrl);
+    setProbe(res.ok ? { state: 'ok', version: [res.docling && `docling ${res.docling}`, res.serve && `docling-serve ${res.serve}`].filter(Boolean).join(' · ') || 'connected' } : { state: 'error', error: res.error });
+  }
+
+  const input: React.CSSProperties = {
+    width: '100%', boxSizing: 'border-box', background: 'rgba(13,13,22,0.35)',
+    border: '1px solid rgba(55,65,81,0.8)', borderRadius: 5, padding: '7px 10px',
+    color: '#e2e8f0', fontSize: 12, fontFamily: 'ui-monospace, monospace',
+  };
+  return (
+    <div style={{ marginTop: 36 }}>
+      <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginBottom: 4, color: '#e2e8f0' }}>PDF parser</h1>
+      <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 10, lineHeight: 1.5 }}>
+        How PDFs are read into headings, paragraphs and formulas. Text sources always use the built-in reader.
+      </p>
+      {([
+        ['builtin', 'Built-in', 'Fast, no setup. Reads layout from font sizes and positions.'],
+        ['docling', 'Docling (your own server)', 'Uses a docling-serve you run locally (pip install docling-serve, then docling-serve run). Better structure on many books; slower. If the server is unreachable, the built-in parser is used.'],
+      ] as const).map(([id, label, desc]) => (
+        <label key={id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', marginBottom: 6 }}>
+          <input type="radio" name="pdfParser" checked={parser === id} onChange={() => void onSave({ pdfParser: id })}
+            style={{ marginTop: 3, accentColor: '#818cf8' }} />
+          <span>
+            <span style={{ fontSize: 12, color: '#e2e8f0' }}>{label}</span>
+            <span style={{ display: 'block', fontSize: 11, color: '#9ca3af', lineHeight: 1.5 }}>{desc}</span>
+          </span>
+        </label>
+      ))}
+      {parser === 'docling' && (
+        <div style={{ marginLeft: 24 }}>
+          <label style={{ display: 'block', fontSize: 11, color: '#9ca3af', marginBottom: 4, marginTop: 4 }}>Docling server URL</label>
+          <input
+            style={input} value={url} placeholder={defaultBaseUrl}
+            onChange={e => setUrl(e.target.value)}
+            onBlur={() => { if (url !== baseUrl) void onSave({ doclingBaseUrl: url }); }}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+            <button onClick={() => void test()} disabled={probe.state === 'testing'}
+              style={{
+                background: 'transparent', border: '1px solid rgba(99,102,241,0.5)', borderRadius: 5,
+                padding: '5px 12px', color: '#c7d2fe', fontSize: 12, cursor: probe.state === 'testing' ? 'wait' : 'pointer',
+              }}>
+              {probe.state === 'testing' ? 'Testing…' : 'Test connection'}
+            </button>
+            {probe.state === 'ok' && <span style={{ fontSize: 11, color: '#86efac' }}>{probe.version}</span>}
+            {probe.state === 'error' && <span style={{ fontSize: 11, color: '#fca5a5' }}>{probe.error}</span>}
+          </div>
+          <div style={{ fontSize: 10, color: '#4b5563', marginTop: 8, lineHeight: 1.5 }}>
+            PDFs are sent only to this URL. Switching parsers marks PDF sources as outdated; re-extract them below.
+          </div>
+        </div>
+      )}
     </div>
   );
 }

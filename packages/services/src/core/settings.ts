@@ -54,6 +54,10 @@ export interface LLMSettings {
   embeddingModel?: string;
   // Review scheduler. undefined → 'sm2'.
   srsScheduler?: 'sm2' | 'fsrs';
+  // PDF parser. undefined → 'builtin'. 'docling' sends PDFs to the user's own
+  // docling-serve at doclingBaseUrl and falls back to builtin on any failure.
+  pdfParser?: 'builtin' | 'docling';
+  doclingBaseUrl?: string;
 }
 
 // Default ON for Anthropic (cheap per call, no tight TPM), OFF for Groq (extra
@@ -185,6 +189,14 @@ export function sanitizeSettingsInput(
   }
   if (input.localModel !== undefined) {
     out.localModel = input.localModel.trim().slice(0, 200);
+  }
+  if (input.pdfParser !== undefined) {
+    out.pdfParser = input.pdfParser === 'docling' ? 'docling' : 'builtin';
+  }
+  if (input.doclingBaseUrl !== undefined) {
+    out.doclingBaseUrl = input.doclingBaseUrl.trim() === ''
+      ? ''
+      : (normalizeLocalBaseUrl(input.doclingBaseUrl) ?? current.doclingBaseUrl ?? '');
   }
   if (input.srsScheduler !== undefined) {
     out.srsScheduler = input.srsScheduler === 'fsrs' ? 'fsrs' : 'sm2';

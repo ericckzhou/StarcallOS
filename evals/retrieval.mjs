@@ -38,9 +38,9 @@ const MODES = flag('keyword-only') ? ['keyword'] : ['keyword', 'vector', 'hybrid
 // ─── inputs / index / labels ─────────────────────────────────────────────────
 
 const { meta, cases } = readGolden(here, die);
-const { db, sourceId, sha, chunks, rows, embedder, vectorError, unresolved } = await openPinnedDoc({
+const { db, sourceId, sha, chunks, rows, embedder, vectorError, unresolved, parser } = await openPinnedDoc({
   svc, here, tag: 'retrieval-eval', pdf: opt('pdf') ?? process.env.RETRIEVAL_EVAL_PDF, meta, cases,
-  wantVectors: MODES.includes('vector'), noCache: flag('no-cache'), die,
+  wantVectors: MODES.includes('vector'), noCache: flag('no-cache'), die, parser: opt('parser') ?? 'builtin',
 });
 if (vectorError) {
   console.error(`[retrieval-eval] VECTOR MODES UNAVAILABLE: ${vectorError}\n  Start a local embedding server (e.g. \`ollama pull ${embedder.model}\`) or pass --keyword-only.`);
@@ -100,7 +100,7 @@ fs.mkdirSync(path.join(here, 'results'), { recursive: true });
 fs.mkdirSync(path.join(here, 'baselines'), { recursive: true });
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const config = {
-  document_sha256: sha, chunker_version: svc.CHUNKER_VERSION, layout_version: svc.LAYOUT_VERSION,
+  document_sha256: sha, parser, chunker_version: svc.CHUNKER_VERSION, layout_version: svc.LAYOUT_VERSION,
   chunks: chunks.length, embed_model: embedder?.model ?? null, rrf_k: 60, candidate_pool: 50,
 };
 const out = { at: new Date().toISOString(), config, label_status: statusCounts, unresolved, modes: perMode };
@@ -115,7 +115,9 @@ for (const mode of MODES) {
   for (const k of KS) for (const key of ['precision_at_k', 'recall_at_k', 'mrr', 'coverage']) flat[`${mode}.${key}@${k}`] = pm.metrics[k][key];
 }
 const baseFile = path.join(here, 'baselines', 'retrieval.json');
-if (flag('save-baseline')) {
+if (parser !== 'builtin') {
+  console.log(`[eval] parser ${parser}: not compared with or saved as the built-in baseline.`);
+} else if (flag('save-baseline')) {
   const metrics = Object.fromEntries(MODES.filter(m => perMode[m].metrics).map(m => [m, perMode[m].metrics]));
   fs.writeFileSync(baseFile, JSON.stringify({ at: out.at, config, label_status: statusCounts, flat, metrics }, null, 2) + '\n');
   console.log(`[retrieval-eval] baseline saved → ${path.relative(process.cwd(), baseFile)}`);
