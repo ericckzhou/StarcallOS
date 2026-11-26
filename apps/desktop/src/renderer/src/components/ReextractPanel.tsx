@@ -56,7 +56,7 @@ export default function ReextractPanel() {
   const current = `parser ${plan.current.parser} · grammar ${plan.current.grammar} · layout ${plan.current.layout}`;
 
   return (
-    <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.5 }}>
+    <div style={{ fontSize: 11, color: 'var(--slate-400)', lineHeight: 1.5 }}>
       <div title={`Current versions: ${current}`}>
         {plan.outdated
           ? `${plan.outdated} of ${plan.processed_sources} processed sources are outdated`
@@ -67,7 +67,7 @@ export default function ReextractPanel() {
           <summary style={{ cursor: 'pointer' }}>Show sources</summary>
           <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
             {plan.items.map(i => (
-              <li key={i.source_id}>{i.title} <span style={{ color: '#6b7280' }}>({i.reasons.map(r => REASON_LABEL[r] ?? r).join(', ')})</span></li>
+              <li key={i.source_id}>{i.title} <span style={{ color: 'var(--gray-500)' }}>({i.reasons.map(r => REASON_LABEL[r] ?? r).join(', ')})</span></li>
             ))}
           </ul>
         </details>
@@ -84,7 +84,7 @@ export default function ReextractPanel() {
           </div>
           <div style={{ marginTop: 4, height: 3, borderRadius: 2, background: 'rgba(31,41,55,0.5)', overflow: 'hidden' }}>
             <div style={{
-              height: '100%', background: '#818cf8',
+              height: '100%', background: 'var(--indigo-400)',
               width: `${progress ? ((progress.sourceIndex - 1) / progress.sourceCount) * 100 : 0}%`,
             }} />
           </div>
@@ -95,7 +95,7 @@ export default function ReextractPanel() {
             title={plan.done ? 'Every processed source was extracted with the current parser' : 'Re-extract the outdated sources in the background, one at a time. You can keep working and stop at any time.'}>
             {plan.done ? 'Up to date' : last?.stopped ? 'Resume re-extract' : 'Re-extract outdated'}
           </button>
-          {!plan.done && <span style={{ color: '#6b7280' }}>Promoted concepts, notes and study history are kept.</span>}
+          {!plan.done && <span style={{ color: 'var(--gray-500)' }}>Promoted concepts, notes and study history are kept.</span>}
         </div>
       )}
       {!running && last && (
@@ -111,12 +111,12 @@ export default function ReextractPanel() {
           )}
         </div>
       )}
-      {error && <div style={{ marginTop: 6, color: '#fca5a5' }}>{error}</div>}
+      {error && <div style={{ marginTop: 6, color: 'var(--red-300)' }}>{error}</div>}
     </div>
   );
 }
 
 const btn: React.CSSProperties = {
-  background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.4)', color: '#c7d2fe',
+  background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.4)', color: 'var(--indigo-200)',
   borderRadius: 6, padding: '2px 9px', fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap',
 };

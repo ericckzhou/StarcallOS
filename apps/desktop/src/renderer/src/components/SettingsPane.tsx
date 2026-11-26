@@ -123,7 +123,7 @@ export default function SettingsPane() {
   }
 
   if (!snap) {
-    return <div style={{ padding: 40, color: '#374151', fontSize: 13 }}>Loading settings…</div>;
+    return <div style={{ padding: 40, color: 'var(--gray-700)', fontSize: 13 }}>Loading settings…</div>;
   }
 
   // Combined model list — every model the current provider offers, no
@@ -139,10 +139,10 @@ export default function SettingsPane() {
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 32 }}>
       <div style={{ maxWidth: 720 }}>
-        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginBottom: 4, color: '#e2e8f0' }}>
+        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginBottom: 4, color: 'var(--slate-200)' }}>
           Extraction Mode
         </h1>
-        <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 16 }}>
+        <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 0, marginBottom: 16 }}>
           How a source is processed. Deterministic is the daily-use default.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 32 }}>
@@ -167,16 +167,16 @@ export default function SettingsPane() {
                     {info.label}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: '#9ca3af', marginLeft: 22, lineHeight: 1.5 }}>{info.desc}</div>
+                <div style={{ fontSize: 11, color: 'var(--gray-400)', marginLeft: 22, lineHeight: 1.5 }}>{info.desc}</div>
               </label>
             );
           })}
         </div>
 
-        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginBottom: 4, color: '#e2e8f0' }}>
+        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginBottom: 4, color: 'var(--slate-200)' }}>
           LLM Provider
         </h1>
-        <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 16 }}>
+        <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 0, marginBottom: 16 }}>
           Only matters for lazy task generation and grading in <em>deterministic</em> mode. All passes use it in the other modes.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
@@ -198,9 +198,9 @@ export default function SettingsPane() {
                   <input
                     type="radio" name="provider" checked={selected}
                     onChange={() => pickProvider(p)}
-                    style={{ accentColor: '#818cf8' }}
+                    style={{ accentColor: 'var(--indigo-400)' }}
                   />
-                  <span style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>{info.label}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--slate-200)' }}>{info.label}</span>
                   <span style={{
                     marginLeft: 'auto', fontSize: 10, padding: '2px 8px', borderRadius: 10,
                     background: configured ? '#14532d' : '#3f1515',
@@ -209,7 +209,7 @@ export default function SettingsPane() {
                     {p === 'local' ? 'no key needed' : configured ? 'key set' : 'no key'}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: '#9ca3af', marginLeft: 22, lineHeight: 1.5 }}>{info.tagline}</div>
+                <div style={{ fontSize: 11, color: 'var(--gray-400)', marginLeft: 22, lineHeight: 1.5 }}>{info.tagline}</div>
               </label>
             );
           })}
@@ -220,7 +220,7 @@ export default function SettingsPane() {
           border: '1px solid rgba(31,41,55,0.7)', borderRadius: 6,
           padding: 14, marginBottom: 28,
         }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gray-600)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10 }}>
             Model — {provider}
           </div>
           {provider === 'local' ? (
@@ -235,10 +235,10 @@ export default function SettingsPane() {
             <>
               <ModelSelect choices={allChoices} value={modelValue} onChange={pickHeavy} />
               <SavedBadge saved={modelSaved} fallback={allChoices[0]} />
-              <div style={{ fontSize: 10, color: '#4b5563', marginTop: 10, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 10, color: 'var(--gray-600)', marginTop: 10, lineHeight: 1.5 }}>
                 Used for every LLM pass (enrichment, concepts, misconceptions, tasks, grader, prerequisite suggestions) unless overridden below.
                 <br />
-                Cheap/structural passes (graph, structure) auto-use <code style={{ color: '#9ca3af' }}>{lightFallback}</code>.
+                Cheap/structural passes (graph, structure) auto-use <code style={{ color: 'var(--gray-400)' }}>{lightFallback}</code>.
               </div>
               <PassOverrides
                 choices={allChoices}
@@ -251,11 +251,11 @@ export default function SettingsPane() {
           )}
         </div>
 
-        <h2 style={{ fontSize: 13, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0, marginBottom: 12 }}>
+        <h2 style={{ fontSize: 13, fontWeight: 700, color: 'var(--gray-600)', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0, marginBottom: 12 }}>
           API Keys
         </h2>
-        <p style={{ fontSize: 11, color: '#6b7280', marginTop: 0, marginBottom: 16 }}>
-          Stored locally in <code style={{ color: '#9ca3af' }}>settings.json</code> under your Electron user data directory. Never sent to the renderer process. Leave blank to keep the current value.
+        <p style={{ fontSize: 11, color: 'var(--gray-500)', marginTop: 0, marginBottom: 16 }}>
+          Stored locally in <code style={{ color: 'var(--gray-400)' }}>settings.json</code> under your Electron user data directory. Never sent to the renderer process. Leave blank to keep the current value.
         </p>
 
         <KeyField
@@ -287,7 +287,7 @@ export default function SettingsPane() {
         >
           {saving ? 'Saving…' : 'Save API Keys'}
         </button>
-        <div style={{ marginTop: 6, fontSize: 10, color: '#4b5563' }}>
+        <div style={{ marginTop: 6, fontSize: 10, color: 'var(--gray-600)' }}>
           Provider, mode, and model selections save automatically.
         </div>
         {msg && (
@@ -296,7 +296,7 @@ export default function SettingsPane() {
           </div>
         )}
 
-        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
+        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: 'var(--slate-200)' }}>
           Grading
         </h1>
         <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', marginTop: 8 }}>
@@ -304,11 +304,11 @@ export default function SettingsPane() {
             type="checkbox"
             checked={snap.gradeSelfConsistency}
             onChange={e => void autoSave({ gradeSelfConsistency: e.target.checked })}
-            style={{ marginTop: 3, accentColor: '#818cf8' }}
+            style={{ marginTop: 3, accentColor: 'var(--indigo-400)' }}
           />
           <span>
-            <span style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600 }}>Double-check borderline grades</span>
-            <span style={{ display: 'block', fontSize: 11, color: '#9ca3af', lineHeight: 1.5, marginTop: 2 }}>
+            <span style={{ fontSize: 13, color: 'var(--slate-200)', fontWeight: 600 }}>Double-check borderline grades</span>
+            <span style={{ display: 'block', fontSize: 11, color: 'var(--gray-400)', lineHeight: 1.5, marginTop: 2 }}>
               When a grade looks borderline, grade the answer up to two more times and take the majority.
               More consistent, but up to 3× the grading calls on those answers. On by default for Anthropic, off for Groq.
             </span>
@@ -316,7 +316,7 @@ export default function SettingsPane() {
         </label>
 
         <div style={{ marginTop: 18 }}>
-          <div style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600, marginBottom: 6 }}>Review scheduler</div>
+          <div style={{ fontSize: 13, color: 'var(--slate-200)', fontWeight: 600, marginBottom: 6 }}>Review scheduler</div>
           {([
             ['sm2', 'SM-2', 'The classic algorithm. Predictable fixed growth of intervals.'],
             ['fsrs', 'FSRS', 'Models how fast you forget each concept; usually needs fewer reviews for the same retention. Existing cards convert on their next review.'],
@@ -325,15 +325,15 @@ export default function SettingsPane() {
               <input
                 type="radio" name="srsScheduler" checked={snap.srsScheduler === id}
                 onChange={() => void autoSave({ srsScheduler: id })}
-                style={{ marginTop: 3, accentColor: '#818cf8' }}
+                style={{ marginTop: 3, accentColor: 'var(--indigo-400)' }}
               />
               <span>
-                <span style={{ fontSize: 12, color: '#e2e8f0' }}>{label}</span>
-                <span style={{ display: 'block', fontSize: 11, color: '#9ca3af', lineHeight: 1.5 }}>{desc}</span>
+                <span style={{ fontSize: 12, color: 'var(--slate-200)' }}>{label}</span>
+                <span style={{ display: 'block', fontSize: 11, color: 'var(--gray-400)', lineHeight: 1.5 }}>{desc}</span>
               </span>
             </label>
           ))}
-          <div style={{ fontSize: 10, color: '#4b5563', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 10, color: 'var(--gray-600)', lineHeight: 1.5 }}>
             Either way, an answer you were over-confident about (and didn't fully get) comes back sooner.
           </div>
         </div>
@@ -353,20 +353,20 @@ export default function SettingsPane() {
           onSave={patch => autoSave(patch)}
         />
 
-        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
+        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: 'var(--slate-200)' }}>
           Passage index
         </h1>
-        <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 10, lineHeight: 1.5 }}>
+        <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 0, marginBottom: 10, lineHeight: 1.5 }}>
           The passages Ask searches. Index every source at once, including sources added before Ask existed and
           ones indexed by an older parser. Runs locally in the background; with embeddings on it also embeds
           every passage. Concepts, candidates and notes are never changed.
         </p>
         <LibraryIndexPanel />
 
-        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
+        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: 'var(--slate-200)' }}>
           Outdated sources
         </h1>
-        <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 10, lineHeight: 1.5 }}>
+        <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 0, marginBottom: 10, lineHeight: 1.5 }}>
           Sources whose candidates were extracted by an older version of the parser. Re-extracting them applies
           the current parser, one source at a time in the background. Promoted concepts with evidence, notes and
           study history are kept; unpromoted candidates are rebuilt.
@@ -375,10 +375,10 @@ export default function SettingsPane() {
 
         <LlmUsageSection />
 
-        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
+        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: 'var(--slate-200)' }}>
           Export
         </h1>
-        <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 16 }}>
+        <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 0, marginBottom: 16 }}>
           Download every promoted concept across all sources as one file. (Per-source export lives on each source in the Sources sidebar.)
         </p>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -393,9 +393,9 @@ export default function SettingsPane() {
               Library → {fmt === 'markdown' ? 'Markdown (.md)' : 'Anki (.txt)'}
             </button>
           ))}
-          {exportStatus === 'saving' && <span style={{ fontSize: 12, color: '#9ca3af' }}>Choose a location…</span>}
-          {exportStatus === 'saved' && <span style={{ fontSize: 12, color: '#86efac' }}>Exported.</span>}
-          {exportStatus === 'error' && <span style={{ fontSize: 12, color: '#fca5a5' }}>Export failed.</span>}
+          {exportStatus === 'saving' && <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>Choose a location…</span>}
+          {exportStatus === 'saved' && <span style={{ fontSize: 12, color: 'var(--green-300)' }}>Exported.</span>}
+          {exportStatus === 'error' && <span style={{ fontSize: 12, color: 'var(--red-300)' }}>Export failed.</span>}
         </div>
       </div>
     </div>
@@ -421,9 +421,9 @@ function LocalProviderFields({ baseUrl, model, defaultBaseUrl, onSave }: {
   const input: React.CSSProperties = {
     width: '100%', boxSizing: 'border-box', background: 'rgba(13,13,22,0.35)',
     border: '1px solid rgba(55,65,81,0.8)', borderRadius: 5, padding: '7px 10px',
-    color: '#e2e8f0', fontSize: 12, fontFamily: 'ui-monospace, monospace',
+    color: 'var(--slate-200)', fontSize: 12, fontFamily: 'ui-monospace, monospace',
   };
-  const label: React.CSSProperties = { display: 'block', fontSize: 11, color: '#9ca3af', marginBottom: 4, marginTop: 8 };
+  const label: React.CSSProperties = { display: 'block', fontSize: 11, color: 'var(--gray-400)', marginBottom: 4, marginTop: 8 };
   const commit = (patch: { localBaseUrl?: string; localModel?: string }) => onSave(patch);
 
   return (
@@ -446,11 +446,11 @@ function LocalProviderFields({ baseUrl, model, defaultBaseUrl, onSave }: {
         <button onClick={() => void test()} disabled={probe.state === 'testing'}
           style={{
             background: 'transparent', border: '1px solid rgba(99,102,241,0.5)', borderRadius: 5,
-            padding: '5px 12px', color: '#c7d2fe', fontSize: 12, cursor: probe.state === 'testing' ? 'wait' : 'pointer',
+            padding: '5px 12px', color: 'var(--indigo-200)', fontSize: 12, cursor: probe.state === 'testing' ? 'wait' : 'pointer',
           }}>
           {probe.state === 'testing' ? 'Testing…' : 'Test connection'}
         </button>
-        {probe.state === 'error' && <span style={{ fontSize: 11, color: '#fca5a5' }}>{probe.error}</span>}
+        {probe.state === 'error' && <span style={{ fontSize: 11, color: 'var(--red-300)' }}>{probe.error}</span>}
         {probe.state === 'ok' && probe.models.length === 0 && (
           <span style={{ fontSize: 11, color: '#fcd34d' }}>Connected, but the server lists no models.</span>
         )}
@@ -463,14 +463,14 @@ function LocalProviderFields({ baseUrl, model, defaultBaseUrl, onSave }: {
               style={{
                 background: m === mdl ? 'rgba(99,102,241,0.3)' : 'rgba(75,85,99,0.2)',
                 border: '1px solid rgba(99,102,241,0.35)', borderRadius: 999, padding: '2px 10px',
-                color: '#e0e7ff', fontSize: 11, fontFamily: 'ui-monospace, monospace', cursor: 'pointer',
+                color: 'var(--indigo-100)', fontSize: 11, fontFamily: 'ui-monospace, monospace', cursor: 'pointer',
               }}>
               {m}
             </button>
           ))}
         </div>
       )}
-      <div style={{ fontSize: 10, color: '#4b5563', marginTop: 10, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 10, color: 'var(--gray-600)', marginTop: 10, lineHeight: 1.5 }}>
         One model is used for every LLM pass. Nothing leaves this machine unless the URL points elsewhere.
       </div>
     </div>
@@ -497,12 +497,12 @@ function PdfParserSection({ parser, baseUrl, defaultBaseUrl, onSave }: {
   const input: React.CSSProperties = {
     width: '100%', boxSizing: 'border-box', background: 'rgba(13,13,22,0.35)',
     border: '1px solid rgba(55,65,81,0.8)', borderRadius: 5, padding: '7px 10px',
-    color: '#e2e8f0', fontSize: 12, fontFamily: 'ui-monospace, monospace',
+    color: 'var(--slate-200)', fontSize: 12, fontFamily: 'ui-monospace, monospace',
   };
   return (
     <div style={{ marginTop: 36 }}>
-      <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginBottom: 4, color: '#e2e8f0' }}>PDF parser</h1>
-      <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 10, lineHeight: 1.5 }}>
+      <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginBottom: 4, color: 'var(--slate-200)' }}>PDF parser</h1>
+      <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 0, marginBottom: 10, lineHeight: 1.5 }}>
         How PDFs are read into headings, paragraphs and formulas. Text sources always use the built-in reader.
       </p>
       {([
@@ -511,16 +511,16 @@ function PdfParserSection({ parser, baseUrl, defaultBaseUrl, onSave }: {
       ] as const).map(([id, label, desc]) => (
         <label key={id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', marginBottom: 6 }}>
           <input type="radio" name="pdfParser" checked={parser === id} onChange={() => void onSave({ pdfParser: id })}
-            style={{ marginTop: 3, accentColor: '#818cf8' }} />
+            style={{ marginTop: 3, accentColor: 'var(--indigo-400)' }} />
           <span>
-            <span style={{ fontSize: 12, color: '#e2e8f0' }}>{label}</span>
-            <span style={{ display: 'block', fontSize: 11, color: '#9ca3af', lineHeight: 1.5 }}>{desc}</span>
+            <span style={{ fontSize: 12, color: 'var(--slate-200)' }}>{label}</span>
+            <span style={{ display: 'block', fontSize: 11, color: 'var(--gray-400)', lineHeight: 1.5 }}>{desc}</span>
           </span>
         </label>
       ))}
       {parser === 'docling' && (
         <div style={{ marginLeft: 24 }}>
-          <label style={{ display: 'block', fontSize: 11, color: '#9ca3af', marginBottom: 4, marginTop: 4 }}>Docling server URL</label>
+          <label style={{ display: 'block', fontSize: 11, color: 'var(--gray-400)', marginBottom: 4, marginTop: 4 }}>Docling server URL</label>
           <input
             style={input} value={url} placeholder={defaultBaseUrl}
             onChange={e => setUrl(e.target.value)}
@@ -531,14 +531,14 @@ function PdfParserSection({ parser, baseUrl, defaultBaseUrl, onSave }: {
             <button onClick={() => void test()} disabled={probe.state === 'testing'}
               style={{
                 background: 'transparent', border: '1px solid rgba(99,102,241,0.5)', borderRadius: 5,
-                padding: '5px 12px', color: '#c7d2fe', fontSize: 12, cursor: probe.state === 'testing' ? 'wait' : 'pointer',
+                padding: '5px 12px', color: 'var(--indigo-200)', fontSize: 12, cursor: probe.state === 'testing' ? 'wait' : 'pointer',
               }}>
               {probe.state === 'testing' ? 'Testing…' : 'Test connection'}
             </button>
-            {probe.state === 'ok' && <span style={{ fontSize: 11, color: '#86efac' }}>{probe.version}</span>}
-            {probe.state === 'error' && <span style={{ fontSize: 11, color: '#fca5a5' }}>{probe.error}</span>}
+            {probe.state === 'ok' && <span style={{ fontSize: 11, color: 'var(--green-300)' }}>{probe.version}</span>}
+            {probe.state === 'error' && <span style={{ fontSize: 11, color: 'var(--red-300)' }}>{probe.error}</span>}
           </div>
-          <div style={{ fontSize: 10, color: '#4b5563', marginTop: 8, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 10, color: 'var(--gray-600)', marginTop: 8, lineHeight: 1.5 }}>
             PDFs are sent only to this URL. Switching parsers marks PDF sources as outdated; re-extract them below.
           </div>
         </div>
@@ -575,24 +575,24 @@ function EmbeddingsSection({ enabled, model, defaultModel, baseUrl, onSave }: {
 
   return (
     <>
-      <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
+      <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: 'var(--slate-200)' }}>
         Embeddings
       </h1>
       <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', marginTop: 8 }}>
-        <input type="checkbox" checked={enabled} onChange={e => void toggle(e.target.checked)} style={{ marginTop: 3, accentColor: '#818cf8' }} />
+        <input type="checkbox" checked={enabled} onChange={e => void toggle(e.target.checked)} style={{ marginTop: 3, accentColor: 'var(--indigo-400)' }} />
         <span>
-          <span style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600 }}>Use local embeddings</span>
-          <span style={{ display: 'block', fontSize: 11, color: '#9ca3af', lineHeight: 1.5, marginTop: 2 }}>
+          <span style={{ fontSize: 13, color: 'var(--slate-200)', fontWeight: 600 }}>Use local embeddings</span>
+          <span style={{ display: 'block', fontSize: 11, color: 'var(--gray-400)', lineHeight: 1.5, marginTop: 2 }}>
             Suggests related concepts across sources when linking constellations, and gives the grader related
             excerpts from the same source. Uses the embeddings endpoint of the local server at{' '}
-            <code style={{ color: '#c7d2fe' }}>{baseUrl}</code> (e.g. <code style={{ color: '#c7d2fe' }}>ollama pull {defaultModel}</code>).
+            <code style={{ color: 'var(--indigo-200)' }}>{baseUrl}</code> (e.g. <code style={{ color: 'var(--indigo-200)' }}>ollama pull {defaultModel}</code>).
             Nothing is sent anywhere else.
           </span>
         </span>
       </label>
       {enabled && (
         <div style={{ marginLeft: 24, marginTop: 10 }}>
-          <label style={{ display: 'block', fontSize: 11, color: '#9ca3af', marginBottom: 4 }}>Embedding model</label>
+          <label style={{ display: 'block', fontSize: 11, color: 'var(--gray-400)', marginBottom: 4 }}>Embedding model</label>
           <input
             value={mdl} placeholder={defaultModel}
             onChange={e => setMdl(e.target.value)}
@@ -600,25 +600,25 @@ function EmbeddingsSection({ enabled, model, defaultModel, baseUrl, onSave }: {
             onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
             style={{
               width: 260, background: 'rgba(13,13,22,0.35)', border: '1px solid rgba(55,65,81,0.8)', borderRadius: 5,
-              padding: '6px 10px', color: '#e2e8f0', fontSize: 12, fontFamily: 'ui-monospace, monospace',
+              padding: '6px 10px', color: 'var(--slate-200)', fontSize: 12, fontFamily: 'ui-monospace, monospace',
             }}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
             <button onClick={() => void indexNow()} disabled={job.state === 'running'}
               style={{
                 background: 'transparent', border: '1px solid rgba(99,102,241,0.5)', borderRadius: 5,
-                padding: '5px 12px', color: '#c7d2fe', fontSize: 12, cursor: job.state === 'running' ? 'wait' : 'pointer',
+                padding: '5px 12px', color: 'var(--indigo-200)', fontSize: 12, cursor: job.state === 'running' ? 'wait' : 'pointer',
               }}>
               {job.state === 'running' ? 'Indexing…' : 'Index concepts now'}
             </button>
             {status && (
-              <span style={{ fontSize: 11, color: '#9ca3af' }}>
+              <span style={{ fontSize: 11, color: 'var(--gray-400)' }}>
                 {status.concepts} concepts · {status.spans} excerpts · {status.sources}/{status.totalSources} sources indexed
               </span>
             )}
           </div>
-          {job.state === 'done' && <div style={{ fontSize: 11, color: '#86efac', marginTop: 6 }}>{job.msg}</div>}
-          {job.state === 'error' && <div style={{ fontSize: 11, color: '#fca5a5', marginTop: 6 }}>{job.msg}</div>}
+          {job.state === 'done' && <div style={{ fontSize: 11, color: 'var(--green-300)', marginTop: 6 }}>{job.msg}</div>}
+          {job.state === 'error' && <div style={{ fontSize: 11, color: 'var(--red-300)', marginTop: 6 }}>{job.msg}</div>}
         </div>
       )}
     </>
@@ -647,15 +647,15 @@ function LlmUsageSection() {
     return () => { live = false; };
   }, [days]);
 
-  const th: React.CSSProperties = { textAlign: 'right', padding: '4px 8px', color: '#6b7280', fontWeight: 600, fontSize: 11 };
-  const td: React.CSSProperties = { textAlign: 'right', padding: '4px 8px', color: '#cbd5e1', fontSize: 12, fontVariantNumeric: 'tabular-nums' };
+  const th: React.CSSProperties = { textAlign: 'right', padding: '4px 8px', color: 'var(--gray-500)', fontWeight: 600, fontSize: 11 };
+  const td: React.CSSProperties = { textAlign: 'right', padding: '4px 8px', color: 'var(--slate-300)', fontSize: 12, fontVariantNumeric: 'tabular-nums' };
 
   return (
     <>
-      <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: '#e2e8f0' }}>
+      <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, marginTop: 36, marginBottom: 4, color: 'var(--slate-200)' }}>
         LLM usage
       </h1>
-      <p style={{ fontSize: 12, color: '#6b7280', marginTop: 0, marginBottom: 12 }}>
+      <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 0, marginBottom: 12 }}>
         Every call to the configured LLM provider, by pass. Only metadata is stored — never prompt or answer text.
       </p>
       <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
@@ -670,15 +670,15 @@ function LlmUsageSection() {
           </button>
         ))}
       </div>
-      {failed && <div style={{ fontSize: 12, color: '#fca5a5' }}>Could not load usage.</div>}
+      {failed && <div style={{ fontSize: 12, color: 'var(--red-300)' }}>Could not load usage.</div>}
       {!failed && summary && summary.total_calls === 0 && (
-        <div style={{ fontSize: 12, color: '#6b7280' }}>No LLM calls in the last {summary.days} days.</div>
+        <div style={{ fontSize: 12, color: 'var(--gray-500)' }}>No LLM calls in the last {summary.days} days.</div>
       )}
       {!failed && summary && summary.total_calls > 0 && (
         <div style={{ overflowX: 'auto' }}>
-          <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 6 }}>
+          <div style={{ fontSize: 12, color: 'var(--gray-400)', marginBottom: 6 }}>
             {summary.total_calls} calls · {fmtTokens(summary.total_tokens)} tokens
-            {summary.total_errors > 0 && <span style={{ color: '#fca5a5' }}> · {summary.total_errors} failed</span>}
+            {summary.total_errors > 0 && <span style={{ color: 'var(--red-300)' }}> · {summary.total_errors} failed</span>}
           </div>
           <table style={{ borderCollapse: 'collapse', width: '100%' }}>
             <thead>
@@ -755,7 +755,7 @@ function PassOverrides({ choices, overrides, heavyDefault, lightDefault, onSave 
   const selectStyle: React.CSSProperties = {
     flex: 1, minWidth: 0, background: 'transparent',
     border: '1px solid rgba(31,41,55,0.7)', borderRadius: 4,
-    padding: '4px 6px', color: '#e2e8f0', fontSize: 11,
+    padding: '4px 6px', color: 'var(--slate-200)', fontSize: 11,
     fontFamily: 'ui-monospace, Consolas, monospace', outline: 'none',
   };
 
@@ -765,7 +765,7 @@ function PassOverrides({ choices, overrides, heavyDefault, lightDefault, onSave 
         type="button"
         onClick={() => setOpen(o => !o)}
         aria-expanded={open}
-        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#9ca3af', fontSize: 11 }}
+        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--gray-400)', fontSize: 11 }}
       >
         {open ? '▾' : '▸'} Per-pass models{active > 0 ? ` · ${active} overridden` : ''}
       </button>
@@ -773,7 +773,7 @@ function PassOverrides({ choices, overrides, heavyDefault, lightDefault, onSave 
         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {(['study', 'extraction'] as const).map(group => (
             <React.Fragment key={group}>
-              <div style={{ fontSize: 10, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: group === 'extraction' ? 6 : 0 }}>
+              <div style={{ fontSize: 10, color: 'var(--gray-600)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: group === 'extraction' ? 6 : 0 }}>
                 {group === 'study' ? 'Study (all modes)' : 'Extraction (candidate-gated / full)'}
               </div>
               {PASS_OVERRIDE_ROWS.filter(r => r.group === group).map(r => {
@@ -792,7 +792,7 @@ function PassOverrides({ choices, overrides, heavyDefault, lightDefault, onSave 
               })}
             </React.Fragment>
           ))}
-          <div style={{ fontSize: 10, color: '#4b5563', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 10, color: 'var(--gray-600)', lineHeight: 1.5 }}>
             Overrides apply to the current provider only; one saved for another provider is ignored here.
           </div>
         </div>
@@ -812,7 +812,7 @@ function ModelSelect({ choices, value, onChange }: {
         width: '100%', background: 'transparent',
         backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
         border: '1px solid rgba(31,41,55,0.7)', borderRadius: 4,
-        padding: '6px 8px', color: '#e2e8f0', fontSize: 12,
+        padding: '6px 8px', color: 'var(--slate-200)', fontSize: 12,
         fontFamily: 'ui-monospace, Consolas, monospace', outline: 'none',
       }}
     >
@@ -826,7 +826,7 @@ function KeyField({ label, placeholder, value, onChange }: {
 }) {
   return (
     <div style={{ marginBottom: 12 }}>
-      <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 11, color: 'var(--gray-400)', marginBottom: 4 }}>{label}</div>
       <input
         type="password"
         placeholder={placeholder}
@@ -837,7 +837,7 @@ function KeyField({ label, placeholder, value, onChange }: {
           background: 'rgba(13,13,22,0.45)',
           backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
           border: '1px solid rgba(31,41,55,0.7)', borderRadius: 5,
-          padding: '8px 10px', color: '#e2e8f0', fontSize: 12,
+          padding: '8px 10px', color: 'var(--slate-200)', fontSize: 12,
           fontFamily: 'ui-monospace, Consolas, monospace', outline: 'none',
         }}
       />

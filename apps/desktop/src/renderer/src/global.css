@@ -1,5 +1,44 @@
 /* Global theme overrides — scrollbars, selection, focus rings. */
 
+/* Design tokens: the app palette as CSS custom properties. Inline styles
+   reference these via var(--name). Primitive tier (Tailwind palette names +
+   a few app-specific shades); semantic aliases can layer on top later.
+   Data colors (tag/hub colors, color-picker values, SVG attributes) stay hex. */
+:root {
+  --amber-400: #fbbf24;
+  --amber-500: #f59e0b;
+  --app-danger-bg: #3f1515;
+  --app-line: #263244;
+  --app-panel: #0d0d16;
+  --app-raised: #1e1e2e;
+  --gray-400: #9ca3af;
+  --gray-500: #6b7280;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+  --green-300: #86efac;
+  --green-500: #22c55e;
+  --indigo-100: #e0e7ff;
+  --indigo-200: #c7d2fe;
+  --indigo-300: #a5b4fc;
+  --indigo-400: #818cf8;
+  --indigo-500: #6366f1;
+  --indigo-700: #4338ca;
+  --indigo-900: #312e81;
+  --indigo-950: #1e1b4b;
+  --red-300: #fca5a5;
+  --red-400: #f87171;
+  --red-500: #ef4444;
+  --red-900: #7f1d1d;
+  --slate-200: #e2e8f0;
+  --slate-300: #cbd5e1;
+  --slate-400: #94a3b8;
+  --slate-500: #64748b;
+  --slate-600: #475569;
+  --violet-300: #c4b5fd;
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;

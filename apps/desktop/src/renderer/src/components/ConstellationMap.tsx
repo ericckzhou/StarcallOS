@@ -590,7 +590,7 @@ function MapLegend() {
         cross-source
       </span>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        <span style={{ width: 11, height: 11, borderRadius: '50%', border: '2px solid transparent', background: 'conic-gradient(#f97316, #facc15, #22c55e, #f97316) border-box', WebkitMask: 'radial-gradient(circle, transparent 54%, #000 56%)', display: 'inline-block', boxSizing: 'border-box' }} />
+        <span style={{ width: 11, height: 11, borderRadius: '50%', border: '2px solid transparent', background: 'conic-gradient(#f97316, #facc15, var(--green-500), #f97316) border-box', WebkitMask: 'radial-gradient(circle, transparent 54%, #000 56%)', display: 'inline-block', boxSizing: 'border-box' }} />
         mastery ring
       </span>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -623,15 +623,15 @@ function SourceSelect({ sources, selectedSource, color, onChange }: {
           style={{
             width: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 6,
             background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
-            border: '1px solid #263244', borderRadius: 4, padding: '6px 8px',
-            color: '#e2e8f0', fontSize: 11, outline: 'none', cursor: 'pointer', textAlign: 'left',
+            border: '1px solid var(--app-line)', borderRadius: 4, padding: '6px 8px',
+            color: 'var(--slate-200)', fontSize: 11, outline: 'none', cursor: 'pointer', textAlign: 'left',
           }}
         >
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} aria-hidden="true" />
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {current?.filename ?? '(no source)'}
           </span>
-          <span style={{ color: '#6b7280' }}>▾</span>
+          <span style={{ color: 'var(--gray-500)' }}>▾</span>
         </button>
         {open && (
           <div
@@ -639,7 +639,7 @@ function SourceSelect({ sources, selectedSource, color, onChange }: {
             style={{
               position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 2, zIndex: 30,
               background: 'rgba(13,13,22,0.92)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-              border: '1px solid #312e81', borderRadius: 6, maxHeight: 240, overflowY: 'auto',
+              border: '1px solid var(--indigo-900)', borderRadius: 6, maxHeight: 240, overflowY: 'auto',
               boxShadow: '0 8px 24px rgba(0,0,0,0.5)', padding: 4,
             }}
           >
@@ -666,7 +666,7 @@ function SourceSelect({ sources, selectedSource, color, onChange }: {
           </div>
         )}
       </div>
-      <span style={{ fontSize: 9, color: '#475569' }}>+ linked sources shown automatically</span>
+      <span style={{ fontSize: 9, color: 'var(--slate-600)' }}>+ linked sources shown automatically</span>
     </div>
   );
 }
@@ -675,15 +675,15 @@ function StatsFooter({ stats }: { stats: GraphStats }) {
   return (
     <div style={{
       padding: '5px 16px', borderTop: '1px solid rgba(31,41,55,0.72)',
-      background: 'rgba(4,6,26,0.5)', fontSize: 10, color: '#64748b',
+      background: 'rgba(4,6,26,0.5)', fontSize: 10, color: 'var(--slate-500)',
       display: 'flex', gap: 16, flexShrink: 0, fontVariantNumeric: 'tabular-nums',
     }}>
-      <span><span style={{ color: '#475569' }}>nodes</span> {stats.nodeCount}</span>
-      <span><span style={{ color: '#475569' }}>edges</span> {stats.edgeCount}</span>
-      <span><span style={{ color: '#475569' }}>dangling</span> {stats.danglingConstellations}</span>
-      <span><span style={{ color: '#475569' }}>unresolved rel</span> {stats.unresolvedRelations}</span>
-      <span><span style={{ color: '#475569' }}>dupes</span> {stats.duplicateEdges}</span>
-      {stats.capped && <span style={{ color: '#f59e0b' }}>Showing highest-degree / highest-importance concepts.</span>}
+      <span><span style={{ color: 'var(--slate-600)' }}>nodes</span> {stats.nodeCount}</span>
+      <span><span style={{ color: 'var(--slate-600)' }}>edges</span> {stats.edgeCount}</span>
+      <span><span style={{ color: 'var(--slate-600)' }}>dangling</span> {stats.danglingConstellations}</span>
+      <span><span style={{ color: 'var(--slate-600)' }}>unresolved rel</span> {stats.unresolvedRelations}</span>
+      <span><span style={{ color: 'var(--slate-600)' }}>dupes</span> {stats.duplicateEdges}</span>
+      {stats.capped && <span style={{ color: 'var(--amber-500)' }}>Showing highest-degree / highest-importance concepts.</span>}
     </div>
   );
 }
@@ -867,13 +867,13 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
   return (
     <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative', zIndex: Z.graph }}>
       {sources.length > 0 && (
-        <aside style={{ width: 240, flexShrink: 0, borderRight: '1px solid #1f2937', display: 'flex', flexDirection: 'column', background: 'rgba(4,6,26,0.55)', minHeight: 0 }}>
-          <div style={{ padding: '10px 10px 8px', borderBottom: '1px solid #1f2937' }}>
+        <aside style={{ width: 240, flexShrink: 0, borderRight: '1px solid var(--gray-800)', display: 'flex', flexDirection: 'column', background: 'rgba(4,6,26,0.55)', minHeight: 0 }}>
+          <div style={{ padding: '10px 10px 8px', borderBottom: '1px solid var(--gray-800)' }}>
             <SourceSelect sources={sources} selectedSource={selectedSource} color={sourceColor.get(selectedSource ?? -1) ?? '#94a3b8'} onChange={setSelectedSource} />
           </div>
           {railHubs.length > 0 && (
-            <div style={{ borderBottom: '1px solid #1f2937', padding: 8, maxHeight: '42%', overflowY: 'auto', flexShrink: 0 }}>
-              <div style={{ fontSize: 9, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Hubs</div>
+            <div style={{ borderBottom: '1px solid var(--gray-800)', padding: 8, maxHeight: '42%', overflowY: 'auto', flexShrink: 0 }}>
+              <div style={{ fontSize: 9, color: 'var(--gray-600)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Hubs</div>
               {railHubs.map(({ hub: h, depth }) => {
                 return (
                 <div key={h.id} className="cm-hub-chip" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 4px', marginLeft: depth * 12, borderLeft: depth > 0 ? '1px solid rgba(99,102,241,0.3)' : undefined, paddingLeft: depth > 0 ? 6 : 4, borderRadius: 6, background: focusedHub === h.id ? 'rgba(129,140,248,0.14)' : 'transparent' }}>
@@ -881,47 +881,47 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
                     style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', cursor: 'pointer', color: focusedHub === h.id ? '#e2e8f0' : '#cbd5e1', fontSize: 11, padding: 0, textAlign: 'left' }}>
                     <span style={{ width: 9, height: 9, borderRadius: '50%', background: h.color, flexShrink: 0 }} />
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
-                    <span style={{ fontSize: 9, color: '#64748b' }}>{h.member_count}</span>
+                    <span style={{ fontSize: 9, color: 'var(--slate-500)' }}>{h.member_count}</span>
                   </button>
                   <button className="cm-hub-action" onClick={() => setEditHub({ id: h.id, name: h.name, color: h.color, description: h.description ?? '' })} title={`Edit ${h.name}`} aria-label={`Edit hub ${h.name}`}
-                    style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', padding: 2, display: 'inline-flex', borderRadius: 4 }}>
+                    style={{ background: 'transparent', border: 'none', color: 'var(--slate-500)', cursor: 'pointer', padding: 2, display: 'inline-flex', borderRadius: 4 }}>
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                   </button>
                   <button className="cm-hub-action cm-hub-del" onClick={() => void deleteHub(h.id)} title={`Delete ${h.name}`} aria-label={`Delete hub ${h.name}`}
-                    style={{ background: 'transparent', border: 'none', color: '#475569', fontSize: 13, lineHeight: 1, cursor: 'pointer', padding: '2px 3px', borderRadius: 4 }}>×</button>
+                    style={{ background: 'transparent', border: 'none', color: 'var(--slate-600)', fontSize: 13, lineHeight: 1, cursor: 'pointer', padding: '2px 3px', borderRadius: 4 }}>×</button>
                 </div>
                 );
               })}
               {focusedHub != null && (
-                <button onClick={() => setFocusedHub(null)} style={{ marginTop: 6, width: '100%', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: 3, fontSize: 10, color: '#9ca3af', cursor: 'pointer' }}>Clear focus</button>
+                <button onClick={() => setFocusedHub(null)} style={{ marginTop: 6, width: '100%', background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 4, padding: 3, fontSize: 10, color: 'var(--gray-400)', cursor: 'pointer' }}>Clear focus</button>
               )}
               {editHub && (
-                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #1f2937', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--gray-800)', display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <input autoFocus value={editHub.name} onChange={e => setEditHub(h => (h ? { ...h, name: e.target.value } : h))}
                       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void saveHubEdit(); } else if (e.key === 'Escape') setEditHub(null); }}
-                      placeholder="Hub name" style={{ flex: 1, minWidth: 0, background: '#111827', border: '1px solid #263244', borderRadius: 4, padding: '5px 7px', color: '#e2e8f0', fontSize: 11, outline: 'none' }} />
+                      placeholder="Hub name" style={{ flex: 1, minWidth: 0, background: 'var(--gray-900)', border: '1px solid var(--app-line)', borderRadius: 4, padding: '5px 7px', color: 'var(--slate-200)', fontSize: 11, outline: 'none' }} />
                     <input type="color" value={editHub.color} onChange={e => setEditHub(h => (h ? { ...h, color: e.target.value } : h))}
-                      aria-label="Hub color" title="Hub color" style={{ width: 28, height: 26, padding: 0, border: '1px solid #263244', borderRadius: 4, background: '#111827', cursor: 'pointer', flexShrink: 0 }} />
+                      aria-label="Hub color" title="Hub color" style={{ width: 28, height: 26, padding: 0, border: '1px solid var(--app-line)', borderRadius: 4, background: 'var(--gray-900)', cursor: 'pointer', flexShrink: 0 }} />
                   </div>
                   <input value={editHub.description} onChange={e => setEditHub(h => (h ? { ...h, description: e.target.value } : h))}
-                    placeholder="Short description (optional)" style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 4, padding: '5px 7px', color: '#cbd5e1', fontSize: 10, outline: 'none' }} />
+                    placeholder="Short description (optional)" style={{ background: 'var(--gray-900)', border: '1px solid var(--gray-800)', borderRadius: 4, padding: '5px 7px', color: 'var(--slate-300)', fontSize: 10, outline: 'none' }} />
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button onClick={() => void saveHubEdit()} disabled={!editHub.name.trim()}
                       style={{ flex: 1, background: editHub.name.trim() ? '#312e81' : '#111827', border: `1px solid ${editHub.name.trim() ? '#6366f1' : '#1f2937'}`, borderRadius: 4, padding: 5, color: editHub.name.trim() ? '#e0e7ff' : '#475569', fontSize: 11, fontWeight: 700, cursor: editHub.name.trim() ? 'pointer' : 'not-allowed' }}>Save</button>
-                    <button onClick={() => setEditHub(null)} title="Cancel" aria-label="Cancel" style={{ width: 30, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: 5, color: '#94a3b8', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}>×</button>
+                    <button onClick={() => setEditHub(null)} title="Cancel" aria-label="Cancel" style={{ width: 30, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 4, padding: 5, color: 'var(--slate-400)', fontSize: 14, lineHeight: 1, cursor: 'pointer' }}>×</button>
                   </div>
                 </div>
               )}
             </div>
           )}
-          <div style={{ padding: '8px 10px', borderBottom: '1px solid #1f2937' }}>
+          <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--gray-800)' }}>
             <input value={conceptQuery} onChange={e => setConceptQuery(e.target.value)} placeholder="Search concepts…"
-              style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid #263244', borderRadius: 4, padding: '6px 8px', color: '#e2e8f0', fontSize: 12, outline: 'none' }} />
+              style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(13,13,22,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', border: '1px solid var(--app-line)', borderRadius: 4, padding: '6px 8px', color: 'var(--slate-200)', fontSize: 12, outline: 'none' }} />
           </div>
           <div className="concept-scroll" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
             {conceptList.length === 0 ? (
-              <div style={{ padding: 16, fontSize: 11, color: '#475569', textAlign: 'center' }}>{view.nodes.length === 0 ? 'No concepts on this map.' : 'No matches.'}</div>
+              <div style={{ padding: 16, fontSize: 11, color: 'var(--slate-600)', textAlign: 'center' }}>{view.nodes.length === 0 ? 'No concepts on this map.' : 'No matches.'}</div>
             ) : conceptList.map(n => {
               const isSel = selected?.id === n.id;
               return (
@@ -942,7 +942,7 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
           background: 'rgba(4,6,26,0.4)', backdropFilter: 'blur(14px)',
           display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
         }}>
-          <span style={{ fontSize: 11, color: '#6b7280' }}>drag · scroll to zoom · drag bg to pan</span>
+          <span style={{ fontSize: 11, color: 'var(--gray-500)' }}>drag · scroll to zoom · drag bg to pan</span>
           {hubs.length > 0 && (
             <button
               onClick={() => setShowHubs(v => !v)}
@@ -953,22 +953,22 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
               Hubs
             </button>
           )}
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, color: '#94a3b8' }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, color: 'var(--slate-400)' }}>
             <MapLegend />
           </div>
         </div>
 
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: 'radial-gradient(circle at 50% 40%, rgba(30,27,75,0.42), rgba(2,6,23,0.18))' }}>
           {loading && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 13 }}>Loading map…</div>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray-700)', fontSize: 13 }}>Loading map…</div>
           )}
           {!loading && graph && graph.nodes.length === 0 && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569', fontSize: 13, textAlign: 'center', padding: 40 }}>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--slate-600)', fontSize: 13, textAlign: 'center', padding: 40 }}>
               No promoted concepts yet. Promote concepts and link them via a concept's Overview to populate the map.
             </div>
           )}
           {!loading && graph && graph.nodes.length > 0 && view.nodes.length === 0 && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569', fontSize: 13, textAlign: 'center', padding: 40 }}>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--slate-600)', fontSize: 13, textAlign: 'center', padding: 40 }}>
               Select a source above to view its constellation.
             </div>
           )}
@@ -977,7 +977,7 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
             return (
               <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 3, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end', pointerEvents: 'none', maxWidth: 260 }}>
                 {ids.map(id => (
-                  <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(4,6,26,0.5)', border: '1px solid #1f2937', borderRadius: 6, padding: '3px 8px', fontSize: 10, color: '#cbd5e1', backdropFilter: 'blur(6px)' }}>
+                  <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(4,6,26,0.5)', border: '1px solid var(--gray-800)', borderRadius: 6, padding: '3px 8px', fontSize: 10, color: 'var(--slate-300)', backdropFilter: 'blur(6px)' }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: sourceColor.get(id) ?? '#6b7280', flexShrink: 0 }} />
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sourceName.get(id) ?? `Source ${id}`}</span>
                   </div>
@@ -1050,16 +1050,16 @@ export default function ConstellationMap({ profile, onConceptChanged }: Props) {
       </div>
 
       {selected && (
-        <div style={{ flex: '0 0 600px', maxWidth: '52%', display: 'flex', flexDirection: 'column', borderLeft: '1px solid #1f2937', minWidth: 0, zIndex: Z.panelClose }}>
+        <div style={{ flex: '0 0 600px', maxWidth: '52%', display: 'flex', flexDirection: 'column', borderLeft: '1px solid var(--gray-800)', minWidth: 0, zIndex: Z.panelClose }}>
           {/* Dedicated close strip so this button never overlaps DetailPane's
               own header controls (e.g. the Source toggle). */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '4px 8px 4px 12px', borderBottom: '1px solid rgba(31,41,55,0.72)', background: 'rgba(4,6,26,0.6)', flexShrink: 0 }}>
-            <span style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em' }}>concept</span>
+            <span style={{ fontSize: 10, color: 'var(--slate-600)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>concept</span>
             <button
               onClick={() => setSelected(null)}
               title="Close concept detail"
               aria-label="Close concept detail"
-              style={{ background: '#1e1b4b', border: '1px solid #4338ca', borderRadius: 4, color: '#c7d2fe', fontSize: 13, lineHeight: 1, padding: '3px 9px', cursor: 'pointer' }}
+              style={{ background: 'var(--indigo-950)', border: '1px solid var(--indigo-700)', borderRadius: 4, color: 'var(--indigo-200)', fontSize: 13, lineHeight: 1, padding: '3px 9px', cursor: 'pointer' }}
             >×</button>
           </div>
           <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>

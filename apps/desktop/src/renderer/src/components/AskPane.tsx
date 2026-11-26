@@ -44,7 +44,7 @@ function highlight(text: string, spans: Array<[number, number]>): React.ReactNod
   [...spans].sort((x, y) => x[0] - y[0]).forEach(([s, e], i) => {
     if (s < at || e > text.length) return;
     if (s > at) out.push(text.slice(at, s));
-    out.push(<mark key={i} style={{ background: 'rgba(34,197,94,0.22)', color: '#e2e8f0', borderRadius: 3, padding: '0 1px' }}>{text.slice(s, e)}</mark>);
+    out.push(<mark key={i} style={{ background: 'rgba(34,197,94,0.22)', color: 'var(--slate-200)', borderRadius: 3, padding: '0 1px' }}>{text.slice(s, e)}</mark>);
     at = e;
   });
   out.push(text.slice(at));
@@ -226,10 +226,10 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
               <div key={s.source_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 6px', borderRadius: 6, background: on ? 'rgba(129,140,248,0.12)' : 'transparent' }}>
                 <input type="checkbox" checked={on} onChange={() => toggle(s.source_id)} aria-label={`Ask ${s.title}`} />
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 12, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.title}>{s.title}</div>
-                  <div style={{ fontSize: 10, color: '#6b7280' }}>
+                  <div style={{ fontSize: 12, color: 'var(--slate-200)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.title}>{s.title}</div>
+                  <div style={{ fontSize: 10, color: 'var(--gray-500)' }}>
                     {s.chunks === 0 ? 'not indexed' : `${s.chunks} passages${status?.embeddingsEnabled ? ` · ${s.embedded} embedded` : ''}`}
-                    {s.stale && <span style={{ color: '#f59e0b' }} title="Indexed by an older parser; Index library re-indexes its passages"> · outdated</span>}
+                    {s.stale && <span style={{ color: 'var(--amber-500)' }} title="Indexed by an older parser; Index library re-indexes its passages"> · outdated</span>}
                   </div>
                 </div>
                 {s.chunks === 0 && (
@@ -240,16 +240,16 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
               </div>
             );
           })}
-          {status && status.sources.length === 0 && <div style={{ fontSize: 12, color: '#6b7280', padding: 8 }}>Add a source first.</div>}
+          {status && status.sources.length === 0 && <div style={{ fontSize: 12, color: 'var(--gray-500)', padding: 8 }}>Add a source first.</div>}
         </div>
-        <div style={{ borderTop: '1px solid rgba(31,41,55,0.72)', padding: '10px 14px', fontSize: 11, color: '#94a3b8', lineHeight: 1.6 }}>
+        <div style={{ borderTop: '1px solid rgba(31,41,55,0.72)', padding: '10px 14px', fontSize: 11, color: 'var(--slate-400)', lineHeight: 1.6 }}>
           <div title={status?.askBaseUrl ?? undefined}>
-            Answers: {status?.askModel ? <span style={{ color: '#e2e8f0' }}>{status.askModel}</span> : <span style={{ color: '#f59e0b' }}>no local model (passages only)</span>}
+            Answers: {status?.askModel ? <span style={{ color: 'var(--slate-200)' }}>{status.askModel}</span> : <span style={{ color: 'var(--amber-500)' }}>no local model (passages only)</span>}
           </div>
           <div>
-            Retrieval: {status?.embeddingsEnabled ? <>hybrid · <span style={{ color: '#e2e8f0' }}>{status.embeddingModel}</span></> : 'keyword (embeddings off)'}
+            Retrieval: {status?.embeddingsEnabled ? <>hybrid · <span style={{ color: 'var(--slate-200)' }}>{status.embeddingModel}</span></> : 'keyword (embeddings off)'}
           </div>
-          <div style={{ color: '#6b7280', marginTop: 4 }}>Runs locally. Set the model in Settings → Local provider.</div>
+          <div style={{ color: 'var(--gray-500)', marginTop: 4 }}>Runs locally. Set the model in Settings → Local provider.</div>
         </div>
       </aside>
 
@@ -258,9 +258,9 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
           <div style={panel}>
             {context && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                <span style={{ ...badge, color: '#c7d2fe', borderColor: 'rgba(129,140,248,0.5)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ ...badge, color: 'var(--indigo-200)', borderColor: 'rgba(129,140,248,0.5)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   About: {context.name}
-                  <button onClick={onClearContext} title="Stop asking about this concept" style={{ ...linkBtn, color: '#94a3b8', fontSize: 12 }}>×</button>
+                  <button onClick={onClearContext} title="Stop asking about this concept" style={{ ...linkBtn, color: 'var(--slate-400)', fontSize: 12 }}>×</button>
                 </span>
                 {!question.trim() && starters(context.name).map(s => (
                   <button key={s} onClick={() => setQuestion(s)} style={smallBtn} title="Use this question (you still choose to ask)">{s}</button>
@@ -274,27 +274,27 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
               placeholder={context ? `Ask about ${context.name}…` : 'Ask a question about your sources…'}
               rows={3}
               maxLength={2000}
-              style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', background: 'rgba(2,4,18,0.45)', border: '1px solid rgba(55,65,120,0.6)', borderRadius: 8, color: '#e2e8f0', padding: '10px 12px', fontSize: 14, fontFamily: 'inherit' }}
+              style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', background: 'rgba(2,4,18,0.45)', border: '1px solid rgba(55,65,120,0.6)', borderRadius: 8, color: 'var(--slate-200)', padding: '10px 12px', fontSize: 14, fontFamily: 'inherit' }}
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
-              <span style={{ fontSize: 11, color: '#6b7280' }}>
+              <span style={{ fontSize: 11, color: 'var(--gray-500)' }}>
                 {validSelected.length === 0 ? 'All sources' : `${validSelected.length} source${validSelected.length === 1 ? '' : 's'}`}
-                {unindexed.length > 0 && <span style={{ color: '#f59e0b' }}> · {unindexed.length} not indexed (skipped)</span>}
+                {unindexed.length > 0 && <span style={{ color: 'var(--amber-500)' }}> · {unindexed.length} not indexed (skipped)</span>}
               </span>
-              <span style={{ marginLeft: 'auto', fontSize: 11, color: '#6b7280' }}>Ctrl+Enter</span>
+              <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--gray-500)' }}>Ctrl+Enter</span>
               <button onClick={() => void ask()} disabled={asking || !question.trim()} style={primaryBtn}>{asking ? 'Asking…' : 'Ask'}</button>
             </div>
             {asking && progress && (
-              <div style={{ marginTop: 8, fontSize: 11, color: '#94a3b8' }}>
+              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--slate-400)' }}>
                 Embedding passages for “{titleById.get(progress.sourceId) ?? progress.sourceId}”: {progress.done}/{progress.total}
                 <div style={{ marginTop: 4, height: 3, borderRadius: 2, background: 'rgba(31,41,55,0.5)', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%`, background: '#818cf8' }} />
+                  <div style={{ height: '100%', width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%`, background: 'var(--indigo-400)' }} />
                 </div>
               </div>
             )}
           </div>
 
-          {error && <div style={{ ...panel, borderColor: 'rgba(239,68,68,0.5)', color: '#fca5a5', fontSize: 12 }}>{error}</div>}
+          {error && <div style={{ ...panel, borderColor: 'rgba(239,68,68,0.5)', color: 'var(--red-300)', fontSize: 12 }}>{error}</div>}
 
           {context && history.length > 0 && (
             <details style={{ ...panel, padding: '10px 14px' }} open={!result}>
@@ -305,11 +305,11 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                   const active = result?.history_id === h.id;
                   return (
                     <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 6, background: active ? 'rgba(129,140,248,0.12)' : 'transparent' }}>
-                      <button onClick={() => { setResult({ ...h.result, history_id: h.id }); setFocusN(null); }} title="Show this answer" style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'transparent', border: 'none', color: '#e2e8f0', fontSize: 12, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: 0 }}>
+                      <button onClick={() => { setResult({ ...h.result, history_id: h.id }); setFocusN(null); }} title="Show this answer" style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--slate-200)', fontSize: 12, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: 0 }}>
                         {h.result.question}
                       </button>
                       <span title={m.hint} style={{ fontSize: 10, fontWeight: 700, color: m.color, whiteSpace: 'nowrap' }}>{m.label}</span>
-                      <span style={{ fontSize: 10, color: '#6b7280', whiteSpace: 'nowrap' }}>{ago(h.created_at)}</span>
+                      <span style={{ fontSize: 10, color: 'var(--gray-500)', whiteSpace: 'nowrap' }}>{ago(h.created_at)}</span>
                       <button
                         onClick={async () => {
                           await window.api.rag.historyDelete(h.id);
@@ -317,7 +317,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                           refreshHistory();
                         }}
                         title="Remove this question from the history"
-                        style={{ ...linkBtn, color: '#6b7280', fontSize: 13 }}
+                        style={{ ...linkBtn, color: 'var(--gray-500)', fontSize: 13 }}
                       >×</button>
                     </div>
                   );
@@ -333,12 +333,12 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                   <span title={meta.hint} style={{ ...badge, color: meta.color, borderColor: meta.color }}>{meta.label}</span>
                   <span
                     title={result.retrieval.vector_error ?? 'Keyword (BM25) and vector results fused'}
-                    style={{ ...badge, color: '#94a3b8', borderColor: 'rgba(148,163,184,0.4)' }}
+                    style={{ ...badge, color: 'var(--slate-400)', borderColor: 'rgba(148,163,184,0.4)' }}
                   >
                     {result.retrieval.mode_used === 'hybrid' ? 'Hybrid retrieval' : 'Keyword only'}
                   </span>
                   {result.model && result.status !== 'retrieval_only' && result.status !== 'no_passages' && (
-                    <span style={{ fontSize: 11, color: '#6b7280' }}>{result.model}</span>
+                    <span style={{ fontSize: 11, color: 'var(--gray-500)' }}>{result.model}</span>
                   )}
                   {result.answer && (
                     <SaveAsNote
@@ -349,9 +349,9 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                   )}
                 </div>
                 {result.answer ? (
-                  <div style={{ fontSize: 14, lineHeight: 1.65, color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>{renderAnswer(result.answer)}</div>
+                  <div style={{ fontSize: 14, lineHeight: 1.65, color: 'var(--slate-200)', whiteSpace: 'pre-wrap' }}>{renderAnswer(result.answer)}</div>
                 ) : (
-                  <div style={{ fontSize: 12, color: '#94a3b8' }}>{meta.hint}</div>
+                  <div style={{ fontSize: 12, color: 'var(--slate-400)' }}>{meta.hint}</div>
                 )}
                 {result.citations.length > 0 && (
                   <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -359,20 +359,20 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                     {result.citations.map((c, i) => {
                       const p = result.passages.find(x => x.n === c.n);
                       return (
-                        <button key={i} onClick={() => jumpTo(c.n, c.quote)} title={pdfSources.has(c.source_id) ? 'Open the page with this quote highlighted' : 'Show the passage'} style={{ textAlign: 'left', background: 'transparent', border: 'none', padding: '2px 0', cursor: 'pointer', fontSize: 12, color: '#94a3b8', lineHeight: 1.5 }}>
+                        <button key={i} onClick={() => jumpTo(c.n, c.quote)} title={pdfSources.has(c.source_id) ? 'Open the page with this quote highlighted' : 'Show the passage'} style={{ textAlign: 'left', background: 'transparent', border: 'none', padding: '2px 0', cursor: 'pointer', fontSize: 12, color: 'var(--slate-400)', lineHeight: 1.5 }}>
                           <span style={chip}>{c.n}</span>
-                          <span style={{ color: '#cbd5e1' }}>{p?.source_title}</span>, {pages(c.page_start, c.page_end)} — <i>“{c.quote}”</i>
+                          <span style={{ color: 'var(--slate-300)' }}>{p?.source_title}</span>, {pages(c.page_start, c.page_end)} — <i>“{c.quote}”</i>
                         </button>
                       );
                     })}
                   </div>
                 )}
                 {result.generation_error && (
-                  <div style={{ marginTop: 8, fontSize: 11, color: '#f59e0b' }}>Local model: {result.generation_error}</div>
+                  <div style={{ marginTop: 8, fontSize: 11, color: 'var(--amber-500)' }}>Local model: {result.generation_error}</div>
                 )}
-                {result.index_warning && <div style={{ marginTop: 6, fontSize: 11, color: '#f59e0b' }}>{result.index_warning}</div>}
+                {result.index_warning && <div style={{ marginTop: 6, fontSize: 11, color: 'var(--amber-500)' }}>{result.index_warning}</div>}
                 {result.dropped.length > 0 && (
-                  <details style={{ marginTop: 10, fontSize: 11, color: '#94a3b8' }}>
+                  <details style={{ marginTop: 10, fontSize: 11, color: 'var(--slate-400)' }}>
                     <summary style={{ cursor: 'pointer' }}>{result.dropped.length} citation{result.dropped.length === 1 ? '' : 's'} removed (could not be verified)</summary>
                     <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
                       {result.dropped.map((d, i) => (
@@ -394,9 +394,9 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                         ref={el => { if (el) passageRefs.current.set(p.n, el); else passageRefs.current.delete(p.n); }}
                         style={{ ...panel, padding: '10px 14px', borderColor: focusN === p.n ? '#818cf8' : cited ? 'rgba(34,197,94,0.35)' : panel.borderColor }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 11, color: 'var(--slate-400)', marginBottom: 6 }}>
                           <span style={{ ...chip, cursor: 'default' }}>{p.n}</span>
-                          <span style={{ color: '#e2e8f0', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '40%' }} title={p.source_title}>{p.source_title}</span>
+                          <span style={{ color: 'var(--slate-200)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '40%' }} title={p.source_title}>{p.source_title}</span>
                           {p.section_path.length > 0 && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{p.section_path.join(' › ')}</span>}
                           <span style={{ marginLeft: 'auto', whiteSpace: 'nowrap' }}>{pages(p.page_start, p.page_end)}</span>
                           {pdfSources.has(p.source_id) && (
@@ -407,7 +407,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                             >Open page ↗</button>
                           )}
                         </div>
-                        <div style={{ fontSize: 12.5, lineHeight: 1.6, color: '#cbd5e1', whiteSpace: 'pre-wrap' }}>
+                        <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--slate-300)', whiteSpace: 'pre-wrap' }}>
                           {highlight(p.text, spansByN.get(p.n) ?? [])}
                         </div>
                       </div>
@@ -459,7 +459,7 @@ function SaveAsNote({ result, defaultConcept }: { result: AskResult; defaultConc
   const shown = concepts.filter(c => !q || c.name.toLowerCase().includes(q)).slice(0, 30);
   return (
     <span style={{ marginLeft: 'auto', position: 'relative' }}>
-      {saved && !open && <span style={{ fontSize: 11, color: '#22c55e', marginRight: 8 }}>Saved to {saved}</span>}
+      {saved && !open && <span style={{ fontSize: 11, color: 'var(--green-500)', marginRight: 8 }}>Saved to {saved}</span>}
       {defaultConcept ? (
         <>
           <button onClick={() => void save(defaultConcept.id, defaultConcept.name)} style={{ ...smallBtn, borderRadius: '6px 0 0 6px' }} title={`Save this answer as a note on ${defaultConcept.name}`}>+ Note</button>
@@ -470,14 +470,14 @@ function SaveAsNote({ result, defaultConcept }: { result: AskResult; defaultConc
       )}
       {open && (
         <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 280, zIndex: 20, background: 'rgba(8,10,34,0.96)', border: '1px solid rgba(55,65,120,0.7)', borderRadius: 8, padding: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
-          <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Find concept…" style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(2,4,18,0.5)', border: '1px solid rgba(55,65,120,0.6)', borderRadius: 6, color: '#e2e8f0', padding: '5px 8px', fontSize: 12 }} />
+          <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Find concept…" style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(2,4,18,0.5)', border: '1px solid rgba(55,65,120,0.6)', borderRadius: 6, color: 'var(--slate-200)', padding: '5px 8px', fontSize: 12 }} />
           <div style={{ maxHeight: 240, overflowY: 'auto', marginTop: 6 }}>
             {shown.map(c => (
-              <button key={c.id} className="rel-opt" onClick={() => void save(c.id, c.name)} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: '#e2e8f0', padding: '5px 6px', fontSize: 12, borderRadius: 4, cursor: 'pointer' }}>
-                {c.name} <span style={{ color: '#6b7280', fontSize: 10 }}>{c.source}</span>
+              <button key={c.id} className="rel-opt" onClick={() => void save(c.id, c.name)} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--slate-200)', padding: '5px 6px', fontSize: 12, borderRadius: 4, cursor: 'pointer' }}>
+                {c.name} <span style={{ color: 'var(--gray-500)', fontSize: 10 }}>{c.source}</span>
               </button>
             ))}
-            {concepts.length === 0 && <div style={{ fontSize: 11, color: '#6b7280', padding: 6 }}>No promoted concepts in the cited sources.</div>}
+            {concepts.length === 0 && <div style={{ fontSize: 11, color: 'var(--gray-500)', padding: 6 }}>No promoted concepts in the cited sources.</div>}
           </div>
         </div>
       )}
@@ -489,13 +489,13 @@ const panel: React.CSSProperties & { borderColor: string } = {
   background: 'rgba(4,6,26,0.55)', backdropFilter: 'blur(14px)', border: '1px solid rgba(35,42,85,0.65)',
   borderColor: 'rgba(35,42,85,0.65)', borderRadius: 10, padding: '14px 16px',
 };
-const label: React.CSSProperties = { fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#6b7280' };
+const label: React.CSSProperties = { fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--gray-500)' };
 const badge: React.CSSProperties = { fontSize: 11, fontWeight: 700, border: '1px solid', borderRadius: 999, padding: '2px 9px' };
 const chip: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 18, height: 16, margin: '0 2px',
   padding: '0 4px', borderRadius: 4, fontSize: 10, fontWeight: 700, verticalAlign: 'super',
-  background: 'rgba(129,140,248,0.18)', color: '#c7d2fe', border: '1px solid rgba(129,140,248,0.4)', cursor: 'pointer',
+  background: 'rgba(129,140,248,0.18)', color: 'var(--indigo-200)', border: '1px solid rgba(129,140,248,0.4)', cursor: 'pointer',
 };
-const primaryBtn: React.CSSProperties = { background: '#4f46e5', border: '1px solid #6366f1', color: '#fff', borderRadius: 7, padding: '6px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer' };
-const smallBtn: React.CSSProperties = { background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.4)', color: '#c7d2fe', borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer' };
-const linkBtn: React.CSSProperties = { background: 'transparent', border: 'none', color: '#818cf8', fontSize: 11, cursor: 'pointer', padding: 0 };
+const primaryBtn: React.CSSProperties = { background: '#4f46e5', border: '1px solid var(--indigo-500)', color: '#fff', borderRadius: 7, padding: '6px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer' };
+const smallBtn: React.CSSProperties = { background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.4)', color: 'var(--indigo-200)', borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer' };
+const linkBtn: React.CSSProperties = { background: 'transparent', border: 'none', color: 'var(--indigo-400)', fontSize: 11, cursor: 'pointer', padding: 0 };

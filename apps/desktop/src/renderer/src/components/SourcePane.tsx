@@ -82,9 +82,9 @@ function BundleExportButton(
   const optStyle: React.CSSProperties = {
     width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
     background: 'transparent', border: '1px solid rgba(129,140,248,0.28)', borderRadius: 6,
-    padding: '6px 9px', marginTop: 6, fontSize: 11, color: '#c7d2fe', cursor: 'pointer',
+    padding: '6px 9px', marginTop: 6, fontSize: 11, color: 'var(--indigo-200)', cursor: 'pointer',
   };
-  const extStyle: React.CSSProperties = { fontSize: 9, color: '#64748b', fontVariantNumeric: 'tabular-nums' };
+  const extStyle: React.CSSProperties = { fontSize: 9, color: 'var(--slate-500)', fontVariantNumeric: 'tabular-nums' };
   const btnDim = size === 'header' ? 23 : 18;
   const iconDim = size === 'header' ? 12 : 11;
 
@@ -115,9 +115,9 @@ function BundleExportButton(
         <div role="menu" onClick={e => e.stopPropagation()} style={{
           position: 'fixed', top: menuPos.top, left: menuPos.left, zIndex: 200, width: MENU_WIDTH,
           background: 'rgba(4,6,26,0.5)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-          border: '1px solid #263244', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 9,
+          border: '1px solid var(--app-line)', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 9,
         }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0 2px' }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0 2px' }}>
             Export {scope === 'library' ? 'library' : 'source'} as
           </div>
           <button className="rel-opt" role="menuitem" onClick={e => { e.stopPropagation(); doExport('markdown'); }} title="Export as Markdown (.md)" style={optStyle}>
@@ -175,8 +175,8 @@ function AddSourceMenu({ items }: { items: AddItem[] }) {
         aria-expanded={open}
         style={{
           display: 'inline-flex', alignItems: 'center', gap: 4,
-          background: open ? '#3730a3' : '#312e81', border: '1px solid #4338ca', borderRadius: 4,
-          padding: '3px 9px', color: '#c7d2fe', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          background: open ? '#3730a3' : '#312e81', border: '1px solid var(--indigo-700)', borderRadius: 4,
+          padding: '3px 9px', color: 'var(--indigo-200)', fontSize: 11, fontWeight: 600, cursor: 'pointer',
           transition: 'background 160ms',
         }}
       >
@@ -187,16 +187,16 @@ function AddSourceMenu({ items }: { items: AddItem[] }) {
         <div role="menu" aria-label="Add source" onClick={e => e.stopPropagation()} style={{
           position: 'fixed', top: pos.top, left: pos.left, zIndex: 200, width: WIDTH,
           background: 'rgba(4,6,26,0.5)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
-          border: '1px solid #263244', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 7,
+          border: '1px solid var(--app-line)', borderRadius: 8, boxShadow: '0 14px 34px rgba(0,0,0,0.6)', padding: 7,
         }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '2px 6px 5px' }}>Add source</div>
+          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--slate-500)', textTransform: 'uppercase', letterSpacing: '0.12em', padding: '2px 6px 5px' }}>Add source</div>
           {items.map(it => (
             <button key={it.key} className="rel-opt" role="menuitem" title={it.label}
               onClick={e => { e.stopPropagation(); setOpen(false); it.onClick(); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderRadius: 6, padding: '7px 8px', color: '#cbd5e1', fontSize: 12, cursor: 'pointer' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderRadius: 6, padding: '7px 8px', color: 'var(--slate-300)', fontSize: 12, cursor: 'pointer' }}>
               <span style={{ color: it.color, display: 'inline-flex', flexShrink: 0 }} aria-hidden="true">{it.icon}</span>
               <span style={{ flex: 1, minWidth: 0 }}>{it.label}</span>
-              <span style={{ fontSize: 9, color: '#475569', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{it.hint}</span>
+              <span style={{ fontSize: 9, color: 'var(--slate-600)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{it.hint}</span>
             </button>
           ))}
         </div>
@@ -321,8 +321,8 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
           onClick={() => setCollapsed(false)}
           title={`Sources (${sources.length}) - click to expand`}
           style={{
-            background: 'transparent', border: '1px solid #1f2937', borderRadius: 3,
-            color: '#9ca3af', fontSize: 12, padding: '4px 6px', cursor: 'pointer',
+            background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 3,
+            color: 'var(--gray-400)', fontSize: 12, padding: '4px 6px', cursor: 'pointer',
             writingMode: 'vertical-rl', textOrientation: 'mixed',
           }}
         >
@@ -418,7 +418,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
   return (
     <aside style={{ width: 220, borderRight: '1px solid rgba(31,41,55,0.75)', display: 'flex', flexDirection: 'column', background: 'rgba(13,13,22,0.42)', backdropFilter: 'blur(10px)' }}>
       <div style={{ padding: '10px 10px 10px 14px', borderBottom: '1px solid rgba(31,41,55,0.75)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, background: 'rgba(4,6,26,0.22)' }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Sources</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--gray-600)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Sources</span>
         <div style={{ display: 'flex', gap: 4 }}>
           <AddSourceMenu items={[
             { key: 'pdf', label: 'PDF', hint: '.pdf', color: '#a5b4fc', icon: IconPdf, onClick: () => void handleAdd() },
@@ -429,20 +429,20 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
           <button
             onClick={() => setCollapsed(true)}
             title="Minimize sources"
-            style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 4, padding: '3px 7px', color: '#6b7280', fontSize: 11, cursor: 'pointer' }}
+            style={{ background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 4, padding: '3px 7px', color: 'var(--gray-500)', fontSize: 11, cursor: 'pointer' }}
           >
             ‹
           </button>
         </div>
       </div>
       {docMsg && (
-        <div style={{ padding: '6px 12px', fontSize: 11, color: '#fca5a5', background: 'rgba(127,29,29,0.18)', borderBottom: '1px solid rgba(31,41,55,0.75)' }}>
+        <div style={{ padding: '6px 12px', fontSize: 11, color: 'var(--red-300)', background: 'rgba(127,29,29,0.18)', borderBottom: '1px solid rgba(31,41,55,0.75)' }}>
           {docMsg}
         </div>
       )}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {sources.length === 0 && (
-          <div style={{ padding: 20, color: '#374151', fontSize: 12, textAlign: 'center' }}>No PDFs yet</div>
+          <div style={{ padding: 20, color: 'var(--gray-700)', fontSize: 12, textAlign: 'center' }}>No PDFs yet</div>
         )}
         {sources.map(src => {
           const st = STATUS[src.status] ?? STATUS.pending;
@@ -455,7 +455,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
               <button
                 onClick={e => handleDelete(e, src.id)}
                 title="Delete source"
-                style={{ position: 'absolute', top: 4, right: 6, background: 'none', border: 'none', color: '#4b5563', fontSize: 14, cursor: 'pointer', lineHeight: 1, padding: '2px 4px' }}
+                style={{ position: 'absolute', top: 4, right: 6, background: 'none', border: 'none', color: 'var(--gray-600)', fontSize: 14, cursor: 'pointer', lineHeight: 1, padding: '2px 4px' }}
               >
                 ×
               </button>
@@ -463,12 +463,12 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
                 {src.title ?? src.filename}
               </div>
               {src.error_msg && (
-                <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={src.error_msg}>
+                <div style={{ fontSize: 10, color: 'var(--gray-500)', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={src.error_msg}>
                   {src.error_msg}
                 </div>
               )}
               {!src.error_msg && processSummaries[src.id] && (
-                <div style={{ fontSize: 10, color: '#4b5563', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={processSummaries[src.id]}>
+                <div style={{ fontSize: 10, color: 'var(--gray-600)', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={processSummaries[src.id]}>
                   {processSummaries[src.id]}
                 </div>
               )}
@@ -480,7 +480,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
                       onClick={e => { e.stopPropagation(); void window.api.app.openExternal(src.origin_url!); }}
                       title={`Open original page: ${src.origin_url}`}
                       aria-label="Open original page in browser"
-                      style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 3, padding: '1px 6px', color: '#7dd3fc', fontSize: 10, cursor: 'pointer' }}
+                      style={{ background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 3, padding: '1px 6px', color: '#7dd3fc', fontSize: 10, cursor: 'pointer' }}
                     >
                       Open ↗
                     </button>
@@ -489,7 +489,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
                     <button
                       onClick={e => handleExtract(e, src.id)}
                       disabled={extracting === src.id}
-                      style={{ background: '#1e1e2e', border: '1px solid #374151', borderRadius: 3, padding: '1px 6px', color: '#818cf8', fontSize: 10, cursor: 'pointer' }}
+                      style={{ background: 'var(--app-raised)', border: '1px solid var(--gray-700)', borderRadius: 3, padding: '1px 6px', color: 'var(--indigo-400)', fontSize: 10, cursor: 'pointer' }}
                     >
                       Extract
                     </button>
@@ -498,7 +498,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
                     <button
                       onClick={e => handleExtract(e, src.id)}
                       disabled={extracting === src.id}
-                      style={{ background: '#1e1e2e', border: '1px solid #7f1d1d', borderRadius: 3, padding: '1px 6px', color: '#f87171', fontSize: 10, cursor: 'pointer' }}
+                      style={{ background: 'var(--app-raised)', border: '1px solid var(--red-900)', borderRadius: 3, padding: '1px 6px', color: 'var(--red-400)', fontSize: 10, cursor: 'pointer' }}
                     >
                       Retry
                     </button>
@@ -511,7 +511,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
                       onClick={e => handleExtract(e, src.id)}
                       disabled={extracting === src.id}
                       title="Re-process this source. Wipes derived artifacts (candidates/chunks/concepts without study history) and re-runs the parser. Mastery and evidence_records are preserved."
-                      style={{ background: 'transparent', border: '1px solid #1f2937', borderRadius: 3, padding: '1px 6px', color: '#6b7280', fontSize: 10, cursor: 'pointer' }}
+                      style={{ background: 'transparent', border: '1px solid var(--gray-800)', borderRadius: 3, padding: '1px 6px', color: 'var(--gray-500)', fontSize: 10, cursor: 'pointer' }}
                     >
                       Re-extract
                     </button>
@@ -527,15 +527,15 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
           {pendingDeletes.map(entry => (
             <div key={`pending-${entry.source.id}`} style={{
               display: 'flex', alignItems: 'center', gap: 8,
-              background: 'rgba(13,13,22,0.6)', border: '1px solid #1f2937', borderRadius: 6,
-              padding: '7px 9px', fontSize: 11, color: '#94a3b8',
+              background: 'rgba(13,13,22,0.6)', border: '1px solid var(--gray-800)', borderRadius: 6,
+              padding: '7px 9px', fontSize: 11, color: 'var(--slate-400)',
             }}>
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={entry.source.title ?? entry.source.filename}>
                 Deleted “{entry.source.title ?? entry.source.filename}”.
               </span>
               <button
                 onClick={() => undoDelete(entry)}
-                style={{ background: '#1e1b4b', border: '1px solid #6366f1', borderRadius: 4, color: '#c7d2fe', cursor: 'pointer', fontSize: 11, fontWeight: 700, padding: '3px 9px' }}
+                style={{ background: 'var(--indigo-950)', border: '1px solid var(--indigo-500)', borderRadius: 4, color: 'var(--indigo-200)', cursor: 'pointer', fontSize: 11, fontWeight: 700, padding: '3px 9px' }}
               >Undo</button>
             </div>
           ))}
@@ -559,12 +559,12 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 800, color: '#e0f2fe' }}>Import from URL</div>
-                <div style={{ marginTop: 3, fontSize: 11, color: '#64748b' }}>
+                <div style={{ marginTop: 3, fontSize: 11, color: 'var(--slate-500)' }}>
                   Fetches the page and extracts its readable text as a new source. No page geometry, so candidate quality is typically lower than a PDF.
                 </div>
               </div>
               <button onClick={closeUrlModal} title="Close" aria-label="Close"
-                style={{ width: 26, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15, 23, 42, 0.36)', border: '1px solid rgba(148, 163, 184, 0.22)', borderRadius: 6, color: '#94a3b8', fontSize: 16, lineHeight: 1, cursor: 'pointer', flexShrink: 0 }}>×</button>
+                style={{ width: 26, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15, 23, 42, 0.36)', border: '1px solid rgba(148, 163, 184, 0.22)', borderRadius: 6, color: 'var(--slate-400)', fontSize: 16, lineHeight: 1, cursor: 'pointer', flexShrink: 0 }}>×</button>
             </div>
             <input
               autoFocus type="url" inputMode="url" placeholder="https://example.com/article"
@@ -578,10 +578,10 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
               onKeyDown={e => { if (e.key === 'Enter') void handleImportUrl(); }}
               style={{ background: 'rgba(15, 23, 42, 0.44)', border: '1px solid rgba(148, 163, 184, 0.22)', borderRadius: 6, padding: '8px 10px', color: '#e5e7eb', fontSize: 12, outline: 'none', fontFamily: 'inherit' }}
             />
-            {urlError && <div style={{ fontSize: 11, color: '#fca5a5' }}>{urlError}</div>}
+            {urlError && <div style={{ fontSize: 11, color: 'var(--red-300)' }}>{urlError}</div>}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
               <button onClick={closeUrlModal} title="Cancel" aria-label="Cancel"
-                style={{ width: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15, 23, 42, 0.28)', border: '1px solid rgba(148, 163, 184, 0.24)', borderRadius: 6, padding: '6px 0', color: '#94a3b8', fontSize: 15, lineHeight: 1, cursor: 'pointer' }}>×</button>
+                style={{ width: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15, 23, 42, 0.28)', border: '1px solid rgba(148, 163, 184, 0.24)', borderRadius: 6, padding: '6px 0', color: 'var(--slate-400)', fontSize: 15, lineHeight: 1, cursor: 'pointer' }}>×</button>
               <button
                 onClick={() => void handleImportUrl()} disabled={!urlValue.trim() || urlBusy}
                 style={{
@@ -634,7 +634,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 800, color: '#dbeafe' }}>Paste Text Source</div>
-                <div style={{ marginTop: 3, fontSize: 11, color: '#64748b' }}>
+                <div style={{ marginTop: 3, fontSize: 11, color: 'var(--slate-500)' }}>
                   Paste long text, notes, articles, or transcripts.
                 </div>
               </div>
@@ -650,7 +650,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
                   background: 'rgba(15, 23, 42, 0.36)',
                   border: '1px solid rgba(148, 163, 184, 0.22)',
                   borderRadius: 6,
-                  color: '#94a3b8',
+                  color: 'var(--slate-400)',
                   fontSize: 16,
                   lineHeight: 1,
                   cursor: 'pointer',
@@ -694,7 +694,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
               }}
             />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-              <div style={{ fontSize: 11, color: '#64748b' }}>
+              <div style={{ fontSize: 11, color: 'var(--slate-500)' }}>
                 {textCharCount.toLocaleString()} chars / {textWordCount.toLocaleString()} words
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -709,7 +709,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
                     border: '1px solid rgba(148, 163, 184, 0.24)',
                     borderRadius: 6,
                     padding: '6px 0',
-                    color: '#94a3b8',
+                    color: 'var(--slate-400)',
                     fontSize: 15, lineHeight: 1,
                     cursor: 'pointer',
                   }}

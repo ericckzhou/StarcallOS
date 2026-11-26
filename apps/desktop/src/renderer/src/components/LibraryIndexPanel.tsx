@@ -69,7 +69,7 @@ export default function LibraryIndexPanel({ compact = false }: { compact?: boole
   const failures = last?.failures ?? [];
 
   return (
-    <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.5 }}>
+    <div style={{ fontSize: 11, color: 'var(--slate-400)', lineHeight: 1.5 }}>
       <div title={plan.embedding_model ? `Embedding model: ${plan.embedding_model}` : 'Embeddings are off: passages get keyword search only'}>
         {coverage}
       </div>
@@ -87,7 +87,7 @@ export default function LibraryIndexPanel({ compact = false }: { compact?: boole
           </div>
           <div style={{ marginTop: 4, height: 3, borderRadius: 2, background: 'rgba(31,41,55,0.5)', overflow: 'hidden' }}>
             <div style={{
-              height: '100%', background: '#818cf8',
+              height: '100%', background: 'var(--indigo-400)',
               width: `${progress ? ((progress.sourceIndex - 1 + (progress.total ? progress.done / progress.total : 0)) / progress.sourceCount) * 100 : 0}%`,
             }} />
           </div>
@@ -99,14 +99,14 @@ export default function LibraryIndexPanel({ compact = false }: { compact?: boole
             {label}
           </button>
           {!compact && !plan.done && (
-            <span style={{ color: '#6b7280' }}>Runs in the background; stop any time and resume later.</span>
+            <span style={{ color: 'var(--gray-500)' }}>Runs in the background; stop any time and resume later.</span>
           )}
         </div>
       )}
       {!running && last && (
         <div style={{ marginTop: 6, color: failures.length || last.embed_error ? '#fbbf24' : '#86efac' }}>
           {summaryText(last)}
-          {last.embed_error && <div style={{ color: '#fbbf24' }}>Embedding stopped: {last.embed_error}</div>}
+          {last.embed_error && <div style={{ color: 'var(--amber-400)' }}>Embedding stopped: {last.embed_error}</div>}
           {failures.length > 0 && (
             <details style={{ marginTop: 2 }}>
               <summary style={{ cursor: 'pointer' }}>{failures.length} skipped</summary>
@@ -118,16 +118,16 @@ export default function LibraryIndexPanel({ compact = false }: { compact?: boole
         </div>
       )}
       {plan.stale > 0 && !running && !compact && (
-        <div style={{ marginTop: 6, color: '#6b7280' }}>
+        <div style={{ marginTop: 6, color: 'var(--gray-500)' }}>
           Outdated sources get re-indexed passages only; re-extract their candidates under Outdated sources below.
         </div>
       )}
-      {error && <div style={{ marginTop: 6, color: '#fca5a5' }}>{error}</div>}
+      {error && <div style={{ marginTop: 6, color: 'var(--red-300)' }}>{error}</div>}
     </div>
   );
 }
 
 const btn: React.CSSProperties = {
-  background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.4)', color: '#c7d2fe',
+  background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.4)', color: 'var(--indigo-200)',
   borderRadius: 6, padding: '2px 9px', fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap',
 };
