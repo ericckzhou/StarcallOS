@@ -36,7 +36,9 @@ deliberately accepting a change. Bump the matching contract version in
 ## Golden sets
 
 `golden/*.jsonl` — one case per line; `//` lines are comments. Every case
-carries `label_status`: `proposed` (drafted, unreviewed), `claude-reviewed`
+carries `label_status`: `proposed` (drafted, unreviewed), `independent-reviewed`
+(relabelled by a second, independent model pass over the pooled passages; not a
+human audit), `claude-reviewed`
 (checked against the grader rubric and its calibration examples by Claude —
 useful, but not an independent human judgment), or `reviewed` (a human
 checked it). Relabelled cases carry a `review_note` saying what changed and
@@ -75,11 +77,15 @@ Env: `RETRIEVAL_EVAL_PDF` (instead of `--pdf`), `EVAL_BASE_URL` (default
   a label can be re-resolved after a chunker change (anything that no longer
   resolves is reported as "relabel needed"). The repo is public, so labels hold
   keys and anchors only, never chunk text.
-- **Label status**: every case is currently `proposed`. Claude drafted the
-  questions and picked relevant chunks by reading the chunk text, which it
-  found partly by keyword search. That biases the labels toward passages that
-  share words with the question, which in turn favours keyword retrieval.
-  Treat all numbers as provisional until a human reviews them.
+- **Label status**: every case is `independent-reviewed` (2026-11-26).
+  Claude drafted the questions and first labels by reading chunk text it
+  found partly by keyword search, which biased them toward keyword retrieval.
+  All 30 were then relabelled from the pooled review sheet (top 10 of every
+  mode) by an independent model pass: 21 cases changed, including the 6 that
+  no longer resolved after the running-header fix; each case's `review_note`
+  says what changed. That pass judged the pooled passage text, not the PDF,
+  so it is not a human audit. Treat the numbers as provisional until a human
+  promotes cases to `reviewed`.
 - **Reviewing**: `--review` writes `results/<stamp>-retrieval-review.md`
   (gitignored, because it contains book text). For each question it pools the
   top 10 from every mode and marks the currently labelled chunks (★). Tick
@@ -101,19 +107,20 @@ Env: `RETRIEVAL_EVAL_PDF` (instead of `--pdf`), `EVAL_BASE_URL` (default
 
 ### Provisional baseline: limitations
 
-`baselines/retrieval.json` (2026-11-23) is a starting point to measure
+`baselines/retrieval.json` (re-recorded 2026-11-26 on the
+`independent-reviewed` labels, layout 0.5.3) is a starting point to measure
 changes against. It is not a quality claim:
 
-- All 30 labels are `proposed` (Claude-drafted) and have not been reviewed by
-  a human. The labels will stay `proposed` until the maintainer reviews the
-  dataset.
-- The labels are biased toward keyword matches (see "Label status" above).
+- The labels come from an independent model pass, not a human audit (see
+  "Label status" above).
 - There are only 27 answerable questions from one textbook, with one embedding
   model (`nomic-embed-text`) and one chunker configuration.
-- Hybrid led keyword on MRR@5 with 6 wins, 1 loss and 20 ties per question.
-  A sign test gives p ≈ 0.125, which is not significant.
-- Re-record the baseline (`--save-baseline`) after the human review, and
-  report the comparison against this one.
+- Hybrid MRR@5 0.797 vs keyword 0.731 and vector 0.719; hybrid has a relevant
+  passage in the top 5 for every answerable question (coverage 1.000). Per
+  question, hybrid beat keyword on MRR@5 8 times, lost once, tied 18 times:
+  sign test p ≈ 0.039. On the earlier Claude-drafted labels it was 6/1/20,
+  p ≈ 0.125, consistent with those labels favouring keyword matches.
+- Re-record the baseline after a human review.
 
 ## Ask answers
 
@@ -156,12 +163,13 @@ what the app runs.
   all scored as declines although the model cited the refuting passage.
 - **Experiments recorded here so they are not re-run blindly**:
   - *Neighbor expansion* (`--neighbors`; off in the app): top 4 hits plus the
-    in-section follower of the top 2, at the same 6-passage budget. Retrieval
-    recall within the passages sent rose from 0.715 to 0.756 (multi-passage
-    0.604 to 0.750). End to end it raised citation precision (0.522 to 0.556)
-    and lowered dropped citations (0.140 to 0.096), but two false-premise
-    questions went back to plain declines (supported 0.962 to 0.885). Per-section
-    caps and skipping adjacent chunks lowered recall.
+    in-section follower of the top 2, at the same 6-passage budget. Re-checked
+    on the `independent-reviewed` labels: recall within the passages sent
+    0.759 to 0.794 (multi-passage 0.762 to 0.825) but conceptual fell 0.819 to
+    0.778; end to end citation precision 0.673 to 0.702 and dropped citations
+    0.140 to 0.096, but two false-premise questions became plain declines
+    (supported 0.963 to 0.889). Still off. Per-section caps and skipping
+    adjacent chunks lowered recall on both label sets.
   - *Pre-model abstention*: top-1 vector similarity does not separate the 3
     unanswerable questions (0.604, 0.681, 0.708) from answerable ones (as low
     as 0.629), and the model already declines all 3 itself. Not shipped;
@@ -189,18 +197,20 @@ judgment, but it does change the relevant sets (2.65 chunks per question vs
 1.96), so compare MRR and coverage rather than recall.
 
 Measured 2026-11-26 on b36 (docling 2.153.0, CPU, 164 s for 275 pages;
-`nomic-embed-text`, `qwen3.5:4b`; labels still `proposed`):
+`nomic-embed-text`, `qwen3.5:4b`; `independent-reviewed` labels):
 
 | | built-in | Docling |
 |---|---|---|
 | chunks | 657 | 832 |
-| hybrid MRR@5 / Cov@5 / Cov@10 | 0.617 / 0.885 / 0.885 | 0.596 / 0.846 / 0.923 |
-| Ask: grounded / supported | 0.692 / 0.962 | 0.769 / 0.962 |
+| hybrid MRR@5 / Cov@5 / Cov@10 | 0.797 / 1.000 / 1.000 | 0.651 / 0.889 / 1.000 |
+| Ask: grounded / supported | 0.704 / 0.963 | 0.778 / 0.963 |
 | Ask: grounded on equation questions | 0.40 | 0.80 |
 | Ask: dropped citations | 0.140 | 0.055 |
-| Ask: citation precision (mapped labels) | 0.522 | 0.420 |
+| Ask: citation precision (mapped labels for Docling) | 0.673 | 0.635 |
 | candidates: total / strong (score >= 0.5) | 295 / 38 | 356 / 112 |
 
-Retrieval is roughly level; answers cite formulas far more reliably and the
-candidate list loses the table-of-contents noise. One textbook is not enough
-to change the default, so Docling stays opt-in.
+Built-in retrieval ranks the labelled passages higher (part of the gap may be
+the mechanical label mapping, 5 labels of which do not map); Docling answers
+cite formulas far more reliably and its candidate list loses the
+table-of-contents noise. Docling stays opt-in. (On the earlier Claude-drafted
+labels retrieval looked level: MRR@5 0.617 vs 0.596.)

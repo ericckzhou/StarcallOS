@@ -11,7 +11,7 @@ import { SCORE_LABELS, scoreGrader, scoreTasks, scoreTopicFilter } from './metri
 
 const EVALS = path.resolve(__dirname, '../../../../evals');
 const KINDS = ['definition', 'connection', 'application', 'misconception_resistance', 'compression'];
-const STATUSES = ['proposed', 'claude-reviewed', 'reviewed'];
+const STATUSES = ['proposed', 'claude-reviewed', 'independent-reviewed', 'reviewed'];
 
 function readJsonl(name: string): Array<Record<string, any>> {
   return fs.readFileSync(path.join(EVALS, 'golden', name), 'utf8')
