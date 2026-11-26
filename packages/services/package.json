@@ -15,7 +15,7 @@
     "@mozilla/readability": "^0.6.0",
     "fflate": "^0.8.3",
     "groq-sdk": "^1.6.0",
-    "linkedom": "^0.18.13",
+    "linkedom": "^0.18.15",
     "mammoth": "^1.13.0",
     "pdfjs-dist": "^6.5.438",
     "zod": "^4.6.7"
