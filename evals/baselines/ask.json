@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-25T23:56:28.357Z",
+  "at": "2026-11-26T00:48:37.195Z",
   "config": {
     "document_sha256": "0779dd3e3c6951e9f8a30bcc9d6d0cb0da8bc7655e8487cd500601227fcaa9ae",
     "chunker_version": "0.1.0",
@@ -8,6 +8,7 @@
     "model": "qwen3.5:4b",
     "embed_model": "nomic-embed-text",
     "k": 6,
+    "neighbors": false,
     "max_passage_chars": 1600,
     "cases": 30
   },
@@ -20,18 +21,18 @@
     "answerable": {
       "n": 26,
       "grounded_rate": 0.692,
-      "supported_rate": 0.846,
-      "declined_rate": 0.115,
+      "supported_rate": 0.962,
+      "declined_rate": 0,
       "unsupported_rate": 0.038,
       "failed_rate": 0
     },
     "correct_abstention_rate": 1,
     "n_unanswerable": 3,
     "citation_precision": 0.522,
-    "relevant_citation_rate": 0.636,
+    "relevant_citation_rate": 0.6,
     "dropped_citation_rate": 0.14,
-    "latency_p50_ms": 2272,
-    "latency_p95_ms": 4957,
+    "latency_p50_ms": 2004,
+    "latency_p95_ms": 5914,
     "by_category": {
       "ambiguous": {
         "n": 3,
@@ -68,8 +69,8 @@
       "false_premise": {
         "n": 3,
         "grounded_rate": 0,
-        "supported_rate": 0,
-        "declined_rate": 1,
+        "supported_rate": 1,
+        "declined_rate": 0,
         "unsupported_rate": 0,
         "failed_rate": 0
       },
@@ -93,13 +94,13 @@
   },
   "flat": {
     "answerable.grounded_rate": 0.692,
-    "answerable.supported_rate": 0.846,
-    "answerable.declined_rate": 0.115,
+    "answerable.supported_rate": 0.962,
+    "answerable.declined_rate": 0,
     "answerable.unsupported_rate": 0.038,
     "answerable.failed_rate": 0,
     "correct_abstention_rate": 1,
     "citation_precision": 0.522,
-    "relevant_citation_rate": 0.636,
+    "relevant_citation_rate": 0.6,
     "dropped_citation_rate": 0.14
   }
 }

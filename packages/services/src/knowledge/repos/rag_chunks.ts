@@ -62,6 +62,20 @@ export function listSourceChunks(db: DatabaseSync, sourceId: number): RagChunk[]
   return rows.map(fromRow);
 }
 
+// The chunk that directly follows each given chunk in reading order, when it
+// is in the same section (a passage that continues the same argument). Keyed
+// by the anchor chunk id; anchors with no such follower are absent.
+export function getNextChunksInSection(db: DatabaseSync, ids: number[]): Map<number, RagChunk> {
+  if (ids.length === 0) return new Map();
+  const cols = COLS.split(',').map(c => `n.${c.trim()}`).join(', ');
+  const rows = db.prepare(
+    `SELECT c.id AS anchor_id, ${cols} FROM rag_chunks c
+       JOIN rag_chunks n ON n.source_id = c.source_id AND n.ordinal = c.ordinal + 1 AND n.section_text = c.section_text
+      WHERE c.id IN (${ids.map(() => '?').join(',')})`,
+  ).all(...ids) as unknown as Array<RagChunkRow & { anchor_id: number }>;
+  return new Map(rows.map(r => [Number(r.anchor_id), fromRow(r)]));
+}
+
 export function getChunksByIds(db: DatabaseSync, ids: number[]): RagChunk[] {
   if (ids.length === 0) return [];
   const rows = db.prepare(`SELECT ${COLS} FROM rag_chunks WHERE id IN (${ids.map(() => '?').join(',')})`)

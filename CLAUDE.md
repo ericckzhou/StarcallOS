@@ -310,7 +310,13 @@ Remember these as the active state of the repo:
   the passage after `normalizeWithMap` folding, and the result carries
   `start`/`end` offsets into the original text, which the UI highlights.
   Unverified citations are dropped and markers rewritten. Status is
-  grounded/partial/unsupported/insufficient/no_passages/retrieval_only. A model
+  grounded/partial/qualified/unsupported/insufficient/no_passages/retrieval_only
+  (`qualified` = the model flagged the passages insufficient but gave a hedged
+  answer with ≥1 VERIFIED citation; shown as "Sources partly answer this", not
+  a decline). Neighbor expansion (`withNeighbors`, `AskOptions.neighbors`) is
+  opt-in/off: it raised citation precision but cost false-premise answers.
+  Pre-model abstention was measured and deliberately NOT shipped (top cosine
+  does not separate unanswerable questions on the golden set). A model
   failure degrades to `retrieval_only` (passages still shown). Chunk vectors
   are embedded lazily on Ask with `rag:progress`; `rag.indexSource` backfills
   one pre-0036 source; the whole-library job (`knowledge/library_index.ts`,

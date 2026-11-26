@@ -21,10 +21,14 @@ import type { ProviderConfig } from '../core/llm';
 import type { Embedder } from '../core/embeddings';
 import { chatStructured } from '../core/structured';
 import { retrieveChunks, type RetrievalMode, type RetrievedChunk } from './retrieval';
+import { getNextChunksInSection } from './repos/rag_chunks';
 
 export type AnswerStatus =
   | 'grounded'        // every cited marker verified
   | 'partial'         // some citations verified, some dropped
+  | 'qualified'       // the model flagged the passages as insufficient but still gave a
+                      // hedged answer with verified citations (e.g. "they give bounds,
+                      // not a closed form", or a refuted false premise)
   | 'unsupported'     // the model answered but nothing it cited could be verified
   | 'insufficient'    // the model said the passages do not answer the question
   | 'no_passages'     // retrieval found nothing; no model call made
@@ -89,7 +93,21 @@ export interface AskOptions {
   // the question already contains it). Never added to the model prompt, so it
   // cannot change what counts as a verified citation.
   focus?: string | null;
+  // Neighbor expansion (opt-in, default off): spend NEIGHBOR_ANCHORS of the k
+  // slots on the passage that follows each of the top hits in the same section.
+  neighbors?: boolean;
 }
+
+// Measured on the retrieval golden set at the same 6-passage budget: top-4 +
+// the in-section follower of the top-2 raised recall of labelled passages
+// from 0.715 to 0.756 overall and 0.604 to 0.750 on multi-passage questions,
+// with no category lower. End to end (Ask eval, qwen3.5:4b) it improved
+// citation precision (.522 -> .556) and dropped citations (.140 -> .096) but
+// turned two false-premise answers back into declines (supported .962 ->
+// .885), so it stays OFF until re-measured on human-reviewed labels.
+// Diversity heuristics (per-section caps, skipping adjacent chunks) lowered
+// recall and were not kept.
+export const NEIGHBOR_ANCHORS = 2;
 
 export function retrievalQuery(question: string, focus?: string | null): string {
   const f = focus?.trim();
@@ -257,11 +275,41 @@ export function validateAnswer(out: AskOutput, passages: AskPassage[]): {
   }
 
   let status: Exclude<AnswerStatus, 'no_passages' | 'retrieval_only'>;
-  if (out.insufficient) status = 'insufficient';
+  // A hedged answer that still cites verified passages is shown as a caveated
+  // answer, not a decline: it tells the learner what the sources DO say.
+  if (out.insufficient) status = citations.length > 0 ? 'qualified' : 'insufficient';
   else if (citations.length === 0) status = 'unsupported';
   else if (dropped.length > 0) status = 'partial';
   else status = 'grounded';
   return { status, answer: text, citations, dropped };
+}
+
+// Choose the k passages to send: the top k - NEIGHBOR_ANCHORS hits, each of
+// the top NEIGHBOR_ANCHORS followed directly by its in-section follower (so
+// the model reads them contiguously), then remaining hits to fill k. A
+// follower that is already a top hit keeps its own rank.
+export function withNeighbors(db: DatabaseSync, hits: RetrievedChunk[], k: number): RetrievedChunk[] {
+  const anchors = k >= 4 ? Math.min(NEIGHBOR_ANCHORS, hits.length) : 0;
+  if (anchors === 0) return hits.slice(0, k);
+  const base = hits.slice(0, k - anchors);
+  const next = getNextChunksInSection(db, hits.slice(0, anchors).map(h => h.chunk_id));
+  const chosen = new Set<number>();
+  const out: RetrievedChunk[] = [];
+  const push = (c: RetrievedChunk) => { if (!chosen.has(c.chunk_id) && out.length < k) { chosen.add(c.chunk_id); out.push(c); } };
+  const baseIds = new Set(base.map(h => h.chunk_id));
+  base.forEach((h, i) => {
+    push(h);
+    const n = i < anchors ? next.get(h.chunk_id) : undefined;
+    if (n && !baseIds.has(n.id)) {
+      push({
+        ...h, chunk_id: n.id, chunk_key: n.chunk_key, text: n.text, heading: n.heading, section_path: n.section_path,
+        page_start: n.page_start, page_end: n.page_end, has_formula: n.has_formula,
+        keyword_rank: null, keyword_score: null, vector_rank: null, vector_similarity: null,
+      });
+    }
+  });
+  for (const h of hits) push(h);
+  return out;
 }
 
 export function toPassages(hits: RetrievedChunk[]): AskPassage[] {
@@ -286,10 +334,11 @@ export function buildAskUserPrompt(question: string, passages: AskPassage[], max
 
 export async function askSources(db: DatabaseSync, opts: AskOptions): Promise<AskResult> {
   const question = opts.question.trim();
+  const k = opts.k ?? 6;
   const retrieval = await retrieveChunks(db, {
-    query: retrievalQuery(question, opts.focus), mode: 'hybrid', k: opts.k ?? 6, sourceIds: opts.sourceIds, embedder: opts.embedder ?? null,
+    query: retrievalQuery(question, opts.focus), mode: 'hybrid', k, sourceIds: opts.sourceIds, embedder: opts.embedder ?? null,
   });
-  const passages = toPassages(retrieval.hits);
+  const passages = toPassages(opts.neighbors ? withNeighbors(db, retrieval.hits, k) : retrieval.hits);
   const base = {
     question,
     passages,
