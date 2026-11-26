@@ -107,6 +107,11 @@ the source contradicts/never makes, `"minor"` for a peripheral aside.
   the more conservative score), lower-median stage, median grounding score, and
   the text fields of the sample closest to that consensus. A failed extra sample
   is dropped, never fails the grade.
+- Sampling: the first grade is requested at temperature 0 and extra samples at
+  0.7. That holds for Groq and local models only. Anthropic API version
+  2026-10-21 (SDK 1.x) removed `temperature`, so every Anthropic grading call
+  uses the model's default sampling: the first grade is not near-deterministic,
+  and the extra samples vary naturally rather than by a raised temperature.
 - Each record stores its audit trail (migration 0032): validated output(s),
   `grader_prompt_hash`, `grader_model`, `grader_contract`, `grade_samples`.
 - A grade is one append-only evidence record; it never mutates prior records.

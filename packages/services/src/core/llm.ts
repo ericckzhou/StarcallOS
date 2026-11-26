@@ -217,7 +217,7 @@ export function toAnthropicPayload(req: ChatRequest, jsonSuffix: string | null):
 export interface ChatRequest {
   messages: ChatMessage[];
   responseFormat?: 'json' | 'text';
-  temperature?: number;
+  temperature?: number;   // Groq/local only; Anthropic (API 2026-10-21) has no sampling controls
   maxTokens?: number;
   // Native schema enforcement where the provider supports it. Anthropic: the
   // call is made as a single forced tool whose input_schema is this schema, and
@@ -360,7 +360,9 @@ export async function chatJSON(
           model: config.model,
           system: payload.system,
           messages: payload.messages,
-          temperature: req.temperature ?? 0.2,
+          // No `temperature`: API version 2026-10-21 (SDK 1.x) removed sampling
+          // controls, so `req.temperature` applies to Groq/local only and every
+          // Anthropic call uses the model's default sampling.
           max_tokens: req.maxTokens ?? 8192,
           ...(req.jsonSchema ? {
             tools: [{
