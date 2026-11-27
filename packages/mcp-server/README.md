@@ -69,7 +69,7 @@ npx @modelcontextprotocol/inspector node --no-warnings packages/mcp-server/dist/
 
 | Tool | Scope | Returns |
 |---|---|---|
-| `search_passages` | passages | Hybrid (keyword + semantic) passage search. Each hit: chunk id, source id and title, page range, section, text |
+| `search_passages` | passages | Hybrid (keyword + semantic) passage search. Each hit: chunk id, source id and title, page range, section, text, fused score, and `keyword_rank` / `vector_rank` (1-based rank in each list, `null` if absent) |
 | `get_passage` | passages | One passage by chunk id, plus up to 2 neighbours on each side |
 | `list_sources` | passages | Documents with page, concept and passage counts. No local file paths |
 | `search_concepts` | concepts | Promoted concepts matching words in the name or definition |

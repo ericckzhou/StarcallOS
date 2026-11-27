@@ -136,7 +136,12 @@ const searchPassages: ToolDef = {
       query,
       mode_used: r.mode_used,
       ...(note ? { vector_note: note } : {}),
-      results: r.hits.map(h => ({ ...passageOut(h, 1500), source_title: h.source_title, score: Number(h.score.toFixed(4)) })),
+      // Ranks (1-based) in each underlying list; null when the hit was not in that list. They let a client
+      // tell a keyword match from a semantic-only one without comparing scores across systems.
+      results: r.hits.map(h => ({
+        ...passageOut(h, 1500), source_title: h.source_title, score: Number(h.score.toFixed(4)),
+        keyword_rank: h.keyword_rank, vector_rank: h.vector_rank,
+      })),
     };
   },
 };
