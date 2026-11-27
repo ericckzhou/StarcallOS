@@ -16,6 +16,8 @@ interface Evidence {
   kind: string;
   label: string;
   quote?: string;
+  // Set on `highlight`-kind spans; links the span to its live PDF highlight.
+  annotationId?: number;
 }
 
 const EVIDENCE_KINDS = ['chunk', 'definition', 'heading', 'equation', 'relation'] as const;
@@ -376,7 +378,8 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
           const bytes = await window.api.sources.bytes(meta.sourceId);
           if (cancelled) return;
           const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes) }).promise;
-          if (cancelled) { doc.destroy(); return; }
+          // pdf.js 6 dropped PDFDocumentProxy.destroy(); tear down via its loading task.
+          if (cancelled) { void doc.loadingTask.destroy(); return; }
           setPdfDoc(doc);
           // Cache page-1 size at scale=1 so every page can reserve an estimated
           // box before its own async measurement finishes. Without this,
@@ -979,7 +982,7 @@ export default function PdfViewer({ conceptId, conceptName, stabilityKey, onResi
     }
   }
   async function saveEvidenceDraft(): Promise<void> {
-    if (!evDraft) return;
+    if (!evDraft || evEditingIndex === null) return;
     const payload = { page: Number(evDraft.page) || 1, kind: evDraft.kind, label: evDraft.label.trim() || evDraft.kind, quote: evDraft.quote.trim() || undefined };
     try {
       const updated = evEditingIndex === -2
@@ -1502,7 +1505,7 @@ function PdfPage({
   onMoveNote: (id: number, rects: PdfAnnotationRect[], pageSize: { width: number; height: number }) => void;
   onAnnotationClick: (annotation: PdfAnnotation, anchor: { x: number; y: number }) => void;
 }) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textLayerRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<pdfjs.RenderTask | null>(null);
@@ -1580,7 +1583,7 @@ function PdfPage({
         canvas.style.height = `${vp.height}px`;
         const ctx = canvas.getContext('2d')!;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        const task = p.render({ canvasContext: ctx, viewport: vp });
+        const task = p.render({ canvas, canvasContext: ctx, viewport: vp });
         renderTaskRef.current = task;
         await task.promise;
         if (cancelled) return;

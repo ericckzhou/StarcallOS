@@ -514,7 +514,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
                     <button
                       onClick={e => handleExtract(e, src.id)}
                       disabled={extracting === src.id}
-                      title="Re-process this source. Wipes derived artifacts (candidates/chunks/concepts without study history) and re-runs the parser. Mastery and evidence_records are preserved."
+                      title="Re-process this source: rebuilds candidates and re-runs the parser. Your concepts (manual, promoted, studied, or with notes/tags/hubs/review history) are kept; only unused LLM-extracted concepts are removed."
                       style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 3, padding: '1px 6px', color: 'var(--text-muted)', fontSize: 10, cursor: 'pointer' }}
                     >
                       Re-extract

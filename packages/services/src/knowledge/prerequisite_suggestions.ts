@@ -16,6 +16,7 @@
 
 import type { DatabaseSync } from '../core/infra/sqlite';
 import { createEdge } from './repos/concepts';
+import { prerequisiteRejectionKey, rejectPrerequisiteSuggestionRecorded, rejectedKeys } from './repos/rejections';
 import { emitEvent } from '../core/events';
 import type { ProviderConfig } from '../core/llm';
 import { z } from 'zod';
@@ -176,11 +177,18 @@ export function computeDeterministicSuggestions(
   let skippedExistingEdge = 0;
   let skippedUnresolved = 0;
 
-  const insert = db.prepare(
+  // A suggestion the user rejected comes back as 'dismissed', not 'pending'
+  // (the rejection record survives the re-extract wipe; repos/rejections.ts).
+  const rejected = rejectedKeys(db, sourceId, 'prerequisite');
+  const statusFor = (fromId: number, toId: number, edgeType: string) =>
+    (rejected.has(prerequisiteRejectionKey(fromId, toId, edgeType)) ? 'dismissed' : 'pending');
+  const insertRow = db.prepare(
     `INSERT OR IGNORE INTO prerequisite_suggestions
        (source_id, from_id, to_id, edge_type, basis, confidence, reason, status)
-     VALUES (?, ?, ?, ?, 'deterministic', ?, ?, 'pending')`,
+     VALUES (?, ?, ?, ?, 'deterministic', ?, ?, ?)`,
   );
+  const insert = { run: (s: number, f: number, t: number, e: string, conf: number, reason: string) =>
+    insertRow.run(s, f, t, e, conf, reason, statusFor(f, t, e)) };
 
   for (const r of relations) {
     const derived = deriveEdgeFromRelation(
@@ -280,11 +288,14 @@ export async function suggestLlmPrerequisites(
   );
   const edges: LlmEdge[] = data.edges;
 
-  const insert = db.prepare(
+  const rejected = rejectedKeys(db, sourceId, 'prerequisite');
+  const insertRow = db.prepare(
     `INSERT OR IGNORE INTO prerequisite_suggestions
        (source_id, from_id, to_id, edge_type, basis, confidence, reason, status)
-     VALUES (?, ?, ?, 'requires', 'llm', 0.5, ?, 'pending')`,
+     VALUES (?, ?, ?, 'requires', 'llm', 0.5, ?, ?)`,
   );
+  const insert = { run: (s: number, f: number, t: number, reason: string) =>
+    insertRow.run(s, f, t, reason, rejected.has(prerequisiteRejectionKey(f, t, 'requires')) ? 'dismissed' : 'pending') };
 
   for (const e of edges) {
     const prereqId = e.prerequisite ? conceptIdByName.get(normalizeName(e.prerequisite)) : undefined;
@@ -361,10 +372,11 @@ export function acceptPrerequisiteSuggestion(db: DatabaseSync, id: number): Prer
   return getPrerequisiteSuggestion(db, id);
 }
 
+// Dismisses the suggestion AND records the rejection, so a re-extract (which
+// wipes and recomputes suggestions) brings it back dismissed. Undo lives in
+// repos/rejections.ts (undoRejection).
 export function rejectPrerequisiteSuggestion(db: DatabaseSync, id: number): PrerequisiteSuggestion | null {
-  const s = getPrerequisiteSuggestion(db, id);
-  if (!s) return null;
-  db.prepare(`UPDATE prerequisite_suggestions SET status = 'dismissed' WHERE id = ?`).run(id);
+  if (!rejectPrerequisiteSuggestionRecorded(db, id)) return null;
   return getPrerequisiteSuggestion(db, id);
 }
 

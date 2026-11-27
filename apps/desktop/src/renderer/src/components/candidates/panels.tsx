@@ -344,7 +344,12 @@ function RelationRow({ relation: r, fromKnown, toKnown, color, busy, setBusy, se
 }) {
   const [editing, setEditing] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [draft, setDraft] = useState({ from: r.from, to: r.to, kind: r.kind, quote: r.quote, page: String(r.page) });
+  // `kind: string` matches RelationEditor and onUpdate (the editor's select
+  // yields a string); inferring RelationKind from r.kind made the setter
+  // incompatible with RelationEditor's prop type.
+  const [draft, setDraft] = useState<{ from: string; to: string; kind: string; quote: string; page: string }>(
+    { from: r.from, to: r.to, kind: r.kind, quote: r.quote, page: String(r.page) },
+  );
   // Always start an edit (and cancel) from the CURRENT item values so a prior
   // cancelled edit can never leak into the next Save.
   function resetDraft(): void {

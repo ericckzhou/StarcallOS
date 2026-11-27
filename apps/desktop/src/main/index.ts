@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import net from 'node:net';
 import { lookup } from 'node:dns/promises';
+import type { LookupAddress } from 'node:dns';
 import {
   openDb,
   listSources, createSource, updateSourceStatus, getSourceById, deleteSource,
@@ -18,7 +19,7 @@ import {
   listTasksByConcept, getMastery, listMisconceptionsByConcept,
   listNotesByConcept, createNote, updateNote, deleteNote, reorderNotes,
   listPdfAnnotationsBySource, createPdfAnnotation, updatePdfAnnotation, softDeletePdfAnnotation, restorePdfAnnotation,
-  createChunk, createConcept, updateCentralityScore, createEdge, deleteConceptEdge, createMisconception, createTask,
+  createChunk, createConcept, getConceptBySlug, updateCentralityScore, createEdge, deleteConceptEdge, createMisconception, createTask,
   getConceptPrerequisites,
   computeDeterministicSuggestions, suggestLlmPrerequisites, listPrerequisiteSuggestions,
   listPrerequisiteSuggestionsForConcept,
@@ -35,8 +36,9 @@ import {
   listConceptCandidatesBySource, listRelationCandidatesBySource,
   listMisconceptionCandidatesBySource, listEquationCandidatesBySource,
   listEquationCandidatesForConcept, createManualEquationForConcept, deleteEquationCandidate,
-  createRelationCandidate, updateRelationCandidate, deleteRelationCandidate,
-  createMisconceptionCandidate, updateMisconceptionCandidate, deleteMisconceptionCandidate,
+  createRelationCandidate, updateRelationCandidate,
+  createMisconceptionCandidate, updateMisconceptionCandidate,
+  rejectRelationCandidate, rejectMisconceptionCandidate, listRejections, undoRejection, clearRejectionsForSource,
   createEquationCandidateForSource, updateEquationCandidate,
   ensureTasksForConcept,
   regenerateTasksForConcept,
@@ -44,6 +46,7 @@ import {
   getLlmFilter, setLlmFilter,
   segmentTextWithDiagnostics,
   clearDerivedDataForSource, recoverInterruptedSources,
+  reprocessSourceDeterministic, reextractCandidatesForSource, syncChunksForSource,
   createParseRun, listParseRunsBySource,
   loadSettingsAsync, saveSettingsAsync, sanitizeSettingsInput, applyEnvFallbacks, resolveProviderConfig, MODEL_CHOICES,
   chatJSON,
@@ -139,7 +142,7 @@ async function assertPublicUrl(urlStr: string): Promise<void> {
   if (isBlockedHostname(host)) {
     throw new Error('Refusing to fetch a local or internal hostname');
   }
-  let addrs: Awaited<ReturnType<typeof lookup>>;
+  let addrs: LookupAddress[];
   try { addrs = await lookup(host, { all: true }); } catch { throw new Error(`Could not resolve host: ${host}`); }
   if (addrs.length === 0) throw new Error(`Could not resolve host: ${host}`);
   for (const a of addrs) {
@@ -355,9 +358,9 @@ const LLM_FILTER_BATCH_DELAY_MS = 1_000;  // pacing between batches (RPM safety)
 
 // Deduplicate candidates by normalized term — the renderer maps kept terms back
 // to every row sharing that term, so sending duplicates only wastes tokens.
-function dedupeByNormalized(candidates: CandidateLlmFilterArgs['candidates']): CandidateLlmFilterArgs['candidates'] {
+function dedupeByNormalized<T extends { normalized: string }>(candidates: T[]): T[] {
   const seen = new Set<string>();
-  const out: CandidateLlmFilterArgs['candidates'] = [];
+  const out: T[] = [];
   for (const c of candidates) {
     const key = c.normalized.toLowerCase();
     if (seen.has(key)) continue;
@@ -365,29 +368,6 @@ function dedupeByNormalized(candidates: CandidateLlmFilterArgs['candidates']): C
     out.push(c);
   }
   return out;
-}
-
-// Deterministic retrieval-chunk index (RAG foundation). Zero LLM, zero
-// embedding calls: chunks are reconciled by content key, so re-processing an
-// unchanged document writes nothing. A failure here is logged and reported in
-// the parse-run diagnostics but never fails processing — candidates are the
-// product; the chunk index is an additive derived artifact.
-function syncRetrievalChunks(
-  db: ReturnType<typeof openDb>,
-  sourceId: number,
-  blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'],
-  runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'],
-  layoutVersion: string = LAYOUT_VERSION,
-): Record<string, unknown> {
-  try {
-    const { chunks, diagnostics } = chunkBlocks(blocks, runningHeaderSections);
-    const sync = syncSourceChunks(db, sourceId, chunks, { chunker: CHUNKER_VERSION, layout: layoutVersion });
-    console.log(`[RAG_CHUNKS] source=${sourceId} chunks=${chunks.length} sync=${JSON.stringify(sync)}`);
-    return { ...diagnostics, sync };
-  } catch (e) {
-    console.error('[RAG_CHUNKS] failed for source', sourceId, e);
-    return { error: (e as Error).message };
-  }
 }
 
 function registerIpc(db: ReturnType<typeof openDb>): void {
@@ -417,8 +397,17 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     return explicitSingle ? sources[0] : sources;
   });
 
-  ipcMain.handle(IPC.SOURCES_PROCESS, async (_e, args: ProcessSourceArgs) => {
-    const { sourceId } = validateIpc(ProcessSourceArgsSchema, args, IPC.SOURCES_PROCESS);
+  // Processing wipes and rebuilds a source's derived data, so it takes the same
+  // per-source lock as re-extract, chunk rebuild and embedding: otherwise their
+  // wipes/inserts interleave at every await (duplicate candidates, vectors for
+  // just-deleted chunks).
+  ipcMain.handle(IPC.SOURCES_PROCESS, (_e, rawArgs: ProcessSourceArgs) => {
+    const args = validateIpc(ProcessSourceArgsSchema, rawArgs, IPC.SOURCES_PROCESS);
+    return withSourceLock(args.sourceId, () => processSource(args));
+  });
+
+  async function processSource(args: ProcessSourceArgs) {
+    const { sourceId } = args;
     resetUsageStats();
     const startedAt = Date.now();
 
@@ -477,22 +466,10 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         ? null
         : await segmentPdfConfigured(preSource.file_path, loadRawSettings());
 
-      // Idempotent retry: wipe derived artifacts before rebuilding. Keeps
-      // the source row, file path, and events lineage intact.
-      const wiped = clearDerivedDataForSource(db, sourceId);
-      const wipedTotal = Object.values(wiped).reduce((a, b) => a + b, 0);
-      const isRetry = wipedTotal > 0;
-      if (isRetry) {
-        console.log(`[RETRY] source=${sourceId} cleared derived data: ${JSON.stringify(wiped)}`);
-        emitEvent(db, 'source.retry_started', { sourceId, wiped }, { entityType: 'source', entityId: sourceId });
-      }
-
-      updateSourceStatus(db, sourceId, 'processing');
-      emitEvent(db, 'source.processing_started', { sourceId }, { entityType: 'source', entityId: sourceId });
-
-      const source = getSourceById(db, sourceId)!;
+      const source = preSource;
       let rawChunks: Awaited<ReturnType<typeof runEnricher>>;
 
+      // Segment fully (text sources too) before anything is wiped.
       let blocksForLLM: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
       let runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'] = [];
       if (source.file_path.endsWith('.txt')) {
@@ -519,38 +496,38 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       }
       blockCount = blocksForLLM.length;
 
-      // ─── Shadow pipeline: deterministic candidate extraction (zero LLM) ─────
-      // Always runs and persists BEFORE the LLM path so we keep something
-      // usable even when the LLM stage is rate-limited or fails.
-      let candResult: ReturnType<typeof extractCandidates> | null = null;
-      try {
-        const { paths: sectionPaths, sources: sectionSources } = buildSectionPath(blocksForLLM, runningHeaderSections);
-        // Derive topic anchors from title + heading vocabulary, persist on
-        // sources so future passes can reuse without recomputing.
-        const anchors = deriveTopicAnchors(blocksForLLM, source.title);
-        setTopicAnchors(db, sourceId, anchors);
-        layoutDiagnostics = { ...layoutDiagnostics, topic_anchors: anchors };
-        const cand = extractCandidates(blocksForLLM, sectionPaths, anchors, sectionSources, runningHeaderSections);
-        persistCandidateExtraction(db, sourceId, cand);
-        candResult = cand;
-        candidateCount     = cand.candidates.length;
-        relationCount      = cand.relations.length;
-        equationCount      = cand.equations.length;
-        misconceptionCount = cand.misconception_phrases.length;
-        layoutDiagnostics  = { ...layoutDiagnostics, candidate_diagnostics: cand.diagnostics };
-        const top = cand.candidates.slice(0, 10).map(c => `${c.term}(${c.confidence})`).join(', ');
-        console.log(
-          `[CANDIDATES] source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +
-          `concepts=${cand.candidates.length} relations=${cand.relations.length} ` +
-          `misconceptions=${cand.misconception_phrases.length} equations=${cand.equations.length} top=[${top}]`,
-        );
-      } catch (e) {
-        console.error('[CANDIDATES] failed for source', sourceId, e);
+      // Deterministic rebuild (services/knowledge/source_rebuild.ts, the same
+      // code the integration tests run): wipe only disposable derived data,
+      // then candidates (zero LLM, persisted BEFORE any LLM pass so something
+      // usable survives a rate-limited LLM stage) and retrieval chunks.
+      const det = reprocessSourceDeterministic(
+        db, sourceId, { blocks: blocksForLLM, runningHeaderSections, layoutVersion: layoutVersionUsed }, source.title,
+      );
+      const isRetry = Object.values(det.wiped).reduce((a, b) => a + b, 0) > 0;
+      if (isRetry) {
+        console.log(`[RETRY] source=${sourceId} cleared derived data: ${JSON.stringify(det.wiped)}`);
+        emitEvent(db, 'source.retry_started', { sourceId, wiped: det.wiped }, { entityType: 'source', entityId: sourceId });
       }
-      layoutDiagnostics = {
-        ...layoutDiagnostics,
-        rag_chunks: syncRetrievalChunks(db, sourceId, blocksForLLM, runningHeaderSections, layoutVersionUsed),
-      };
+      emitEvent(db, 'source.processing_started', { sourceId }, { entityType: 'source', entityId: sourceId });
+
+      const candResult = det.rebuild?.candidates ?? null;
+      if (det.rebuild && candResult) {
+        candidateCount     = candResult.candidates.length;
+        relationCount      = candResult.relations.length;
+        equationCount      = candResult.equations.length;
+        misconceptionCount = candResult.misconception_phrases.length;
+        layoutDiagnostics  = { ...layoutDiagnostics, topic_anchors: det.rebuild.anchors, candidate_diagnostics: candResult.diagnostics };
+        const top = candResult.candidates.slice(0, 10).map(c => `${c.term}(${c.confidence})`).join(', ');
+        console.log(
+          `[CANDIDATES] source=${sourceId} blocks=${candResult.diagnostics.blocks_seen} ` +
+          `concepts=${candResult.candidates.length} relations=${candResult.relations.length} ` +
+          `misconceptions=${candResult.misconception_phrases.length} equations=${candResult.equations.length} top=[${top}]`,
+        );
+      } else {
+        console.error('[CANDIDATES] failed for source', sourceId, det.candidateError);
+      }
+      console.log(`[RAG_CHUNKS] source=${sourceId} ${JSON.stringify(det.chunks)}`);
+      layoutDiagnostics = { ...layoutDiagnostics, rag_chunks: det.chunks };
 
       // ─── Mode dispatch ──────────────────────────────────────────────────────
       // deterministic = no LLM. Candidates are the product.
@@ -627,7 +604,18 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
 
       const rawConcepts = await runConceptExtractor(cfgFor('concepts'), rawChunks);
       const conceptIdBySlug = new Map<string, number>();
+      // Concepts that survived the wipe (user-owned or unknown origin) keep
+      // their row: reuse it by slug instead of inserting, which would violate
+      // UNIQUE(source_id, slug) and fail the whole run. Their fields, tasks and
+      // misconceptions are left as the user has them.
+      const preservedSlugs = new Set<string>();
       for (const rc of rawConcepts) {
+        const existing = getConceptBySlug(db, sourceId, rc.slug);
+        if (existing) {
+          conceptIdBySlug.set(rc.slug, existing.id);
+          preservedSlugs.add(rc.slug);
+          continue;
+        }
         const chunkIds = rc.chunk_indices.map(i => savedChunks[i]?.id ?? 0).filter(Boolean);
         const saved = createConcept(db, {
           source_id: sourceId, name: rc.name, slug: rc.slug, importance: rc.importance,
@@ -635,7 +623,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
           what_breaks: rc.what_breaks, where_reappears: [], chunk_ids: chunkIds,
           section_path: rc.section_path, exam_value: rc.exam_value,
           misconception_risk: rc.misconception_risk, centrality_score: 0,
-        });
+        }, 'llm');
         conceptIdBySlug.set(rc.slug, saved.id);
         upsertMastery(db, saved.id, 0);
         emitEvent(db, 'concept.created', { conceptId: saved.id }, { entityType: 'concept', entityId: saved.id });
@@ -661,12 +649,14 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
 
       const misconceptions = await runMisconceptionExtractor(cfgFor('misconceptions'), rawConcepts);
       for (const m of misconceptions) {
+        if (preservedSlugs.has(m.concept_slug)) continue;
         const conceptId = conceptIdBySlug.get(m.concept_slug);
         if (conceptId) createMisconception(db, { concept_id: conceptId, description: m.description, why_think_it: m.why_think_it, why_wrong: m.why_wrong, test_prompt: m.test_prompt });
       }
 
       const tasks = await runTaskGenerator(cfgFor('tasks'), rawConcepts);
       for (const t of tasks) {
+        if (preservedSlugs.has(t.concept_slug)) continue;
         const conceptId = conceptIdBySlug.get(t.concept_slug);
         if (conceptId) createTask(db, { concept_id: conceptId, kind: t.kind, prompt: t.prompt, difficulty: t.difficulty });
       }
@@ -693,9 +683,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       emitEvent(db, 'source.processing_failed', { sourceId, error: msg }, { entityType: 'source', entityId: sourceId });
       logTotals('fail');
       recordRun('failed', msg);
-      return { ok: false, error: msg };
+      return { ok: false as const, error: msg };
     }
-  });
+  }
 
   ipcMain.handle(IPC.SOURCES_DELETE, (_e, sourceId: number) => {
     const id = validateIpc(PositiveIntSchema, sourceId, IPC.SOURCES_DELETE);
@@ -1346,7 +1336,8 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       runningHeaderSections = out.runningHeaderSections;
       layoutVersion = out.layoutVersion;
     }
-    const diag = syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections, layoutVersion);
+    const diag = syncChunksForSource(db, sourceId, { blocks, runningHeaderSections, layoutVersion });
+    console.log(`[RAG_CHUNKS] source=${sourceId} ${JSON.stringify(diag)}`);
     if (typeof diag.error === 'string') throw new Error(diag.error);
   }
 
@@ -1616,8 +1607,11 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       page: Math.max(0, Math.floor(args.page ?? 0)),
     });
   });
+  // The Candidate Review `×` on a relation/misconception is the user's reject:
+  // a parser row's identity is remembered so re-extract won't recreate it
+  // (undo via candidates:rejectionUndo); user-created rows are just deleted.
   ipcMain.handle(IPC.CANDIDATES_RELATION_DELETE, (_e, id: number) => {
-    deleteRelationCandidate(db, id);
+    rejectRelationCandidate(db, validateIpc(PositiveIntSchema, id, IPC.CANDIDATES_RELATION_DELETE));
     return { ok: true as const };
   });
   ipcMain.handle(IPC.CANDIDATES_MISCONCEPTION_CREATE, (_e, args: {
@@ -1641,9 +1635,15 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     });
   });
   ipcMain.handle(IPC.CANDIDATES_MISCONCEPTION_DELETE, (_e, id: number) => {
-    deleteMisconceptionCandidate(db, id);
+    rejectMisconceptionCandidate(db, validateIpc(PositiveIntSchema, id, IPC.CANDIDATES_MISCONCEPTION_DELETE));
     return { ok: true as const };
   });
+  ipcMain.handle(IPC.CANDIDATES_REJECTIONS_LIST, (_e, sourceId: number) =>
+    listRejections(db, validateIpc(PositiveIntSchema, sourceId, IPC.CANDIDATES_REJECTIONS_LIST)));
+  ipcMain.handle(IPC.CANDIDATES_REJECTION_UNDO, (_e, rejectionId: number) =>
+    ({ ok: undoRejection(db, validateIpc(PositiveIntSchema, rejectionId, IPC.CANDIDATES_REJECTION_UNDO)) }));
+  ipcMain.handle(IPC.CANDIDATES_REJECTIONS_CLEAR, (_e, sourceId: number) =>
+    ({ restored: clearRejectionsForSource(db, validateIpc(PositiveIntSchema, sourceId, IPC.CANDIDATES_REJECTIONS_CLEAR)) }));
   ipcMain.handle(IPC.CANDIDATES_EQUATION_CREATE, (_e, args: {
     sourceId: number; latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null;
   }) => {
@@ -1785,12 +1785,11 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         layoutDiagnostics = { ...out.diagnostics, parser: out.parser, parser_fallback: out.fallback };
         console.log(`[CANDIDATES] (manual) pdf pages=${out.pageCount} blocks=${blocks.length}`);
       }
-      const { paths: sectionPaths, sources: sectionSources } = buildSectionPath(blocks, runningHeaderSections);
-      const anchors = deriveTopicAnchors(blocks, source.title);
-      setTopicAnchors(db, sourceId, anchors);
-      const cand = extractCandidates(blocks, sectionPaths, anchors, sectionSources, runningHeaderSections);
-      persistCandidateExtraction(db, sourceId, cand);
-      syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections, layoutVersion);
+      // Shared, tested rebuild (services/knowledge/source_rebuild.ts).
+      const { candidates: cand, chunks } = reextractCandidatesForSource(
+        db, sourceId, { blocks, runningHeaderSections, layoutVersion }, source.title,
+      );
+      console.log(`[RAG_CHUNKS] source=${sourceId} ${JSON.stringify(chunks)}`);
       console.log(
         `[CANDIDATES] (manual) source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +
         `concepts=${cand.candidates.length} relations=${cand.relations.length} ` +

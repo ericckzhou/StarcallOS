@@ -5,12 +5,18 @@
 
 import type { DatabaseSync } from '../core/infra/sqlite';
 import type { Concept, ConceptImportance } from '../core/domain/types';
-import { createConcept, getConceptBySlug } from './repos/concepts';
+import { createConcept, getConceptById, getConceptBySlug } from './repos/concepts';
+
+function originOf(db: DatabaseSync, conceptId: number): string | null {
+  const row = db.prepare('SELECT origin FROM concepts WHERE id = ?').get(conceptId) as { origin: string | null } | undefined;
+  return row?.origin ?? null;
+}
 import {
   getConceptCandidateById,
   deleteConceptCandidate,
 } from './repos/candidates';
 import { upsertMastery } from './repos/evidence';
+import { rejectConceptCandidate } from './repos/rejections';
 import { emitEvent } from '../core/events';
 
 function slugify(s: string): string {
@@ -36,10 +42,28 @@ export function promoteCandidate(db: DatabaseSync, candidateId: number): Concept
   const slug = slugify(cand.term) || `candidate-${candidateId}`;
   const existing = getConceptBySlug(db, cand.source_id, slug);
   if (existing) {
-    // Already promoted (or LLM extractor produced a matching slug) — just
-    // drop the candidate row so the user sees it disappear from the queue.
+    // Already promoted (or LLM extractor produced a matching slug). Promoting
+    // is the user saying "I want to learn this", so an LLM-extracted row
+    // becomes a promoted, user-owned one: otherwise it stays disposable and
+    // the next re-extract deletes it. Its fields are left as they are; the
+    // candidate's evidence is snapshotted only if the row has none yet.
+    // Unknown-origin (NULL) rows are already preserved and are left alone.
+    if (originOf(db, existing.id) === 'llm') {
+      db.prepare(
+        `UPDATE concepts
+            SET origin = 'promoted',
+                evidence_json = CASE WHEN evidence_json IS NULL OR evidence_json IN ('', '[]') THEN ? ELSE evidence_json END
+          WHERE id = ?`,
+      ).run(JSON.stringify(cand.evidence), existing.id);
+      emitEvent(
+        db,
+        'concept.promoted_from_candidate',
+        { conceptId: existing.id, candidateId, confidence: cand.confidence, existing: true },
+        { entityType: 'concept', entityId: existing.id },
+      );
+    }
     deleteConceptCandidate(db, candidateId);
-    return existing;
+    return getConceptById(db, existing.id) ?? existing;
   }
 
   // Seed definition_text with the strongest evidence quote we have.
@@ -73,7 +97,7 @@ export function promoteCandidate(db: DatabaseSync, candidateId: number): Concept
     exam_value: Math.round(cand.confidence * 100),
     misconception_risk: 0,
     centrality_score: 0,
-  });
+  }, 'promoted');
 
   // Preserve the candidate's evidence quotes on the new concept row so the
   // Source viewer can show real page references (not just first_page).
@@ -125,7 +149,7 @@ export function createManualConcept(
     exam_value: 0,
     misconception_risk: 0,
     centrality_score: 0,
-  });
+  }, 'manual');
 
   upsertMastery(db, concept.id, 0);
   emitEvent(
@@ -137,16 +161,10 @@ export function createManualConcept(
   return concept;
 }
 
+// Rejecting is a remembered, undoable user decision (repos/rejections.ts):
+// re-extract will not recreate this candidate until the rejection is undone.
 export function rejectCandidate(db: DatabaseSync, candidateId: number): void {
-  const cand = getConceptCandidateById(db, candidateId);
-  if (!cand) return;
-  emitEvent(
-    db,
-    'concept_candidate.rejected',
-    { candidateId, term: cand.term },
-    { entityType: 'source', entityId: cand.source_id },
-  );
-  deleteConceptCandidate(db, candidateId);
+  rejectConceptCandidate(db, candidateId);
 }
 
 // Reject many candidates in one call. Returns the number actually rejected.

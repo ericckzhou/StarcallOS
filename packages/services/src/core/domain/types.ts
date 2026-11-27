@@ -67,6 +67,11 @@ export type ConceptImportance =
   | 'peripheral'
   | 'reference_only';
 
+// How a concept came to exist (concepts.origin, migration 0038). `null` means
+// unknown (predates the column) and is treated as user-owned: re-extract only
+// ever deletes 'llm' concepts that carry no user data.
+export type ConceptOrigin = 'manual' | 'promoted' | 'llm';
+
 export interface Concept {
   id: number;
   source_id: number;
