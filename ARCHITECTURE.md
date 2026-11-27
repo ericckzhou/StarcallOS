@@ -52,27 +52,40 @@ apps/desktop/        Electron: main process + preload + renderer (React)
 **Process boundary rule:** Renderer never touches SQLite or API keys.
 All data flows: renderer → contextBridge → IPC → main → services → DB.
 
-## Data Model (migrations 0001 → 0025)
+## Data Model (migrations 0001 → 0041)
+
+Files live in `packages/services/migrations/`. Note two files share the `0011`
+prefix (the runner warns; order is by full filename).
 
 ```
-sources                    PDF/text inputs + topic_anchors_json + llm_filter_keep_terms_json
+sources                    PDF/text/URL inputs + topic_anchors_json + llm_filter_keep_terms_json; origin_url (0027)
 semantic_chunks            LLM-enriched blocks (only populated in candidate_gated/full modes)
-concepts                   promoted candidates OR LLM-extracted; evidence_json snapshot; tags_json (0023); reviewed_at (0021)
+concepts                   promoted candidates OR LLM-extracted; evidence_json snapshot; tags_json (0023); reviewed_at (0021);
+                           origin manual|promoted|llm, NULL = unknown/legacy (0038); user_modified_at (0038)
 concept_notes              user notes per concept; linked_annotation_id → a PDF highlight (0022)
 concept_edges              requires | enables | related | causes | contrasts_with | example_of | prevents
+prerequisite_suggestions   DERIVED suggested prerequisite edges; only user accept writes concept_edges (0028)
 misconceptions             attached to concepts: description, why_think_it, why_wrong
-evidence_tasks             5 kinds: definition | connection | application | misconception_resistance | compression
+evidence_tasks             5 kinds: definition | connection | application | misconception_resistance | compression; retired_at (0035)
 mastery                    compression_stage 0–5 per concept
-concept_srs                SM-2 spaced-repetition card per concept; drives the review queue (0025)
-evidence_records           graded attempts (append-only-ish)
+concept_srs                SM-2 card per concept, FSRS stability/difficulty (0034); drives the review queue (0025)
+evidence_records           graded attempts; grounding (0029), confidence/calibration (0030), grader audit trail (0032)
 pdf_annotations            source/concept-scoped highlights and sticky notes
 star_hubs / star_hub_members  named/color cross-source concept groups (0019)
+star_hub_edges             user-curated hub ↔ hub links (0026)
+llm_calls                  APPEND-ONLY LLM call metadata (pass/model/tokens/latency/prompt hash, never prompt text) (0031)
+embeddings                 local vectors, owner_kind concept | span (0033) | chunk (0036); DERIVED except chunk rows
+rag_chunks / rag_chunks_fts  retrieval passage index + FTS5 BM25 table kept in sync by triggers (0036)
+ask_history                user-owned saved Ask results per concept, newest 50 (0037)
 events                     APPEND-ONLY audit log
 
 concept_candidates         deterministic candidates (term, confidence, signals, evidence, topic_relevance_score, is_boilerplate, is_broad)
-relation_candidates        deterministic relations (from → kind → to)
-equation_candidates        deterministic equations (latex, variables, attached_term)
-misconception_candidates   deterministic misconception phrase spans
+relation_candidates        deterministic + user relations (from → kind → to);
+                           origin parser|user, NULL = unknown/legacy; user_modified_at; source_key (0040)
+equation_candidates        deterministic + user equations (latex, variables, attached_term);
+                           origin parser|user, NULL = unknown/legacy; user_modified_at; source_latex (0039)
+misconception_candidates   deterministic + user misconception phrase spans; origin/user_modified_at/source_key (0040)
+candidate_rejections       user rejections kept across re-extract, keyed on parser identity; undoable (0041)
 
 parse_runs                 append-only audit of every Process click (mode, duration_ms, llm_call_count, llm_input_tokens, llm_output_tokens, diagnostics_json, parser_version, grammar_version, layout_version)
 ```
@@ -137,15 +150,28 @@ layout blocks (segmentPdf / segmentText, unchanged)
 - **Vectors** reuse the existing `embeddings` table, text-hash caching and model
   column; nomic models get `search_document:` / `search_query:` prefixes.
   `indexSourceEmbeddings` (concept/span) is scoped to its own kinds so it can no
-  longer prune chunk vectors. Processing never embeds; nothing in the app calls
-  `indexSourceChunkEmbeddings` yet.
+  longer prune chunk vectors. Processing never embeds. Chunk vectors are written
+  only by `indexSourceChunkEmbeddings`, which runs on demand from three places:
+  lazily on Ask, the per-source **Index** button (`rag.indexSource`), and the
+  user-started library job (below). Embedding goes to the local
+  OpenAI-compatible server at `localBaseUrl` only.
 - **Retrieval**: FTS5 query is built from quoted unicode word tokens (stopwords
   and single letters dropped, OR-combined), so user text can never become FTS
-  syntax. BM25 weights text 1.0 / section path 0.5. Vector = brute-force cosine
-  over the selected sources. Hybrid = Reciprocal Rank Fusion (k = 60, pool 50),
-  ties broken by best single rank then chunk id. When vectors are unavailable a
-  hybrid request degrades to keyword and says so in `mode_used` +
-  `vector_error`; it is never silent. Filters: `sourceIds`, `k`, `minSimilarity`.
+  syntax. BM25 weights text 1.0 / section path 0.5. Vector = brute-force cosine:
+  every query loads ALL chunk vectors of the model for the selected sources
+  (`loadChunkVectors`, no cache), scores each, sorts, and keeps the top 50.
+  Hybrid = Reciprocal Rank Fusion (k = 60, pool 50), ties broken by best single
+  rank then chunk id. When vectors are unavailable a hybrid request degrades to
+  keyword and says so in `mode_used` + `vector_error`; it is never silent.
+  Filters: `sourceIds`, `k`, `minSimilarity`.
+- **Vector cost** (`node --expose-gc evals/bench_vector.mjs`, 2026-11-26, Ryzen 7
+  7700X, 768-dim, median of 7): hybrid retrieval 18 ms at 1k chunks, 163 ms at
+  10k, 1.1 s at 50k; ~88% of that is reading + decoding the BLOBs, the cosine
+  math is 80 ms even at 50k. One 50k-chunk query transiently holds ~0.3 GB.
+  For scale, the 275-page b36 textbook is 657 chunks, so 10k ≈ 15 such books,
+  and a local Ask answer takes ~2 s. Kept as is: an ANN index would speed up
+  the cheap part. If libraries approach ~50k chunks, the justified next step is
+  an in-process vector cache invalidated on index writes, not a vector DB.
 - **FTS5** is verified in both runtimes that open the DB (Node 22.16 / SQLite
   3.49.1 for tests, Electron 45 / SQLite 3.54.1 for the app); `hasFts5(db)` is
   the runtime check, covered by a test.
@@ -189,14 +215,16 @@ Settings → Passage index (both `LibraryIndexPanel.tsx`).
 ## Local Ask (RAG PR 2)
 
 Top-level **Ask** tab (`AskPane.tsx`): pick sources, ask a question, get an
-answer whose every citation has been verified against the passage text.
+answer whose citations have been checked against the passage text. What the
+checks prove is limited (see "What grounded means" below).
 
 ```text
 rag.ask -> lazy chunk embedding (indexSourceChunkEmbeddings, progress events)
         -> askSources (knowledge/ask.ts)
              retrieveChunks hybrid (k = 6)        no hits -> 'no_passages', no model call
-             ONE structured 'ask' call, LOCAL model only
-             validateAnswer: quotes verified, [n] markers rewritten
+             ONE structured 'ask' call, LOCAL model only (chatStructured + one repair)
+             validateAnswer: quotes verified, [n] markers rewritten,
+                             analyzeClaims: per-sentence citation coverage + overlap flag
 ```
 
 - **Local-only generation**: `resolveAskConfig` always returns the `local`
@@ -207,14 +235,42 @@ rag.ask -> lazy chunk embedding (indexSourceChunkEmbeddings, progress events)
   must occur verbatim in that passage after `normalizeWithMap` folding (case,
   whitespace, NFKC, all quote marks into one class, dashes, PDF glyphs such as
   TeX's `ǫ`→`ε` and `∗`→`*`, letter-hyphen-letter joined on both sides). Quotes
-  under 12 normalized chars are rejected. `"..."` elisions must match in order.
+  under 12 normalized chars are rejected. `"..."` elisions must match in order,
+  and EACH piece must reach 12 chars (tiny fragments would match anywhere).
   A verified citation carries `start`/`end` offsets into the original passage
   text, and the UI highlights exactly that span. Unverified citations and
   markers are dropped with a reason, and the answer's `[n]` markers are
-  rewritten to verified passages only.
-- **Status**: `grounded` / `partial` (something dropped) / `unsupported`
-  (nothing verifiable) / `insufficient` (model says the passages don't answer;
-  a bare "insufficient" answer becomes null) / `no_passages` / `retrieval_only`.
+  rewritten to verified passages only. Model output is untrusted throughout:
+  unknown/negative passage numbers are dropped, and the renderer's marker regex
+  is the same one the service rewrote with.
+- **Claim coverage** (pure, `analyzeClaims`): the rewritten answer is split into
+  sentences (≥ 3 words). Each sentence needs a surviving `[n]` marker, else it is
+  `uncited`. A cited sentence fewer than half of whose content words (stopwords
+  and single letters dropped, crude stemming, 6-char prefix match) occur in its
+  cited passages is flagged `low_overlap`. That threshold was chosen up front,
+  not tuned on the eval. It catches obviously unrelated citations and gives
+  false positives on heavy paraphrase. A ONE-sentence answer with no markers at
+  all gets every verified citation attached (`implicit`), the only unambiguous
+  reading; a longer unmarked answer stays uncited. Results carry `claims[]` and
+  the constant `verification` (`ASK_VERIFICATION`).
+- **What grounded means**: `grounded` = no citation dropped, every claim sentence
+  cites a passage with a verbatim-verified quote, and no sentence is flagged.
+  It does NOT mean the passage entails the sentence: no entailment check runs
+  (`verification.entailment = 'not_checked'`), deliberately no LLM judge, and
+  the UI labels it "Citations verified" and says support is not verified.
+  `ASK_VERIFICATION.version` (2) is bumped whenever the status rules change.
+  Ask history rows saved before v2 have no `verification` object; their
+  `grounded` meant only "every listed quote verified", so the UI shows them as
+  "Quotes verified (older check)" with a note to ask again, never as
+  "Citations verified". A one-sentence answer with no markers that gets its
+  quotes attached automatically (`implicit`) says so in the UI.
+- **Status**: `grounded` (above) / `partial` (something verified, but a citation
+  was dropped or a sentence is uncited/flagged; includes unmarked multi-sentence
+  answers) / `qualified` (model flagged the passages insufficient but answered
+  with ≥ 1 verified citation) / `unsupported` (no citation verified) /
+  `insufficient` (model says the passages don't answer; a bare "insufficient"
+  answer becomes null) / `no_passages` / `retrieval_only`. Status names are
+  persisted in `ask_history`; old rows lack `claims` and still render.
 - **Offline handling**: a model failure (server down, invalid output after the
   one repair) returns `retrieval_only` with `generation_error`, and the passages
   are still shown. Embedding failure degrades to keyword retrieval
@@ -323,8 +379,12 @@ repeated domain-term evidence.
 ## Re-extract Semantics
 
 `clearDerivedDataForSource(db, sourceId, { preserveUserData: true })`:
-- Always wipes: `concept_candidates`, `relation_candidates`, `equation_candidates`, `misconception_candidates`, `semantic_chunks`
-- For `concepts`: preserves any concept with study history (`evidence_records`) OR non-empty `evidence_json` (= manually promoted from candidate). Deletes only LLM-generated/untouched ones.
+- Runs in one SAVEPOINT: a failure part-way leaves the source unchanged.
+- Always wipes: `concept_candidates`, `semantic_chunks`.
+- `relation_candidates`, `misconception_candidates` (0040), `equation_candidates` (0039): delete only `origin = 'parser'` rows the user never edited; `user`, edited and unknown-origin (legacy) rows survive. Parser output already represented by a kept row is not re-inserted: a parser row matches on its recorded original identity (`source_key` / `source_latex`), a legacy row on its current content, and only user-created rows fall back to a coarse match (relations: page + endpoints + kind).
+- Rejections (`candidate_rejections`, 0041) for concept/relation/misconception candidates and prerequisite suggestions are remembered: re-extract skips parser output whose identity was rejected. Undo restores the snapshotted row.
+- Both entry points (Re-extract button, bulk outdated job) share one rebuild path (`knowledge/source_rebuild.ts`).
+- For `concepts`: deletes only `origin = 'llm'` concepts with no `user_modified_at` and no user data attached (graded attempts, Ask history, SRS card, notes, tags, constellations, hub membership, annotations, edges). Manual, promoted and unknown-origin (pre-0038) concepts always survive. Promoting a candidate onto an existing LLM concept turns it into `promoted`.
 - Never touches: `sources`, source file, `events`, `rag_chunks` and chunk vectors (reconciled by `syncSourceChunks` instead)
 
 Startup: `recoverInterruptedSources(db)` flips any `status='processing'` (killed mid-run) → `status='failed'` with recoverable error message.

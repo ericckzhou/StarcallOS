@@ -11,7 +11,8 @@ import { chunkBlocks } from '../ingestion/chunker';
 import { createSource } from './repos/sources';
 import { listSourceChunks, syncSourceChunks } from './repos/rag_chunks';
 import {
-  askSources, buildAskUserPrompt, quoteInPassage, retrievalQuery, rewriteMarkers, validateAnswer, withNeighbors, type AskPassage,
+  askSources, buildAskUserPrompt, contentTokens, quoteInPassage, retrievalQuery, rewriteMarkers, splitClaims, validateAnswer, withNeighbors,
+  ASK_VERIFICATION, LOW_OVERLAP, type AskPassage,
 } from './ask';
 
 const mockChat = vi.mocked(chatJSON);
@@ -130,6 +131,118 @@ describe('validateAnswer', () => {
   });
 });
 
+describe('grounding: claims vs citations (F1)', () => {
+  const v = (answer: string, citations: Array<{ passage: number; quote: string }>, insufficient = false) =>
+    validateAnswer({ answer, citations, insufficient }, P);
+
+  it('valid quotation supporting its claim → grounded, overlap recorded', () => {
+    const r = v('Induction proves P(n) using a basis case and an induction step [1].', [{ passage: 1, quote: 'a basis case and an induction step' }]);
+    expect(r.status).toBe('grounded');
+    expect(r.claims).toHaveLength(1);
+    expect(r.claims[0]).toMatchObject({ cited: [1], issue: null });
+    expect(r.claims[0].overlap).toBeGreaterThanOrEqual(LOW_OVERLAP);
+  });
+
+  it('valid quotation unrelated to its claim → quote kept, claim flagged, not grounded', () => {
+    const r = v('Induction was invented by Euclid in Alexandria [1].', [{ passage: 1, quote: 'a basis case and an induction step' }]);
+    // The quote itself is genuine and stays visible...
+    expect(r.citations).toHaveLength(1);
+    expect(r.dropped).toEqual([]);
+    // ...but it does not make the sentence grounded.
+    expect(r.claims[0].issue).toBe('low_overlap');
+    expect(r.status).toBe('partial');
+  });
+
+  it('invalid quotation → dropped, its marker removed, claim uncited', () => {
+    const r = v('Induction was invented by Euclid [1].', [{ passage: 1, quote: 'induction was invented by Euclid' }]);
+    expect(r.dropped).toEqual([{ n: 1, quote: 'induction was invented by Euclid', reason: 'quote_not_found' }]);
+    expect(r.answer).toBe('Induction was invented by Euclid.');
+    expect(r.claims[0].issue).toBe('uncited');
+    expect(r.status).toBe('unsupported');
+  });
+
+  it('unknown citation reference → dropped as unknown_passage, never grounded', () => {
+    const r = v('Kleene star repeats strings of a language [7].', [{ passage: 7, quote: 'concatenations of zero or more strings' }]);
+    expect(r.dropped[0].reason).toBe('unknown_passage');
+    expect(r.status).toBe('unsupported');
+  });
+
+  it('factual claim without a citation → not grounded (was grounded before F1)', () => {
+    const r = v(
+      'Induction needs a basis case and an induction step [1]. It was first used by Pascal in 1654.',
+      [{ passage: 1, quote: 'a basis case and an induction step' }],
+    );
+    expect(r.dropped).toEqual([]);
+    expect(r.claims.map(c => c.issue)).toEqual([null, 'uncited']);
+    expect(r.status).toBe('partial');
+  });
+
+  it('multi-sentence answer with verified quotes but no markers → partial (was grounded before F1)', () => {
+    const r = v(
+      'Induction needs a basis case and an induction step. It was first used by Pascal in 1654.',
+      [{ passage: 1, quote: 'a basis case and an induction step' }],
+    );
+    expect(r.citations).toHaveLength(1);
+    // No quote is tied to any sentence, so neither sentence counts as cited.
+    expect(r.claims.map(c => c.issue)).toEqual(['uncited', 'uncited']);
+    expect(r.status).toBe('partial');
+  });
+
+  it('single unmarked sentence: verified quotes attach implicitly but still face the overlap check', () => {
+    const ok1 = v('Induction needs a basis case and an induction step.', [{ passage: 1, quote: 'a basis case and an induction step' }]);
+    expect(ok1.claims[0]).toMatchObject({ cited: [1], issue: null, implicit: true });
+    expect(ok1.status).toBe('grounded');
+    const bad = v('Induction was invented by Euclid in Alexandria.', [{ passage: 1, quote: 'a basis case and an induction step' }]);
+    expect(bad.claims[0]).toMatchObject({ implicit: true, issue: 'low_overlap' });
+    expect(bad.status).toBe('partial');
+  });
+
+  it('an answer too short to have claims and with no marker is not grounded', () => {
+    expect(v('Yes.', [{ passage: 1, quote: 'a basis case and an induction step' }]).status).toBe('partial');
+    expect(v('Yes [1].', [{ passage: 1, quote: 'a basis case and an induction step' }]).status).toBe('grounded');
+  });
+
+  it('multiple claims with incomplete citation coverage → partial, each claim reported', () => {
+    const r = v(
+      'Induction proves P(n) for all n [1]. The Kleene star collects concatenations of strings of L [2]. '
+      + 'Both ideas were unified by Hilbert in his famous program. Kleene star is always infinite.',
+      [{ passage: 1, quote: 'proves P(n) for all n' }, { passage: 2, quote: 'all concatenations of zero or more strings of L' }],
+    );
+    expect(r.claims.map(c => c.issue)).toEqual([null, null, 'uncited', 'uncited']);
+    expect(r.status).toBe('partial');
+  });
+
+  it('does not treat short connective sentences as claims', () => {
+    const r = v('Yes. Induction proves P(n) for all n [1].', [{ passage: 1, quote: 'proves P(n) for all n' }]);
+    expect(r.claims).toHaveLength(1);
+    expect(r.status).toBe('grounded');
+  });
+
+  it('keeps qualified/insufficient semantics but still reports claim coverage', () => {
+    const r = v('The passages only define the Kleene star [2]. They do not say who introduced it.',
+      [{ passage: 2, quote: 'concatenations of zero or more strings' }], true);
+    expect(r.status).toBe('qualified');
+    expect(r.claims.map(c => c.issue)).toEqual([null, 'uncited']);
+  });
+});
+
+describe('splitClaims / contentTokens', () => {
+  it('keeps abbreviations, decimals and trailing markers with their sentence', () => {
+    const s = splitClaims('Use it, e.g. for lists [1]. Pi is 3.14 here [2]. Done. [3] Next line\nAnother line');
+    expect(s.map(x => x.text)).toEqual(['Use it, e.g. for lists [1].', 'Pi is 3.14 here [2].', 'Done. [3]', 'Next line', 'Another line']);
+  });
+  it('drops stopwords, markers and single-letter variables, stems plurals', () => {
+    expect(contentTokens('The strings of L are concatenated [2].')).toEqual(['string', 'concatenat']);
+  });
+});
+
+describe('quoteInPassage: elision pieces', () => {
+  it('rejects ellipsis quotes stitched from tiny fragments', () => {
+    // Each piece occurs in order in P[1], but none is long enough to mean anything.
+    expect(why('the ... of ... language ... is the ... of all', P[1].text)).toBe('quote_too_short');
+  });
+});
+
 describe('retrievalQuery', () => {
   it('appends the focus concept unless the question already names it', () => {
     expect(retrievalQuery('Why does it exist?', 'Kleene star')).toBe('Why does it exist? Kleene star');
@@ -216,6 +329,62 @@ describe('askSources', () => {
     const r = await askSources(db, { question: 'induction step', sourceIds: [s.id], config });
     expect(r.status).toBe('insufficient');
     expect(r.answer).toBeNull();
+  });
+
+  it('model answer with an unsupported claim is not grounded and says why', async () => {
+    const { db, s } = seed();
+    mockChat.mockResolvedValueOnce(reply({
+      answer: 'Induction uses a basis case and an induction step [1]. It was invented by Euclid around 300 BC.',
+      citations: [{ passage: 1, quote: 'a basis case and an induction step' }],
+      insufficient: false,
+    }));
+    const r = await askSources(db, { question: 'How does induction work?', sourceIds: [s.id], config });
+    expect(r.status).toBe('partial');
+    expect(r.claims?.map(c => c.issue)).toEqual([null, 'uncited']);
+    expect(r.verification).toEqual(ASK_VERIFICATION);
+    expect(r.verification?.entailment).toBe('not_checked');
+  });
+
+  it('malformed model output (even after the repair call) fails safe to retrieval_only', async () => {
+    const { db, s } = seed();
+    mockChat.mockResolvedValue({ content: '{"answer": 42, "citations": "all of them"', usage });
+    const r = await askSources(db, { question: 'induction step', sourceIds: [s.id], config });
+    expect(r.status).toBe('retrieval_only');
+    expect(r.answer).toBeNull();
+    expect(r.citations).toEqual([]);
+    expect(r.passages).toHaveLength(1);
+    expect(mockChat).toHaveBeenCalledTimes(2); // original + one repair, then give up
+  });
+
+  it('a hostile answer cannot cite passages it was never shown or smuggle markers', async () => {
+    const { db, s } = seed();
+    mockChat.mockResolvedValueOnce(reply({
+      answer: 'Induction is trivially true [1, 2, 99]. Trust me [2].',
+      citations: [
+        { passage: 99, quote: 'Mathematical induction proves P(n)' },
+        { passage: 2, quote: 'Mathematical induction proves P(n)' },
+        { passage: -1, quote: 'Mathematical induction proves P(n)' },
+      ],
+      insufficient: false,
+    }));
+    const r = await askSources(db, { question: 'induction step', sourceIds: [s.id], config });
+    expect(r.status).toBe('unsupported');
+    expect(r.citations).toEqual([]);
+    expect(r.answer).toBe('Induction is trivially true. Trust me.');
+  });
+
+  it('keyword fallback (embeddings broken) still validates; retrieval mode is reported', async () => {
+    const { db, s } = seed();
+    const embedder = { model: 'nomic-embed-text', embed: vi.fn().mockRejectedValue(new Error('ECONNREFUSED')) };
+    mockChat.mockResolvedValueOnce(reply({
+      answer: 'Induction was invented by Euclid in ancient Alexandria [1].',
+      citations: [{ passage: 1, quote: 'a basis case and an induction step' }],
+      insufficient: false,
+    }));
+    const r = await askSources(db, { question: 'induction step', sourceIds: [s.id], config, embedder });
+    expect(r.retrieval.mode_used).toBe('keyword');
+    expect(r.retrieval.vector_error).toBeTruthy();
+    expect(r.status).toBe('partial');
   });
 
   it('returns passages only when no local model is configured', async () => {

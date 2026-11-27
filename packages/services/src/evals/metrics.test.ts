@@ -129,7 +129,7 @@ describe('ask metrics', () => {
     ]);
     expect(m.n).toBe(7);
     expect(m.answerable).toEqual({
-      n: 5, grounded_rate: 0.2, supported_rate: 0.6, declined_rate: 0.2, unsupported_rate: 0, failed_rate: 0.2,
+      n: 5, citation_verified_rate: 0.2, supported_rate: 0.6, declined_rate: 0.2, unsupported_rate: 0, failed_rate: 0.2,
     });
     expect(m.correct_abstention_rate).toBe(0.5);
     expect(m.n_unanswerable).toBe(2);
@@ -149,5 +149,55 @@ describe('ask metrics', () => {
     expect(m.citation_precision).toBeNull();
     expect(m.relevant_citation_rate).toBeNull();
     expect(m.dropped_citation_rate).toBeNull();
+    expect(m.correct_caution_rate).toBeNull();
+    expect(m.uncited_claim_answer_rate).toBeNull();
+  });
+
+  it('scores related-but-insufficient cases on caution, apart from abstention and answers', () => {
+    const insuff = { category: 'insufficient_context', answerable: false, relevant: [], expected: 'abstain_or_qualify' as const };
+    const m = scoreAsk([
+      c({ id: 'a', status: 'grounded', cited: ['a'] }),
+      c({ id: 'n', category: 'no_answer', answerable: false, relevant: [], status: 'qualified' }),
+      c({ id: 'i1', ...insuff, status: 'qualified' }),
+      c({ id: 'i2', ...insuff, status: 'insufficient' }),
+      c({ id: 'i3', ...insuff, status: 'grounded' }),
+    ]);
+    expect(m.answerable.n).toBe(1);
+    // A hedged answer to a truly unanswerable question is still not an abstention...
+    expect(m.n_unanswerable).toBe(1);
+    expect(m.correct_abstention_rate).toBe(0);
+    // ...but for related-but-insufficient passages, qualified counts as cautious.
+    expect(m.n_insufficient_context).toBe(3);
+    expect(m.correct_caution_rate).toBe(0.667);
+  });
+
+  it('reports claim-coverage rates over answered cases that carry claim data', () => {
+    const m = scoreAsk([
+      c({ id: '1', status: 'grounded', cited: ['a'], uncited_claims: 0, low_overlap_claims: 0 }),
+      c({ id: '2', status: 'partial', cited: ['a'], uncited_claims: 2, low_overlap_claims: 0 }),
+      c({ id: '3', status: 'partial', cited: ['a'], uncited_claims: 1, low_overlap_claims: 1 }),
+      c({ id: '4', status: 'partial', cited: ['a'] }),                            // legacy row: no claim data
+      c({ id: '5', status: 'insufficient', uncited_claims: 0, low_overlap_claims: 0 }), // not an answer
+    ]);
+    expect(m.uncited_claim_answer_rate).toBe(0.667);
+    expect(m.low_overlap_answer_rate).toBe(0.333);
+  });
+
+  it('keeps automatic (implicit) citation links apart from explicit ones', () => {
+    const m = scoreAsk([
+      c({ id: '1', status: 'grounded', cited: ['a'], uncited_claims: 0, low_overlap_claims: 0, implicit_claims: 0 }),
+      c({ id: '2', status: 'grounded', cited: ['a'], uncited_claims: 0, low_overlap_claims: 0, implicit_claims: 1 }),
+      c({ id: '3', status: 'partial', cited: ['a'], uncited_claims: 1, low_overlap_claims: 0, implicit_claims: 0 }),
+      c({ id: '4', status: 'grounded', cited: ['a'], uncited_claims: 0, low_overlap_claims: 0, implicit_claims: 0 }),
+    ]);
+    expect(m.answerable.citation_verified_rate).toBe(0.75);      // status-level, unchanged
+    expect(m.citation_verified_explicit_rate).toBe(0.5);         // auto-linked answer excluded
+    expect(m.implicit_link_answer_rate).toBe(0.25);
+  });
+
+  it('reports the implicit rates as null for result files without them', () => {
+    const m = scoreAsk([c({ id: '1', status: 'grounded', cited: ['a'], uncited_claims: 0, low_overlap_claims: 0 })]);
+    expect(m.implicit_link_answer_rate).toBeNull();
+    expect(m.citation_verified_explicit_rate).toBeNull();
   });
 });

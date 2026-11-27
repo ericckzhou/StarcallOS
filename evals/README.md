@@ -162,7 +162,10 @@ refuses to score if retrieval falls back to keyword-only, since that is not
 what the app runs.
 
 - **Metrics** (`scoreAsk` in `packages/services/src/evals/metrics.ts`):
-  - answerable questions: share `grounded`, `supported` (grounded or partial),
+  - answerable questions: `citation_verified_rate` (status `grounded`, shown
+    as "Citations verified": every quote found verbatim and every sentence
+    tied to one; NOT a measure of semantic support), `supported` (grounded,
+    partial or qualified),
     `declined` (insufficient / no_passages), `unsupported` and `failed`
     (model error → retrieval only);
   - unanswerable questions: correct abstention rate (declined);
@@ -174,9 +177,55 @@ what the app runs.
   was in the prompt are listed by id. That separates generation misses from
   retrieval misses.
 - **Baseline**: `baselines/ask.json` (metrics only; the per-run results file
-  contains answer text and stays in the gitignored `results/`). Local answers
+  contains answer text and stays in the gitignored `results/`). Recorded from
+  the reviewed set only, with provenance in `config`: `golden_set` +
+  `golden_sha256`, `verifier_version` (`ASK_VERIFICATION.version`),
+  `model` + `model_digest` and `embed_model` + `embed_model_digest` (Ollama
+  build digests; `null` on other servers), document sha, chunker/layout
+  versions. A run against a baseline from a different verifier version stops
+  with exit 1 and compares nothing, since status definitions differ; a
+  different golden hash or model digest is printed as a note. `--save-baseline`
+  refuses a run with model-server errors (HTTP 5xx, OOM, connection drops):
+  those are infrastructure, not model behavior. Local answers
   vary from run to run even at temperature 0, so the regression tolerance is
   0.075 (two questions out of 27), not the 0.03 the other evals use.
+- **Primary answer metric**: `citation_verified_explicit_rate`, the share of
+  answerable questions whose answer is citation-verified through the model's
+  own `[n]` markers. Report it first. `citation_verified_rate` also counts
+  one-sentence answers whose quotes were attached automatically (in the
+  2026-11-27 baseline run, 5 of its 11 answers; explicit-only 0.222 vs
+  0.407) and stays the gated aggregate for comparability. Both are
+  verbatim-quote checks, not semantic support. The explicit rate becomes
+  gated only after it has been confirmed on a successful live run and the
+  baseline is re-recorded on purpose; `implicit_link_answer_rate` is
+  reported beside it.
+- **Claim coverage** (reported, not gated): share of answers with at least
+  one uncited sentence, and with at least one `low_overlap` sentence
+  (`analyzeClaims` in `knowledge/ask.ts`; a lexical heuristic, NOT an entailment
+  check). The local results file lists each flagged sentence.
+- **Intentional change, 2026-11-26 (audit F1)**: `grounded` now also requires
+  every answer sentence to carry a verified citation and no sentence to be
+  flagged low-overlap. Same model, same questions: `grounded_rate` 0.704 →
+  0.407; supported 0.963, unsupported 0.037, citation precision 0.673 and
+  dropped 0.140 all unchanged. In that run the old rule gives 19 grounded
+  answers (0.704, matching the baseline); 8 flipped to `partial`. 7 have a
+  sentence with no verified citation: 3 are multi-sentence answers with no
+  `[n]` markers at all (`qwen3.5:4b` often lists verified quotes without
+  marking sentences: r01, r13, r24), 4 left some sentences unmarked (r02, r08,
+  r10, r22). 1 (r11) is a low-overlap flag; it was read as a paraphrase false
+  positive, but in a later app run the flagged r11 sentence cited [3] for
+  material that is in [5], so the flag can also catch a misattributed citation.
+  The 0.5 threshold was NOT tuned to remove it. A second flag (r30) did not
+  change its `qualified` status.
+- **Baselines across that change**: the verifier-v1 baseline (metric
+  `grounded_rate`, old rule: every listed quote verified and none dropped, sentences
+  not checked) is kept verbatim in
+  `baselines/archive/ask.2026-11-26.verifier-v1.json`; do not compare new runs
+  against it. `baselines/ask.json` was re-recorded 2026-11-27 under verifier
+  v2 (`citation_verified_rate` 0.407, supported 0.963, unsupported 0.037,
+  abstention 1.000, precision 0.673, dropped 0.140; identical to the
+  2026-11-26 v2 run), and an unchanged re-run reports no regressions. The 17
+  proposed cases are not in it.
 - **Statuses**: `qualified` (the model flagged the passages as insufficient
   but still gave a hedged answer with at least one verified citation) counts as
   supported, not declined. Before it existed, the false-premise questions were
@@ -196,6 +245,48 @@ what the app runs.
     revisit with more unanswerable questions in the golden set.
 - **Caveats**: the same labels as the retrieval eval. Only 3 unanswerable questions, so
   abstention is a coarse signal.
+
+## Proposed cases (unreviewed)
+
+`golden/retrieval.proposed.jsonl` holds 17 drafted cases that are NOT
+reviewed and never touch a baseline (both runners refuse to compare or save
+when `--golden` is not the default set):
+
+```sh
+pnpm eval:ask -- --pdf <pdf> --model qwen3.5:4b --golden retrieval.proposed
+pnpm eval:retrieval -- --pdf <pdf> --golden retrieval.proposed --review   # pooled sheet to label from
+```
+
+- 4 harder `no_answer` (domain-adjacent: Myhill-Nerode, CYK, quicksort,
+  Church-Turing) and 5 `insufficient_context` (related passages exist but not
+  the answer, e.g. who proved the Pumping Lemma). Absence was checked by
+  substring search over the pinned document's chunks, which is evidence, not
+  proof. `insufficient_context` cases use `expected: "abstain_or_qualify"`
+  and score as `correct_caution_rate`, apart from strict abstention and from
+  retrieval recall.
+- 3 `false_premise`, 2 `multi_passage`, 3 `multi_concept` answerable cases with
+  NO relevance labels (`needs_labels`). They are printed per case and excluded
+  from the metrics until a human labels them from the pooled `--review` sheet.
+  Claude did not write labels for them, to avoid repeating the keyword bias
+  the original labels had.
+- First run (2026-11-26, `qwen3.5:4b`, provisional): abstention 0.750 (n=4; p01
+  declined in words but attached a citation, so it scored `qualified`),
+  caution 0.800 (n=5; p08 answered "deterministic PDAs are less powerful" from
+  outside knowledge. That is true, but not in the book. It scored `partial`
+  with 2 uncited sentences, and under the old status rules it would have been
+  `grounded`). The reviewed set's abstention of 1.000 on 3 easy questions
+  overstates abstention on near-miss questions.
+- Promote a case to `retrieval.jsonl` only after a human review; re-record
+  baselines after promoting. Do not tune thresholds on these cases and then
+  report them as held-out.
+
+## Vector retrieval benchmark
+
+`node --expose-gc evals/bench_vector.mjs [--sizes 1000,10000,50000] [--dim 768] [--runs 7]`
+times the real brute-force path (`loadChunkVectors` → cosine → sort, plus
+`vectorSearch` and hybrid `retrieveChunks`) on synthetic file-backed DBs. No
+model or network. Results and the decision (no ANN, no cache yet) are in
+`ARCHITECTURE.md` → Retrieval Chunk Index → Vector cost.
 
 ## Comparing PDF parsers (Docling)
 
@@ -220,8 +311,8 @@ Measured 2026-11-26 on b36 (docling 2.153.0, CPU, 164 s for 275 pages;
 |---|---|---|
 | chunks | 657 | 832 |
 | hybrid MRR@5 / Cov@5 / Cov@10 | 0.797 / 1.000 / 1.000 | 0.651 / 0.889 / 1.000 |
-| Ask: grounded / supported | 0.704 / 0.963 | 0.778 / 0.963 |
-| Ask: grounded on equation questions | 0.40 | 0.80 |
+| Ask: grounded / supported (verifier v1) | 0.704 / 0.963 | 0.778 / 0.963 |
+| Ask: grounded on equation questions (verifier v1) | 0.40 | 0.80 |
 | Ask: dropped citations | 0.140 | 0.055 |
 | Ask: citation precision (mapped labels for Docling) | 0.673 | 0.635 |
 | candidates: total / strong (score >= 0.5) | 295 / 38 | 356 / 112 |

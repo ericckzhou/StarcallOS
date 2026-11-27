@@ -166,6 +166,21 @@ describe('retrieveChunks', () => {
     expect(vecOnly.vector_error).not.toBeNull();
   });
 
+  it('is deterministic across repeated queries and never mixes in another model\'s vectors', async () => {
+    const { db, a, b } = seed();
+    await indexSourceChunkEmbeddings(db, topicEmbedder(), a.id);
+    await indexSourceChunkEmbeddings(db, topicEmbedder(), b.id);
+    const q = { query: 'halving a sorted array', embedder: topicEmbedder(), k: 4 };
+    const first = await retrieveChunks(db, q);
+    const second = await retrieveChunks(db, q);
+    expect(second.hits.map(h => [h.chunk_id, h.score])).toEqual(first.hits.map(h => [h.chunk_id, h.score]));
+    expect(first.mode_used).toBe('hybrid');
+    // Vectors exist only under model "topic": a different model sees none and says so.
+    const other = await retrieveChunks(db, { ...q, embedder: topicEmbedder('other-model') });
+    expect(other.mode_used).toBe('keyword');
+    expect(other.vector_error).toMatch(/No chunk embeddings indexed for model "other-model"/);
+  });
+
   it('keyword mode never calls the embedder', async () => {
     const { db } = seed();
     const emb = topicEmbedder();

@@ -12,8 +12,17 @@
 //   PDF-glyph normalization) and carries the verified span of the passage. Unverifiable citations are dropped and counted, and the
 //   answer's [n] markers are rewritten to match, so a marker the user sees
 //   always points at a quote that really is in that passage.
+// - Every sentence of the answer is checked for a surviving marker
+//   (`analyzeClaims`). An uncited sentence, or a cited one that shares few
+//   content words with the passage it cites, keeps the answer out of
+//   'grounded'.
 // - The model being offline / returning bad output never loses the retrieval:
 //   the result degrades to 'retrieval_only' with `generation_error` set.
+//
+// What is NOT guaranteed: that a cited passage semantically SUPPORTS the
+// sentence citing it. A verbatim quote proves the quote exists; the lexical
+// overlap check only catches citations that are obviously unrelated. No
+// entailment check runs (see ASK_VERIFICATION), and the UI says so.
 
 import { z } from 'zod';
 import type { DatabaseSync } from '../core/infra/sqlite';
@@ -23,9 +32,14 @@ import { chatStructured } from '../core/structured';
 import { retrieveChunks, type RetrievalMode, type RetrievedChunk } from './retrieval';
 import { getNextChunksInSection } from './repos/rag_chunks';
 
+// Status names are persisted (ask_history) and scored by the Ask eval, so they
+// are kept; their meaning is what the comments say, nothing stronger.
 export type AnswerStatus =
-  | 'grounded'        // every cited marker verified
-  | 'partial'         // some citations verified, some dropped
+  | 'grounded'        // every claim sentence cites a passage with a verbatim-verified
+                      // quote, nothing was dropped, and no claim was flagged low-overlap.
+                      // NOT a claim that the passages entail the answer.
+  | 'partial'         // some support verified, but a citation was dropped, a sentence
+                      // is uncited, or a sentence shares few words with what it cites
   | 'qualified'       // the model flagged the passages as insufficient but still gave a
                       // hedged answer with verified citations (e.g. "they give bounds,
                       // not a closed form", or a refuted false premise)
@@ -63,12 +77,45 @@ export interface DroppedCitation {
   reason: 'unknown_passage' | 'quote_not_found' | 'quote_too_short' | 'marker_without_quote';
 }
 
+// One sentence of the answer and what backs it.
+export interface AnswerClaim {
+  text: string;              // the sentence, markers included (rewritten answer)
+  cited: number[];           // verified passage numbers its markers point at
+  // Share of the sentence's content words found in the cited passages
+  // (crude stemming). A heuristic for "obviously unrelated", not entailment.
+  // null when uncited or the sentence has too few content words to judge.
+  overlap: number | null;
+  issue: 'uncited' | 'low_overlap' | null;
+  // True when the answer had no markers at all and is a single sentence, so
+  // every verified citation was attached to it (the only unambiguous reading).
+  implicit?: boolean;
+}
+
+// What the checks behind a status do and do not establish. Constant; carried
+// on every result so the limitation is part of the data, not just the UI copy.
+export const ASK_VERIFICATION = {
+  // Bump when a change alters which answers get which status. 1 = quote-only
+  // (pre claim coverage; results without this object); 2 = per-sentence
+  // claim coverage + elision-piece minimum. Eval baselines record it and
+  // refuse to compare across versions.
+  version: 2,
+  quotes: 'verbatim',               // each kept quote occurs in its passage (normalized)
+  claim_citations: 'per_sentence',    // each sentence needs a marker to a verified passage
+  claim_support: 'lexical_overlap',   // heuristic: flags sentences sharing few words with their passage
+  entailment: 'not_checked',          // no check that the passage actually supports the sentence
+} as const;
+export type AskVerification = typeof ASK_VERIFICATION;
+
 export interface AskResult {
   question: string;
   status: AnswerStatus;
   answer: string | null;     // markers rewritten to verified passages only
   citations: AnswerCitation[];
   dropped: DroppedCitation[];
+  // Per-sentence coverage of `answer`. Optional: absent on results saved to
+  // Ask history before it existed, and empty when there is no answer.
+  claims?: AnswerClaim[];
+  verification?: AskVerification;
   passages: AskPassage[];
   retrieval: { mode_requested: RetrievalMode; mode_used: RetrievalMode; vector_error: string | null };
   generation_error: string | null;
@@ -192,7 +239,10 @@ export type QuoteCheck =
 
 // A quote is verified when, after normalization, it occurs in the passage. The
 // model may elide with "..." / "…": each piece must then occur, in order, and
-// the reported span runs from the first piece to the end of the last.
+// the reported span runs from the first piece to the end of the last. Each
+// piece must reach MIN_QUOTE_CHARS on its own: otherwise "the ... of ... and
+// ... is" strings tiny fragments together and "verifies" against almost any
+// passage.
 export function quoteInPassage(quote: string, passage: string): QuoteCheck {
   const hay = normalizeWithMap(passage);
   const pieces = normalizeForQuote(quote)
@@ -200,8 +250,7 @@ export function quoteInPassage(quote: string, passage: string): QuoteCheck {
     .split(/\s*\.\.\.\s*/)
     .map(p => p.replace(/^[\s.,;:]+|[\s.,;:]+$/g, ''))
     .filter(p => p.length > 0);
-  const total = pieces.reduce((n, p) => n + p.length, 0);
-  if (total < MIN_QUOTE_CHARS) return { ok: false, reason: 'quote_too_short' };
+  if (pieces.length === 0 || pieces.some(p => p.length < MIN_QUOTE_CHARS)) return { ok: false, reason: 'quote_too_short' };
   let from = 0;
   let first = -1;
   for (const p of pieces) {
@@ -240,12 +289,110 @@ export function markersIn(answer: string): number[] {
   return out;
 }
 
+// ─── claim coverage ─────────────────────────────────────────────────────────
+
+// Sentences shorter than this many words ("Yes.", "In short:") are not treated
+// as claims that need their own citation.
+export const MIN_CLAIM_WORDS = 3;
+// A cited sentence with at least MIN_OVERLAP_TOKENS content words, fewer than
+// this share of which occur in its cited passages, is flagged 'low_overlap'.
+// Chosen a priori as "most of the sentence's key words are absent"; NOT tuned
+// on the Ask eval set. Paraphrase legitimately lowers overlap, which is why it
+// is a flag that withholds 'grounded', never a reason to drop a citation.
+export const LOW_OVERLAP = 0.5;
+const MIN_OVERLAP_TOKENS = 2;
+
+const CLAIM_STOPWORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'not', 'no', 'nor', 'of', 'to', 'in', 'on', 'for', 'by', 'with', 'is', 'are',
+  'was', 'were', 'be', 'been', 'being', 'it', 'its', 'this', 'that', 'these', 'those', 'what', 'which', 'who', 'whom',
+  'how', 'why', 'when', 'where', 'does', 'do', 'did', 'can', 'could', 'should', 'would', 'will', 'may', 'might', 'must',
+  'shall', 'from', 'as', 'at', 'about', 'into', 'than', 'then', 'there', 'their', 'they', 'them', 'if', 'so', 'such',
+  'also', 'only', 'very', 'has', 'have', 'had', 'any', 'all', 'each', 'every', 'some', 'more', 'most', 'other', 'one',
+  'we', 'you', 'i', 'he', 'she', 'his', 'her', 'our', 'your', 'us', 'yes', 'here', 'thus', 'hence', 'therefore',
+  'passage', 'passages', 'source', 'sources', 'text', 'states', 'stated', 'says', 'according', 'mentions', 'mentioned',
+]);
+
+function stem(t: string): string {
+  for (const suf of ['ing', 'ed', 'es', 'ly', 's']) {
+    if (t.length - suf.length >= 4 && t.endsWith(suf)) return t.slice(0, -suf.length);
+  }
+  return t;
+}
+
+// Content tokens: normalized (same folding as quote checks), stopwords and
+// single letters (variable names) removed, numbers kept, crudely stemmed.
+export function contentTokens(s: string): string[] {
+  const words = normalizeForQuote(s.replace(MARKER_RE, ' ')).match(/[\p{L}\p{N}]+/gu) ?? [];
+  return words.filter(w => !CLAIM_STOPWORDS.has(w) && (w.length > 1 || /\d/.test(w))).map(stem);
+}
+
+// Split an answer into sentences. A sentence ends at . ! ? (plus any closing
+// quote/bracket and trailing [n] markers) followed by whitespace and a capital,
+// digit, quote or bracket, or at a newline, so "e.g. the", "3.14" and
+// "P(n). [1]" stay intact. Offsets index into `answer`.
+export function splitClaims(answer: string): Array<{ text: string; start: number; end: number }> {
+  const out: Array<{ text: string; start: number; end: number }> = [];
+  const push = (s: number, e: number) => {
+    const raw = answer.slice(s, e);
+    const lead = raw.length - raw.trimStart().length;
+    const text = raw.trim();
+    if (text) out.push({ text, start: s + lead, end: s + lead + text.length });
+  };
+  const END = /[.!?]+["'”’)\]]*(?:\s*\[\d+(?:\s*,\s*\d+)*\])*(?=\s+["“(\[]?[\p{Lu}\p{N}]|\s*$)|\n+/gu;
+  let at = 0;
+  for (const m of answer.matchAll(END)) {
+    const e = m.index! + m[0].length;
+    push(at, e);
+    at = e;
+  }
+  push(at, answer.length);
+  return out;
+}
+
+// Pure: which sentences of the (marker-rewritten) answer carry a verified
+// citation, and how much of each cited sentence's vocabulary its passages share.
+//
+// Small local models often list verified quotes but write no [n] markers. A
+// one-sentence answer with no markers gets every verified citation attached
+// (`implicit`), since there is nothing else they could belong to; it still
+// faces the overlap check. In a longer unmarked answer the association is
+// unknowable, so every sentence stays 'uncited'.
+export function analyzeClaims(answer: string, passages: AskPassage[], verified: Set<number>): AnswerClaim[] {
+  const byN = new Map(passages.map(p => [p.n, p]));
+  const tokenCache = new Map<number, string[]>();
+  const passageTokens = (n: number) => {
+    if (!tokenCache.has(n)) tokenCache.set(n, contentTokens(byN.get(n)?.text ?? ''));
+    return tokenCache.get(n)!;
+  };
+  const sentences = splitClaims(answer).map(s => s.text).filter(text =>
+    (text.replace(MARKER_RE, ' ').match(/[\p{L}\p{N}]+/gu) ?? []).length >= MIN_CLAIM_WORDS);
+  const implicit = sentences.length === 1 && markersIn(answer).length === 0 && verified.size > 0;
+  const claims: AnswerClaim[] = [];
+  for (const text of sentences) {
+    const cited = implicit ? [...verified].sort((a, b) => a - b) : [...new Set(markersIn(text).filter(n => verified.has(n)))];
+    if (cited.length === 0) { claims.push({ text, cited, overlap: null, issue: 'uncited' }); continue; }
+    const extra = implicit ? { implicit: true } : {};
+    const mine = [...new Set(contentTokens(text))];
+    if (mine.length < MIN_OVERLAP_TOKENS) { claims.push({ text, cited, overlap: null, issue: null, ...extra }); continue; }
+    const theirs = cited.flatMap(passageTokens);
+    const have = new Set(theirs);
+    // A shared 6-character prefix absorbs suffixes the crude stemmer misses
+    // ("inductive" / "induction").
+    const prefixes = new Set(theirs.filter(p => p.length >= 6).map(p => p.slice(0, 6)));
+    const found = mine.filter(t => have.has(t) || (t.length >= 6 && prefixes.has(t.slice(0, 6))));
+    const overlap = Math.round((found.length / mine.length) * 1000) / 1000;
+    claims.push({ text, cited, overlap, issue: overlap < LOW_OVERLAP ? 'low_overlap' : null, ...extra });
+  }
+  return claims;
+}
+
 // Pure: validate the model's output against the passages it was shown.
 export function validateAnswer(out: AskOutput, passages: AskPassage[]): {
   status: Exclude<AnswerStatus, 'no_passages' | 'retrieval_only'>;
   answer: string;
   citations: AnswerCitation[];
   dropped: DroppedCitation[];
+  claims: AnswerClaim[];
 } {
   const byN = new Map(passages.map(p => [p.n, p]));
   const citations: AnswerCitation[] = [];
@@ -274,14 +421,21 @@ export function validateAnswer(out: AskOutput, passages: AskPassage[]): {
     if (!dropped.some(d => d.n === n)) dropped.push({ n, quote: '', reason: 'marker_without_quote' });
   }
 
+  const claims = analyzeClaims(text, passages, verified);
+
   let status: Exclude<AnswerStatus, 'no_passages' | 'retrieval_only'>;
   // A hedged answer that still cites verified passages is shown as a caveated
   // answer, not a decline: it tells the learner what the sources DO say.
   if (out.insufficient) status = citations.length > 0 ? 'qualified' : 'insufficient';
   else if (citations.length === 0) status = 'unsupported';
-  else if (dropped.length > 0) status = 'partial';
+  // Verified quotes exist; an uncited sentence (including an unmarked
+  // multi-sentence answer, where no quote is tied to any sentence) makes it
+  // 'partial', never 'grounded'.
+  else if (dropped.length > 0 || claims.some(c => c.issue !== null)) status = 'partial';
+  // Too short to have claim sentences ("Yes.") and no marker either.
+  else if (claims.length === 0 && markersIn(text).length === 0) status = 'partial';
   else status = 'grounded';
-  return { status, answer: text, citations, dropped };
+  return { status, answer: text, citations, dropped, claims };
 }
 
 // Choose the k passages to send: the top k - NEIGHBOR_ANCHORS hits, each of
@@ -345,6 +499,8 @@ export async function askSources(db: DatabaseSync, opts: AskOptions): Promise<As
     retrieval: { mode_requested: retrieval.mode_requested, mode_used: retrieval.mode_used, vector_error: retrieval.vector_error },
     model: opts.config?.model ?? null,
     focus: opts.focus?.trim() || null,
+    claims: [] as AnswerClaim[],
+    verification: ASK_VERIFICATION,
   };
 
   if (passages.length === 0) {
@@ -379,7 +535,10 @@ export async function askSources(db: DatabaseSync, opts: AskOptions): Promise<As
     // Small models sometimes put the bare word "insufficient" in `answer`;
     // that is a flag, not an explanation — let the UI show its own message.
     const trivial = v.status === 'insufficient' && /^[\W_]*(insufficient|n\/?a|none)?[\W_]*$/i.test(v.answer);
-    return { ...base, status: v.status, answer: trivial ? null : v.answer, citations: v.citations, dropped: v.dropped, generation_error: null };
+    return {
+      ...base, status: v.status, answer: trivial ? null : v.answer, citations: v.citations, dropped: v.dropped,
+      claims: trivial ? [] : v.claims, generation_error: null,
+    };
   } catch (e) {
     return {
       ...base, status: 'retrieval_only', answer: null, citations: [], dropped: [],

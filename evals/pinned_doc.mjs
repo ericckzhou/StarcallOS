@@ -10,12 +10,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-export function readGolden(here, die) {
+// `set` picks golden/<set>.jsonl (default the reviewed `retrieval` set). Every
+// set is pinned to the same document (retrieval.meta.json). Only the default
+// set is ever compared with or saved as a baseline (`isDefault`).
+export const DEFAULT_GOLDEN = 'retrieval';
+export function readGolden(here, die, set = DEFAULT_GOLDEN) {
+  if (!/^[\w.-]+$/.test(set)) die(`invalid --golden name: ${set}`);
+  const file = path.join(here, 'golden', `${set}.jsonl`);
+  if (!fs.existsSync(file)) die(`golden set not found: golden/${set}.jsonl`);
   const meta = JSON.parse(fs.readFileSync(path.join(here, 'golden', 'retrieval.meta.json'), 'utf8'));
-  const cases = fs.readFileSync(path.join(here, 'golden', 'retrieval.jsonl'), 'utf8')
+  const cases = fs.readFileSync(file, 'utf8')
     .split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('//'))
-    .map((l, i) => { try { return JSON.parse(l); } catch (e) { die(`retrieval.jsonl:${i + 1} invalid JSON: ${e.message}`); } });
-  return { meta, cases };
+    .map((l, i) => { try { return JSON.parse(l); } catch (e) { die(`${set}.jsonl:${i + 1} invalid JSON: ${e.message}`); } });
+  return { meta, cases, set, isDefault: set === DEFAULT_GOLDEN };
 }
 
 // Returns { db, sourceId, sha, chunks, rows, embedder, vectorError, unresolved, parser }.

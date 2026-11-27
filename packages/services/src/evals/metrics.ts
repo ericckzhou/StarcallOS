@@ -329,11 +329,24 @@ export interface AskCaseResult {
   cited: string[];             // chunk keys of VERIFIED citations (may repeat)
   dropped: number;             // citations dropped by validation
   latency_ms: number;
+  // Claim coverage (optional: older result files lack it).
+  uncited_claims?: number;     // sentences with no verified citation
+  low_overlap_claims?: number; // cited sentences sharing few words with their passages
+  // Sentences linked to quotes automatically (one-sentence answer with no [n]
+  // markers), not cited by the model. Optional: older result files lack it.
+  implicit_claims?: number;
+  // What a correct pipeline does. Default: 'answer' when answerable, else
+  // 'abstain'. 'abstain_or_qualify' = related passages exist but do not answer
+  // the question: declining or a hedged 'qualified' answer are both correct.
+  expected?: 'answer' | 'abstain' | 'abstain_or_qualify';
 }
 
 export interface AskGroupMetrics {
   n: number;
-  grounded_rate: number;       // status 'grounded'
+  // status 'grounded' (UI "Citations verified"): every quote found verbatim and
+  // every sentence tied to one. NOT semantic support; renamed from
+  // grounded_rate (verifier v1 baselines, archived) so it doesn't read as one.
+  citation_verified_rate: number;
   supported_rate: number;      // 'grounded', 'partial' or 'qualified'
   declined_rate: number;       // 'insufficient' or 'no_passages'
   unsupported_rate: number;    // answered, nothing verified
@@ -346,6 +359,21 @@ export interface AskMetrics {
   // Share of unanswerable questions the pipeline declined. null when the set has none.
   correct_abstention_rate: number | null;
   n_unanswerable: number;
+  // 'abstain_or_qualify' cases: share declined or answered as 'qualified'.
+  // Kept apart from correct_abstention_rate (and from retrieval recall). null when none.
+  correct_caution_rate: number | null;
+  n_insufficient_context: number;
+  // Over cases that produced an answer (grounded / partial / qualified /
+  // unsupported): share with >= 1 uncited / low-overlap sentence. null when
+  // no case carried claim data.
+  uncited_claim_answer_rate: number | null;
+  low_overlap_answer_rate: number | null;
+  // Share of those answers whose citation link was automatic (implicit), and
+  // the share of answerable questions that are citation-verified through
+  // EXPLICIT [n] markers only. An automatic link is never counted as the model
+  // citing the passage. Reported, not gated. null without claim data.
+  implicit_link_answer_rate: number | null;
+  citation_verified_explicit_rate: number | null;
   // Over verified citations on answerable questions: share pointing at a relevant chunk.
   citation_precision: number | null;
   // Share of supported answerable answers citing at least one relevant chunk.
@@ -365,7 +393,7 @@ function askGroup(cs: AskCaseResult[]): AskGroupMetrics {
   const share = (pred: (c: AskCaseResult) => boolean) => (n ? round(cs.filter(pred).length / n) : 0);
   return {
     n,
-    grounded_rate: share(c => c.status === 'grounded'),
+    citation_verified_rate: share(c => c.status === 'grounded'),
     supported_rate: share(c => SUPPORTED.has(c.status)),
     declined_rate: share(c => DECLINED.has(c.status)),
     unsupported_rate: share(c => c.status === 'unsupported'),
@@ -380,9 +408,16 @@ export function percentile(xs: number[], p: number): number {
   return s[Math.min(s.length - 1, Math.max(0, Math.ceil((p / 100) * s.length) - 1))];
 }
 
+const ANSWERED = new Set(['grounded', 'partial', 'qualified', 'unsupported']);
+const expectedOf = (c: AskCaseResult) => c.expected ?? (c.answerable ? 'answer' : 'abstain');
+
 export function scoreAsk(results: AskCaseResult[]): AskMetrics {
-  const answerable = results.filter(c => c.answerable && c.relevant.length > 0);
-  const unanswerable = results.filter(c => !c.answerable);
+  const answerable = results.filter(c => expectedOf(c) === 'answer' && c.answerable && c.relevant.length > 0);
+  const unanswerable = results.filter(c => expectedOf(c) === 'abstain');
+  const cautious = results.filter(c => expectedOf(c) === 'abstain_or_qualify');
+  const withClaims = results.filter(c => ANSWERED.has(c.status) && c.uncited_claims != null);
+  const claimRate = (pred: (c: AskCaseResult) => boolean) =>
+    withClaims.length ? round(withClaims.filter(pred).length / withClaims.length) : null;
 
   let cites = 0, relevantCites = 0;
   for (const c of answerable) {
@@ -406,6 +441,18 @@ export function scoreAsk(results: AskCaseResult[]): AskMetrics {
       ? round(unanswerable.filter(c => DECLINED.has(c.status)).length / unanswerable.length)
       : null,
     n_unanswerable: unanswerable.length,
+    correct_caution_rate: cautious.length
+      ? round(cautious.filter(c => DECLINED.has(c.status) || c.status === 'qualified').length / cautious.length)
+      : null,
+    n_insufficient_context: cautious.length,
+    uncited_claim_answer_rate: claimRate(c => (c.uncited_claims ?? 0) > 0),
+    low_overlap_answer_rate: claimRate(c => (c.low_overlap_claims ?? 0) > 0),
+    implicit_link_answer_rate: withClaims.some(c => c.implicit_claims == null)
+      ? null // a file without implicit counts would read as "never auto-linked"
+      : claimRate(c => (c.implicit_claims ?? 0) > 0),
+    citation_verified_explicit_rate: answerable.length && answerable.some(c => c.implicit_claims != null)
+      ? round(answerable.filter(c => c.status === 'grounded' && (c.implicit_claims ?? 0) === 0).length / answerable.length)
+      : null,
     citation_precision: cites ? round(relevantCites / cites) : null,
     relevant_citation_rate: supported.length
       ? round(supported.filter(c => c.cited.some(k => c.relevant.includes(k))).length / supported.length)

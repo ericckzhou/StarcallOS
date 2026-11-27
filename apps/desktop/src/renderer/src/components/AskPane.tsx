@@ -2,23 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AskHistoryEntry, AskResult, RagProgress, RagStatus } from '@starcall/shared';
 import LibraryIndexPanel, { RAG_INDEX_CHANGED } from './LibraryIndexPanel';
 import SourcePagePreview, { type CitationTarget } from './SourcePagePreview';
+import { isLegacy, statusMeta } from './ask_status';
 
 // Local Ask: question → retrieved passages → local-model answer whose every
 // [n] marker has been verified against the passage text (services/ask.ts).
 // Nothing here talks to a cloud provider; the main process enforces that.
 
 const SELECTED_KEY = 'starcall.ask.sources';
-
-type Status = AskResult['status'];
-const STATUS_META: Record<Status, { label: string; color: string; hint: string }> = {
-  grounded:       { label: 'Grounded',             color: '#22c55e', hint: 'Every citation quotes its passage verbatim.' },
-  partial:        { label: 'Partially grounded',   color: '#f59e0b', hint: 'Some citations could not be verified and were removed.' },
-  qualified:      { label: 'Sources partly answer this', color: '#eab308', hint: 'The passages do not fully answer the question; the answer says what they do cover, and every citation was verified.' },
-  unsupported:    { label: 'Unsupported',          color: '#ef4444', hint: 'The model answered, but none of its citations could be verified. Treat the answer as unreliable.' },
-  insufficient:   { label: 'Not in sources',       color: '#94a3b8', hint: 'The model reports that the retrieved passages do not answer this.' },
-  no_passages:    { label: 'No matching passages', color: '#94a3b8', hint: 'Retrieval found nothing in the selected sources; no model call was made.' },
-  retrieval_only: { label: 'Passages only',        color: '#818cf8', hint: 'The local model is unavailable, so only the retrieved passages are shown.' },
-};
 
 const DROP_REASON: Record<string, string> = {
   unknown_passage: 'cited a passage that was not provided',
@@ -204,7 +194,11 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
 
   const spansByN = new Map<number, Array<[number, number]>>();
   for (const c of result?.citations ?? []) spansByN.set(c.n, [...(spansByN.get(c.n) ?? []), [c.start, c.end]]);
-  const meta = result ? STATUS_META[result.status] : null;
+  const meta = result ? statusMeta(result) : null;
+  // One-sentence answer with no [n] markers: its quotes were attached by the
+  // verifier, not cited by the model. Shown apart from explicit citations and
+  // never presented as the model tying the sentence to a passage.
+  const autoLinked = !!result?.claims?.some(c => c.implicit);
 
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
@@ -301,7 +295,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
               <summary style={{ ...label, cursor: 'pointer' }}>Earlier questions about {context.name} ({history.length})</summary>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 8 }}>
                 {history.map(h => {
-                  const m = STATUS_META[h.result.status];
+                  const m = statusMeta(h.result);
                   const active = result?.history_id === h.id;
                   return (
                     <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 6, background: active ? 'rgba(129,140,248,0.12)' : 'transparent' }}>
@@ -309,6 +303,9 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                         {h.result.question}
                       </button>
                       <span title={m.hint} style={{ fontSize: 10, fontWeight: 700, color: m.color, whiteSpace: 'nowrap' }}>{m.label}</span>
+                      {h.result.claims?.some(c => c.implicit) && (
+                        <span title="Quotes attached automatically, not cited by the answer" style={{ fontSize: 10, color: 'var(--text-secondary)', border: '1px dashed rgba(148,163,184,0.6)', borderRadius: 4, padding: '0 4px', whiteSpace: 'nowrap' }}>auto-linked</span>
+                      )}
                       <span style={{ fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{ago(h.created_at)}</span>
                       <button
                         onClick={async () => {
@@ -331,6 +328,14 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
               <div style={panel}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                   <span title={meta.hint} style={{ ...badge, color: meta.color, borderColor: meta.color }}>{meta.label}</span>
+                  {autoLinked && (
+                    <span
+                      title="The model did not mark which passage supports the sentence; the verified quotes were attached automatically. This is weaker than an explicit citation."
+                      style={{ ...badge, color: 'var(--text-secondary)', borderColor: 'rgba(148,163,184,0.6)', borderStyle: 'dashed' }}
+                    >
+                      Auto-linked
+                    </span>
+                  )}
                   <span
                     title={result.retrieval.vector_error ?? 'Keyword (BM25) and vector results fused'}
                     style={{ ...badge, color: 'var(--text-secondary)', borderColor: 'rgba(148,163,184,0.4)' }}
@@ -355,16 +360,67 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                 )}
                 {result.citations.length > 0 && (
                   <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <span style={label}>Verified sources</span>
+                    <span style={label}>{autoLinked ? 'Verified quotes (auto-linked, not cited by the answer)' : 'Verified sources'}</span>
                     {result.citations.map((c, i) => {
                       const p = result.passages.find(x => x.n === c.n);
                       return (
                         <button key={i} onClick={() => jumpTo(c.n, c.quote)} title={pdfSources.has(c.source_id) ? 'Open the page with this quote highlighted' : 'Show the passage'} style={{ textAlign: 'left', background: 'transparent', border: 'none', padding: '2px 0', cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                          <span style={chip}>{c.n}</span>
+                          <span style={autoLinked ? autoChip : chip}>{c.n}</span>
                           <span style={{ color: 'var(--text-soft)' }}>{p?.source_title}</span>, {pages(c.page_start, c.page_end)} — <i>“{c.quote}”</i>
                         </button>
                       );
                     })}
+                  </div>
+                )}
+                {(() => {
+                  // `claims` is absent on answers saved to history before it existed.
+                  const claims = result.claims ?? [];
+                  const flagged = claims.filter(c => c.issue !== null);
+                  // Quotes were verified but the model marked no sentence with [n]:
+                  // the quotes may well match the text, but nothing ties a given
+                  // sentence to a given quote, so say that rather than "unbacked".
+                  const unlinked = result.citations.length > 0 && claims.length > 0 && claims.every(c => c.cited.length === 0);
+                  const implicit = claims.some(c => c.implicit);
+                  return (
+                    <>
+                      {implicit && (
+                        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)' }}>
+                          The answer has no [n] markers. Because it is a single sentence, it was linked to all of its verified quotes above. Check that they say what the sentence says.
+                        </div>
+                      )}
+                      {unlinked && (
+                        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)' }}>
+                          The model listed the verified quotes above but marked no sentence with [n], so no sentence is linked to a specific quote.
+                        </div>
+                      )}
+                      {flagged.length > 0 && (
+                        <details style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)' }} open>
+                          <summary style={{ cursor: 'pointer', color: 'var(--text-warning)' }}>
+                            {flagged.length} sentence{flagged.length === 1 ? '' : 's'} flagged
+                          </summary>
+                          <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                            {flagged.map((c, i) => (
+                              <li key={i}>
+                                {c.issue === 'uncited'
+                                  ? 'Not linked to a verified quote'
+                                  : `Few words in common with cited passage${c.cited.length === 1 ? '' : 's'} ${c.cited.map(n => `[${n}]`).join(' ')} (may be a paraphrase)`}
+                                {' — '}<i>“{c.text}”</i>
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+                    </>
+                  );
+                })()}
+                {result.answer && result.verification && (
+                  <div style={{ marginTop: 8, fontSize: 10.5, color: 'var(--text-muted)' }}>
+                    Quotes are checked verbatim against their passages; whether a passage supports the sentence citing it is not verified.
+                  </div>
+                )}
+                {isLegacy(result) && (
+                  <div style={{ marginTop: 8, fontSize: 10.5, color: 'var(--text-warning)' }}>
+                    Saved under an older check: quotes were verified, but sentences were not checked for citations. Ask again to apply the current checks.
                   </div>
                 )}
                 {result.generation_error && (
@@ -496,6 +552,7 @@ const chip: React.CSSProperties = {
   padding: '0 4px', borderRadius: 4, fontSize: 10, fontWeight: 700, verticalAlign: 'super',
   background: 'rgba(129,140,248,0.18)', color: 'var(--text-accent)', border: '1px solid rgba(129,140,248,0.4)', cursor: 'pointer',
 };
+const autoChip: React.CSSProperties = { ...chip, background: 'transparent', color: 'var(--text-secondary)', border: '1px dashed rgba(148,163,184,0.6)' };
 const primaryBtn: React.CSSProperties = { background: '#4f46e5', border: '1px solid var(--border-accent)', color: '#fff', borderRadius: 7, padding: '6px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer' };
 const smallBtn: React.CSSProperties = { background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.4)', color: 'var(--text-accent)', borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer' };
 const linkBtn: React.CSSProperties = { background: 'transparent', border: 'none', color: 'var(--indigo-400)', fontSize: 11, cursor: 'pointer', padding: 0 };
