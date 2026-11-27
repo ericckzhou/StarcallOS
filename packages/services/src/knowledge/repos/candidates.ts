@@ -206,10 +206,17 @@ function rowToRelationCandidate(row: RelationCandidateRow): StoredRelationCandid
 export type CandidateOrigin = 'parser' | 'user';
 
 const normText = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, ' ');
-// Identity of a relation / misconception row for "is this parser output
-// already present?". Quotes are excluded from the relation key: the same
-// relation on the same page is the same candidate.
-export function relationKey(r: { from: string; to: string; kind: string; page: number }): string {
+// Full identity of a relation as the parser emitted it, quote included: two
+// relations with the same endpoints, kind and page but different quotes are
+// different candidates. Stored as source_key on parser rows and used for
+// rejections.
+export function relationKey(r: { from: string; to: string; kind: string; page: number; quote: string }): string {
+  return `${relationCoarseKey(r)}|${normText(r.quote ?? '')}`;
+}
+// Coarse identity (no quote). Used ONLY to recognise a user-created row as a
+// copy of parser output; never to match a parser-origin row, whose full
+// original identity is known.
+export function relationCoarseKey(r: { from: string; to: string; kind: string; page: number }): string {
   return `${r.page}|${normText(r.from)}|${normText(r.to)}|${r.kind}`;
 }
 export function misconceptionKey(m: { quote: string; page: number }): string {
@@ -626,12 +633,22 @@ function newParserEquations(db: DatabaseSync, sourceId: number, equations: Equat
   return notYetPresent(keys, equations, eq => equationKey(eq.page, eq.latex));
 }
 
+// Two passes, so the identity is never weaker than what is known:
+//   1. exact: a parser-origin row (edited or not) matches only its recorded
+//      original identity (source_key); an unknown-origin legacy row matches
+//      its current full content. No coarse fallback for either: if a parser
+//      row's original no longer matches, the parser's new output is genuinely
+//      new and is added beside the kept row.
+//   2. coarse: only user-created rows (no parser identity) match on page +
+//      endpoints + kind, so a user's copy of parser output isn't duplicated.
 function newParserRelations(db: DatabaseSync, sourceId: number, relations: RelationCandidate[]): RelationCandidate[] {
-  const keys = (db.prepare(
-    'SELECT source_key, from_term, to_term, relation_kind, page FROM relation_candidates WHERE source_id = ?',
-  ).all(sourceId) as Array<{ source_key: string | null; from_term: string; to_term: string; relation_kind: string; page: number }>)
-    .map(r => r.source_key ?? relationKey({ from: r.from_term, to: r.to_term, kind: r.relation_kind, page: Number(r.page) }));
-  return notYetPresent(keys, relations, relationKey);
+  const kept = db.prepare(
+    'SELECT origin, source_key, from_term, to_term, relation_kind, quote, page FROM relation_candidates WHERE source_id = ?',
+  ).all(sourceId) as Array<{ origin: string | null; source_key: string | null; from_term: string; to_term: string; relation_kind: string; quote: string; page: number }>;
+  const asCandidate = (r: (typeof kept)[number]) => ({ from: r.from_term, to: r.to_term, kind: r.relation_kind, page: Number(r.page), quote: r.quote });
+  const exact = kept.filter(r => r.origin !== 'user').map(r => r.source_key ?? relationKey(asCandidate(r)));
+  const coarse = kept.filter(r => r.origin === 'user').map(r => relationCoarseKey(asCandidate(r)));
+  return notYetPresent(coarse, notYetPresent(exact, relations, relationKey), relationCoarseKey);
 }
 
 function newParserMisconceptions<T extends { quote: string; page: number }>(db: DatabaseSync, sourceId: number, phrases: T[]): T[] {
