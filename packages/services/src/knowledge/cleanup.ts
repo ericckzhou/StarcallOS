@@ -15,6 +15,7 @@
 
 import type { DatabaseSync } from '../core/infra/sqlite';
 import { emitEvent } from '../core/events';
+import { DISPOSABLE_EQUATION_WHERE } from './repos/candidates';
 
 export interface CleanupCounts {
   concept_candidates: number;
@@ -104,7 +105,9 @@ function clearDerivedDataInner(db: DatabaseSync, sourceId: number, preserveUserD
   // Always-safe deletes (no user data lives in these tables)
   const concept_candidates       = countAndDelete(db, 'concept_candidates',       'source_id = ?', sourceId);
   const relation_candidates      = countAndDelete(db, 'relation_candidates',      'source_id = ?', sourceId);
-  const equation_candidates      = countAndDelete(db, 'equation_candidates',      'source_id = ?', sourceId);
+  // Equations: only unedited parser output. Users add and edit equations here
+  // (Candidate Review, concept Overview), so this table is not purely derived.
+  const equation_candidates      = countAndDelete(db, 'equation_candidates',      DISPOSABLE_EQUATION_WHERE, sourceId);
   const misconception_candidates = countAndDelete(db, 'misconception_candidates', 'source_id = ?', sourceId);
   const semantic_chunks          = countAndDelete(db, 'semantic_chunks',          'source_id = ?', sourceId);
   // Prerequisite suggestions are derived from relation_candidates. Wipe them

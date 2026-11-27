@@ -277,12 +277,13 @@ describe('equation candidates', () => {
 });
 
 describe('idempotency and bulk persistence', () => {
-  it('clearCandidatesForSource wipes every candidate kind for the source', () => {
+  it('clearCandidatesForSource wipes every candidate kind for the source, but keeps user-created equations', () => {
     const d = db();
     const sourceId = seedSource(d);
     createConceptCandidate(d, sourceId, candidate({ term: 'X', normalized: 'x' }));
     createRelationCandidate(d, sourceId, { from: 'A', to: 'B', kind: 'requires', quote: 'q', page: 1 });
     createMisconceptionCandidate(d, sourceId, { quote: 'm', page: 1, section_path: [] });
+    createEquationCandidate(d, sourceId, { latex: 'b = 2', variables: ['b'], page: 1, reading_order: 1, section_path: [], attached_term: null });
     createEquationCandidateForSource(d, { sourceId, latex: 'a = 1' });
 
     clearCandidatesForSource(d, sourceId);
@@ -290,7 +291,8 @@ describe('idempotency and bulk persistence', () => {
     expect(listConceptCandidatesBySource(d, sourceId)).toHaveLength(0);
     expect(listRelationCandidatesBySource(d, sourceId)).toHaveLength(0);
     expect(listMisconceptionCandidatesBySource(d, sourceId)).toHaveLength(0);
-    expect(listEquationCandidatesBySource(d, sourceId)).toHaveLength(0);
+    // Parser output is regenerable; the user's own equation is not.
+    expect(listEquationCandidatesBySource(d, sourceId).map(e => e.latex)).toEqual(['a = 1']);
     d.close();
   });
 

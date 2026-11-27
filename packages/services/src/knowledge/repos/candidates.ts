@@ -388,10 +388,12 @@ export function createEquationCandidate(
   sourceId: number,
   eq: EquationCandidate,
 ): StoredEquationCandidate {
+  // Parser output: regenerable on re-extract (origin 'parser'), remembering the
+  // emitted LaTeX so a later edit doesn't make the parser re-add its original.
   const result = db.prepare(
     `INSERT INTO equation_candidates
-       (source_id, latex, variables, page, reading_order, section_path, attached_term, parser_version)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (source_id, latex, variables, page, reading_order, section_path, attached_term, parser_version, origin, source_latex)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'parser', ?)`,
   ).run(
     sourceId,
     eq.latex,
@@ -401,6 +403,7 @@ export function createEquationCandidate(
     JSON.stringify(eq.section_path),
     eq.attached_term,
     PARSER_VERSION,
+    eq.latex,
   );
   const row = db
     .prepare('SELECT * FROM equation_candidates WHERE id = ?')
@@ -447,8 +450,8 @@ export function createManualEquationForConcept(
   const variables = input.variables?.length ? input.variables : inferEquationVariables(latex);
   const result = db.prepare(
     `INSERT INTO equation_candidates
-       (source_id, latex, variables, page, reading_order, section_path, attached_term, parser_version)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (source_id, latex, variables, page, reading_order, section_path, attached_term, parser_version, origin)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'user')`,
   ).run(
     concept.source_id,
     latex,
@@ -482,8 +485,8 @@ export function createEquationCandidateForSource(
     .get(input.sourceId) as { max_order: number } | undefined;
   const result = db.prepare(
     `INSERT INTO equation_candidates
-       (source_id, latex, variables, page, reading_order, section_path, attached_term, parser_version)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (source_id, latex, variables, page, reading_order, section_path, attached_term, parser_version, origin)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'user')`,
   ).run(
     input.sourceId,
     latex,
@@ -512,16 +515,23 @@ export function updateEquationCandidate(
   if (!existing) throw new Error(`Equation candidate ${id} not found.`);
   const latex = input.latex.trim();
   if (!latex) throw new Error('Equation cannot be empty.');
+  // A user edit makes the row user-owned: re-extract keeps it (user_modified_at).
+  // attached_term changes only when the caller passes the key: the concept
+  // Overview editor omits it, and treating "omitted" as null used to detach
+  // the edited equation from its concept.
+  const attachedTerm = 'attached_term' in input
+    ? (input.attached_term ? normalizeAttachedTerm(input.attached_term) : null)
+    : existing.attached_term;
   db.prepare(
     `UPDATE equation_candidates
-     SET latex = ?, variables = ?, page = ?, section_path = ?, attached_term = ?
+     SET latex = ?, variables = ?, page = ?, section_path = ?, attached_term = ?, user_modified_at = datetime('now')
      WHERE id = ?`,
   ).run(
     latex,
     JSON.stringify(input.variables?.length ? input.variables : inferEquationVariables(latex)),
     Math.max(0, Math.floor(input.page ?? existing.page)),
     JSON.stringify(input.section_path ?? (JSON.parse(existing.section_path) as string[])),
-    input.attached_term ? normalizeAttachedTerm(input.attached_term) : null,
+    attachedTerm,
     id,
   );
   const row = db
@@ -544,11 +554,43 @@ export function listEquationCandidatesBySource(
 
 // ─── Idempotency helpers ──────────────────────────────────────────────────────
 
+// Equation rows a re-extract may delete: unedited parser output. User-created,
+// user-edited and unknown-origin (pre-0039) rows are user-owned and survive.
+export const DISPOSABLE_EQUATION_WHERE = `source_id = ? AND origin = 'parser' AND user_modified_at IS NULL`;
+
 export function clearCandidatesForSource(db: DatabaseSync, sourceId: number): void {
   db.prepare('DELETE FROM concept_candidates WHERE source_id = ?').run(sourceId);
   db.prepare('DELETE FROM relation_candidates WHERE source_id = ?').run(sourceId);
   db.prepare('DELETE FROM misconception_candidates WHERE source_id = ?').run(sourceId);
-  db.prepare('DELETE FROM equation_candidates WHERE source_id = ?').run(sourceId);
+  db.prepare(`DELETE FROM equation_candidates WHERE ${DISPOSABLE_EQUATION_WHERE}`).run(sourceId);
+}
+
+// Identity of an equation for "is this parser output already present?":
+// page + whitespace-insensitive LaTeX. Preserved rows match on the LaTeX the
+// parser originally emitted (source_latex), falling back to their current
+// LaTeX for user-created rows.
+function equationKey(page: number, latex: string): string {
+  return `${page}|${latex.replace(/\s+/g, '')}`;
+}
+
+// Parser equations to insert after a wipe: skip any already represented by a
+// preserved (user-owned / unknown-origin) row, as a multiset so a formula the
+// parser emits twice on a page is still inserted once more than is preserved.
+function newParserEquations(db: DatabaseSync, sourceId: number, equations: EquationCandidate[]): EquationCandidate[] {
+  const preserved = new Map<string, number>();
+  for (const r of db.prepare(
+    'SELECT page, COALESCE(source_latex, latex) AS k FROM equation_candidates WHERE source_id = ?',
+  ).all(sourceId) as Array<{ page: number; k: string }>) {
+    const key = equationKey(Number(r.page), r.k);
+    preserved.set(key, (preserved.get(key) ?? 0) + 1);
+  }
+  return equations.filter(eq => {
+    const key = equationKey(eq.page, eq.latex);
+    const left = preserved.get(key) ?? 0;
+    if (left === 0) return true;
+    preserved.set(key, left - 1);
+    return false;
+  });
 }
 
 // ─── Bulk persistence: one extraction → DB ────────────────────────────────────
@@ -567,5 +609,5 @@ export function persistCandidateExtraction(
   for (const c of result.candidates) createConceptCandidate(db, sourceId, c);
   for (const r of result.relations) createRelationCandidate(db, sourceId, r);
   for (const m of result.misconception_phrases) createMisconceptionCandidate(db, sourceId, m);
-  for (const eq of result.equations ?? []) createEquationCandidate(db, sourceId, eq);
+  for (const eq of newParserEquations(db, sourceId, result.equations ?? [])) createEquationCandidate(db, sourceId, eq);
 }
