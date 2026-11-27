@@ -332,7 +332,15 @@ Remember these as the active state of the repo:
   grounded/partial/qualified/unsupported/insufficient/no_passages/retrieval_only
   (`qualified` = the model flagged the passages insufficient but gave a hedged
   answer with ≥1 VERIFIED citation; shown as "Sources partly answer this", not
-  a decline). Neighbor expansion (`withNeighbors`, `AskOptions.neighbors`) is
+  a decline). `grounded` (UI: "Citations verified") also requires every answer
+  sentence to carry a verified marker and no `low_overlap` flag
+  (`analyzeClaims`; a one-sentence unmarked answer attaches its verified quotes
+  implicitly). It never claims entailment: `ASK_VERIFICATION.entailment =
+  'not_checked'`, no LLM judge. Each `...` piece of a quote must reach 12 chars.
+  `ASK_VERIFICATION.version` (2) gates eval baselines (metric
+  `citation_verified_rate`; the v1 `grounded_rate` baseline is archived in
+  `evals/baselines/archive/`); history rows without `verification` render as
+  legacy "Quotes verified (older check)", never "Citations verified". Neighbor expansion (`withNeighbors`, `AskOptions.neighbors`) is
   opt-in/off: it raised citation precision but cost false-premise answers.
   Pre-model abstention was measured and deliberately NOT shipped (top cosine
   does not separate unanswerable questions on the golden set). A model
