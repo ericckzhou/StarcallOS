@@ -43,3 +43,29 @@ describe('isBlockedHostname', () => {
     }
   });
 });
+
+describe('isLoopbackIp / assertLoopbackUrl', () => {
+  it('accepts only loopback literals', async () => {
+    const { isLoopbackIp } = await import('./net_guard');
+    for (const ip of ['127.0.0.1', '127.5.6.7', '::1', '[::1]', '::ffff:127.0.0.1']) expect(isLoopbackIp(ip)).toBe(true);
+    for (const ip of ['10.0.0.1', '192.168.1.5', '169.254.169.254', '0.0.0.0', '::', '8.8.8.8', 'fe80::1']) {
+      expect(isLoopbackIp(ip)).toBe(false);
+    }
+  });
+
+  it('accepts loopback URLs and rejects everything else', async () => {
+    const { assertLoopbackUrl } = await import('./net_guard');
+    const loop = async () => [{ address: '127.0.0.1' }, { address: '::1' }];
+    await expect(assertLoopbackUrl('http://127.0.0.1:11434/v1')).resolves.toBeInstanceOf(URL);
+    await expect(assertLoopbackUrl('http://[::1]:11434/v1')).resolves.toBeInstanceOf(URL);
+    await expect(assertLoopbackUrl('http://localhost:11434/v1', loop)).resolves.toBeInstanceOf(URL);
+    await expect(assertLoopbackUrl('http://192.168.1.10:11434/v1')).rejects.toThrow(/not a loopback/);
+    await expect(assertLoopbackUrl('http://example.com/v1')).rejects.toThrow(/not allowed/);
+    await expect(assertLoopbackUrl('http://127.0.0.1.nip.io/v1')).rejects.toThrow(/not allowed/);
+    await expect(assertLoopbackUrl('file:///etc/passwd')).rejects.toThrow(/http/);
+    await expect(assertLoopbackUrl('http://u:p@127.0.0.1/v1')).rejects.toThrow(/credentials/);
+    await expect(assertLoopbackUrl('http://localhost/v1', async () => [{ address: '127.0.0.1' }, { address: '10.0.0.2' }]))
+      .rejects.toThrow(/only to loopback/);
+    await expect(assertLoopbackUrl('not a url')).rejects.toThrow(/valid URL/);
+  });
+});

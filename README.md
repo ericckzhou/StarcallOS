@@ -219,6 +219,12 @@ compression-stage mastery + replayable lineage
 
 Each layer has a single responsibility and a single direction of dependency. See [ARCHITECTURE.md](ARCHITECTURE.md) for the contributor-level architecture notes.
 
+**Use your library from another assistant (optional).** `packages/mcp-server` is
+a read-only MCP server that a local assistant can start as a subprocess to
+search your passages, concepts, progress and, if you opt in, highlights. It
+opens no network port and never reads your API keys. See
+[packages/mcp-server/README.md](packages/mcp-server/README.md).
+
 ---
 
 ## Stack

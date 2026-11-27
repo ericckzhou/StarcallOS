@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { runMigrations } from './migrate';
 
-const MIGRATIONS_DIR = path.resolve(__dirname, '../../../migrations');
+export const MIGRATIONS_DIR = path.resolve(__dirname, '../../../migrations');
 
 // Snapshot the DB file before pending migrations run, so a failed/partial
 // upgrade is recoverable. Best-effort: a backup failure must not block opening

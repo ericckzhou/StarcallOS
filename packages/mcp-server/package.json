@@ -1,0 +1,24 @@
+{
+  "name": "@starcall/mcp-server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Read-only, local-only MCP server (stdio) over the StarcallOS library",
+  "main": "./dist/index.js",
+  "bin": { "starcall-mcp": "./dist/index.js" },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "node --no-warnings dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@starcall/services": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "*",
+    "vitest": "5.1.0"
+  }
+}

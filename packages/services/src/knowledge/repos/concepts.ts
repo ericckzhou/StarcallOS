@@ -226,6 +226,70 @@ export function listConceptsBySource(db: DatabaseSync, sourceId: number): Concep
 
 // Case-insensitive prefix search over promoted concepts on the same source.
 // Powers the typeahead in WhereItReappearsEditor.
+// ─── Tokenized concept search (read-only; used by the MCP reader) ────────────
+// Prefix search only matches the start of a name ("descent" misses "Gradient
+// descent"). This matches every query word anywhere in the name or definition
+// and ranks name hits above definition hits. Pure SELECT; no schema change.
+
+const SEARCH_STOPWORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'do', 'does', 'for', 'from', 'how', 'in', 'is',
+  'it', 'of', 'on', 'or', 'the', 'to', 'what', 'when', 'where', 'which', 'who', 'why', 'with',
+]);
+
+export function conceptSearchTokens(query: string): string[] {
+  const words = query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const out: string[] = [];
+  for (const w of words) {
+    if (w.length < 2 || SEARCH_STOPWORDS.has(w) || out.includes(w)) continue;
+    out.push(w);
+    if (out.length === 8) break;
+  }
+  return out;
+}
+
+export interface ConceptTextHit {
+  concept: Concept;
+  source_title: string;
+  score: number;
+  matched_in: Array<'name' | 'definition'>;
+}
+
+export function searchConcepts(db: DatabaseSync, query: string, limit = 10): ConceptTextHit[] {
+  const tokens = conceptSearchTokens(query);
+  if (tokens.length === 0) return [];
+  const like = (t: string) => `%${t.replace(/[\\%_]/g, c => '\\' + c)}%`;
+  const where = tokens
+    .map(() => `(lower(c.name) LIKE ? ESCAPE '\\' OR lower(c.definition_text) LIKE ? ESCAPE '\\')`)
+    .join(' OR ');
+  const args = tokens.flatMap(t => [like(t), like(t)]);
+  const rows = db.prepare(
+    `SELECT c.*, COALESCE(s.title, s.filename, '') AS source_title
+       FROM concepts c JOIN sources s ON s.id = c.source_id
+      WHERE ${where}
+      LIMIT 500`,
+  ).all(...args) as unknown as Array<ConceptRow & { source_title: string }>;
+
+  const phrase = tokens.join(' ');
+  const hits: ConceptTextHit[] = rows.map(r => {
+    const name = r.name.toLowerCase();
+    const def = (r.definition_text ?? '').toLowerCase();
+    let score = 0;
+    const matched = new Set<'name' | 'definition'>();
+    if (name === phrase) score += 10;
+    else if (name.includes(phrase) && tokens.length > 1) score += 5;
+    for (const t of tokens) {
+      if (name.includes(t)) { score += 3; matched.add('name'); }
+      else if (def.includes(t)) { score += 1; matched.add('definition'); }
+    }
+    return { concept: rowToConcept(r), source_title: r.source_title, score, matched_in: [...matched] };
+  });
+  return hits
+    .sort((a, b) => b.score - a.score
+      || b.concept.centrality_score - a.concept.centrality_score
+      || a.concept.id - b.concept.id)
+    .slice(0, limit);
+}
+
 export interface ConceptSearchHit {
   id: number;
   name: string;
@@ -845,7 +909,13 @@ export interface ConceptSourceEvidence {
   evidence: SourceEvidence[];
 }
 
-export function listConceptSourceEvidence(db: DatabaseSync, conceptId: number): ConceptSourceEvidence | null {
+// `persistSeed: false` is the read-only path (MCP reader): derived spans are
+// returned but not written back, so it works on a read-only handle.
+export function listConceptSourceEvidence(
+  db: DatabaseSync,
+  conceptId: number,
+  opts: { persistSeed?: boolean } = {},
+): ConceptSourceEvidence | null {
   const c = db
     .prepare('SELECT * FROM concepts WHERE id = ?')
     .get(conceptId) as ConceptRow | undefined;
@@ -864,7 +934,7 @@ export function listConceptSourceEvidence(db: DatabaseSync, conceptId: number): 
   // evidence_json is the authoritative, user-editable store.
   if (spans.length === 0) {
     spans = buildDerivedEvidenceSpans(db, concept, sourceId);
-    if (spans.length > 0) {
+    if (spans.length > 0 && opts.persistSeed !== false) {
       db.prepare('UPDATE concepts SET evidence_json = ? WHERE id = ?')
         .run(JSON.stringify(spans), conceptId);
     }
