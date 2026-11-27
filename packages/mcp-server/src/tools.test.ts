@@ -43,6 +43,8 @@ describe('search_passages', () => {
     expect(out.notice).toBe(CONTENT_NOTICE);
     expect(out.results[0]).toMatchObject({ source_id: f.ids.bio, source_title: 'Cell Biology', page_start: 7 });
     expect(typeof out.results[0].chunk_id).toBe('number');
+    expect(out.results[0].keyword_rank).toBe(1);
+    expect(out.results[0].vector_rank).toBeNull();
   });
 
   it('uses hybrid retrieval with a loopback embedder and finds paraphrases', async () => {
@@ -51,6 +53,9 @@ describe('search_passages', () => {
     expect(out.mode_used).toBe('hybrid');
     expect(out.vector_note).toBeUndefined();
     expect(out.results.some((r: { text: string }) => /Entropy measures/.test(r.text))).toBe(true);
+    type Ranked = { keyword_rank: number | null; vector_rank: number | null };
+    expect(out.results.every((r: Ranked) => r.vector_rank !== null)).toBe(true);
+    expect(out.results.every((r: Ranked) => r.keyword_rank === null || r.keyword_rank >= 1)).toBe(true);
   });
 
   it('can be limited to one source', async () => {
