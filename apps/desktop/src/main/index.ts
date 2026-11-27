@@ -63,7 +63,7 @@ import {
   RelationCandidateCreateArgsSchema, RelationCandidateUpdateArgsSchema,
   MisconceptionCandidateCreateArgsSchema, MisconceptionCandidateUpdateArgsSchema,
   EquationCandidateCreateArgsSchema, EquationCandidateUpdateArgsSchema,
-  renderConceptExport, renderBundleExport, extractArticle, docxToMarkdown, pptxToMarkdown, chunkBatches,
+  renderConceptExport, renderBundleExport, extractArticle, docxToMarkdown, pptxToMarkdown, ocrTextToSource, ocrParagraphsToSource, OCR_MIN_CONFIDENCE, chunkBatches,
   type ConceptImportance, type LLMSettings, type PassName, type RelationKind, type AsyncSecretCodec,
   runEnricher,
   runConceptExtractor, runGraphBuilder,
@@ -79,6 +79,7 @@ import {
 } from '@starcall/services';
 import { IPC } from '@starcall/shared';
 import { expectedLayoutFor, segmentPdfConfigured, stopPdfParser } from './pdf_parser';
+import { IMAGE_EXTENSIONS, isImagePath, ocrImages } from './ocr';
 import type {
   CandidateLlmFilterArgs,
   CandidateLlmFilterDecision,
@@ -777,7 +778,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     if (paths.length === 0) {
       const result = await dialog.showOpenDialog({
         properties: ['openFile', 'multiSelections'],
-        filters: [{ name: 'Documents', extensions: ['docx', 'pptx'] }],
+        filters: args.kind === 'images'
+          ? [{ name: 'Images', extensions: [...IMAGE_EXTENSIONS] }]
+          : [{ name: 'Documents', extensions: ['docx', 'pptx'] }],
       });
       if (result.canceled) return { sources: [], errors: [] };
       paths = result.filePaths;
@@ -788,7 +791,37 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     const sources: ReturnType<typeof createSource>[] = [];
     const errors: Array<{ path: string; error: string }> = [];
 
-    for (const docPath of paths) {
+    // Images: OCR (bundled English model, no network) → cleaned text source.
+    const imagePaths = paths.filter(isImagePath);
+    if (imagePaths.length > 0) {
+      const cacheDir = path.join(app.getPath('userData'), 'ocr-cache');
+      fs.mkdirSync(cacheDir, { recursive: true });
+      let results: Awaited<ReturnType<typeof ocrImages>> = [];
+      try { results = await ocrImages(imagePaths, cacheDir); }
+      catch (err) {
+        const msg = `OCR engine failed to start: ${err instanceof Error ? err.message : String(err)}`;
+        for (const p of imagePaths) errors.push({ path: p, error: msg });
+      }
+      for (const r of results) {
+        if (r.error || !r.result) { errors.push({ path: r.path, error: r.error ?? 'OCR failed' }); continue; }
+        const text = r.result.paragraphs.length > 0
+          ? ocrParagraphsToSource(r.result.paragraphs)
+          : ocrTextToSource(r.result.text);
+        if (!text || r.result.confidence < OCR_MIN_CONFIDENCE) {
+          errors.push({ path: r.path, error: `No readable text found in the image (OCR confidence ${Math.round(r.result.confidence)}%).` });
+          continue;
+        }
+        const filename = `ocr-${Date.now()}-${sources.length}.txt`;
+        const filePath = path.join(textDir, filename);
+        fs.writeFileSync(filePath, text, 'utf-8');
+        const title = path.basename(r.path, path.extname(r.path));
+        const source = createSource(db, { filename, file_path: filePath, title });
+        emitEvent(db, 'source.created', { sourceId: source.id, origin: 'ocr', ocrConfidence: Math.round(r.result.confidence) }, { entityType: 'source', entityId: source.id });
+        sources.push(source);
+      }
+    }
+
+    for (const docPath of paths.filter(p => !isImagePath(p))) {
       try {
         const ext = path.extname(docPath).toLowerCase();
         const buffer = fs.readFileSync(docPath);

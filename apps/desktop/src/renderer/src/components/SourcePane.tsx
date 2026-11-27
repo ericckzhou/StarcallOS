@@ -135,7 +135,7 @@ function BundleExportButton(
 interface AddItem { key: string; label: string; hint: string; color: string; icon: React.ReactNode; onClick: () => void; }
 
 // Consolidated "+ Add" source control: one button → a portaled menu of source
-// types (PDF / Text / URL / Document). Portaled to <body> so the narrow Sources
+// types (PDF / Text / URL / Document / Image). Portaled to <body> so the narrow Sources
 // sidebar can't clip it; closes on outside-click, Escape, scroll, or resize.
 function AddSourceMenu({ items }: { items: AddItem[] }) {
   const [open, setOpen] = useState(false);
@@ -209,6 +209,7 @@ function AddSourceMenu({ items }: { items: AddItem[] }) {
 const IconPdf = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></svg>;
 const IconText = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16" /><path d="M4 12h16" /><path d="M4 17h10" /></svg>;
 const IconUrl = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18" /></svg>;
+const IconImage = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-5-5L5 21" /></svg>;
 const IconDoc = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M9 13h6" /><path d="M9 17h6" /></svg>;
 
 const STATUS: Record<string, { color: string; label: string }> = {
@@ -346,9 +347,11 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
     closeTextModal();
   }
 
-  async function handleAddDoc() {
+  async function handleAddDoc(kind: 'documents' | 'images' = 'documents') {
+    setDocMsg(kind === 'images' ? 'Reading text from images…' : null);
+    // Main opens the file dialog; images go through local OCR (a few seconds each).
+    const res = await window.api.sources.importDocs({ kind });
     setDocMsg(null);
-    const res = await window.api.sources.importDocs({}); // main opens the file dialog
     if (res.sources.length > 0) onSourcesChange([...sources, ...(res.sources as Source[])]);
     if (res.errors.length > 0) {
       console.error('[starcall:ipc] importDocs errors', res.errors);
@@ -425,6 +428,7 @@ export default function SourcePane({ sources, selectedId, onSelect, onSourcesCha
             { key: 'text', label: 'Text', hint: 'paste', color: '#6ee7b7', icon: IconText, onClick: () => setTextModal(true) },
             { key: 'url', label: 'Web page', hint: 'URL', color: '#7dd3fc', icon: IconUrl, onClick: () => setUrlModal(true) },
             { key: 'doc', label: 'Document', hint: '.docx · .pptx', color: '#d8b4fe', icon: IconDoc, onClick: () => void handleAddDoc() },
+            { key: 'img', label: 'Image', hint: 'OCR · .png .jpg', color: '#fcd34d', icon: IconImage, onClick: () => void handleAddDoc('images') },
           ]} />
           <button
             onClick={() => setCollapsed(true)}

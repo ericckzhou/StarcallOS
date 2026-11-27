@@ -11,6 +11,16 @@ files:
   - "out/**"
   - "package.json"
   - "!**/*.map"
+  # OCR (tesseract.js 7.0.0): in Node the worker passes a boolean to getCore,
+  # which compares it against numeric OEM values, so Node ALWAYS loads the
+  # full (non-"-lstm") engine builds (relaxed-SIMD → SIMD → plain fallback).
+  # Drop the never-loaded "-lstm" builds and the unused 4.0.0 model (only
+  # 4.0.0_best_int is used). Re-check getCore.js before changing this on an
+  # upgrade: excluding a build Node loads makes OCR fail to start.
+  - "!**/node_modules/@tesseract.js-data/eng/4.0.0/**"
+  - "!**/node_modules/tesseract.js-core/tesseract-core-lstm.{js,wasm,wasm.js}"
+  - "!**/node_modules/tesseract.js-core/tesseract-core-simd-lstm.{js,wasm,wasm.js}"
+  - "!**/node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.{js,wasm,wasm.js}"
 
 # Ship the PNG icon alongside the app so the BrowserWindow/taskbar icon resolves
 # at runtime (the .exe file icon itself comes from win.icon below).

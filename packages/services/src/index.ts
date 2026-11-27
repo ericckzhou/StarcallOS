@@ -45,6 +45,7 @@ export * from './ingestion/html_text';
 export * from './ingestion/readability';
 export * from './ingestion/docx';
 export * from './ingestion/pptx';
+export * from './ingestion/ocr_text';
 export * from './ingestion/layout';
 export * from './ingestion/docling';
 export * from './ingestion/chunker';

@@ -13,3 +13,6 @@ allowBuilds:
   # builder). We ship the portable target, not Squirrel, so its build script is
   # not needed — categorize it as not-built to avoid the CI ERR_PNPM_IGNORED_BUILDS.
   electron-winstaller: false
+  # tesseract.js's postinstall only prints an opencollective banner; the OCR
+  # engine (WebAssembly) and the English model ship as plain package files.
+  tesseract.js: false

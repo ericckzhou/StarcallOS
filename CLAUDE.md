@@ -48,8 +48,16 @@ Remember these as the active state of the repo:
   → main fetches (http/https only, 10s timeout, 5 MB cap) → the pure
   `htmlToText` extractor (`ingestion/html_text.ts`, zero-dep tag-strip + entity
   decode) → write `.txt` → `createSource`, riding the same text-source pipeline.
-  No page geometry, so candidate quality is lower than a real PDF. DOCX/PPTX/
-  image-OCR importers are deliberately out of scope for now.
+  No page geometry, so candidate quality is lower than a real PDF.
+- Images import through local OCR: the `+ Add` menu's Image entry calls
+  `sources.importDocs({ kind: 'images' })`; main OCRs each file with tesseract.js
+  (`apps/desktop/src/main/ocr.ts`, bundled English `best_int` model, no network,
+  60s start / 120s per-image deadlines) and turns tesseract's paragraphs + line
+  heights into text via `ocrParagraphsToSource` (taller lines → `# heading`),
+  rejecting images under `OCR_MIN_CONFIDENCE` (30). The result is an ordinary
+  text source. tesseract.js 7.0.0 in Node always loads its full (non-`-lstm`)
+  core builds; `electron-builder.yml` excludes the `-lstm` builds, so re-check
+  `getCore.js` before upgrading tesseract.js.
 - Promoted concepts can be manually added/edited/deleted and attached to an
   existing source. Adding a concept opens a centered glass modal overlay (not an
   inline sidebar form). Review queue concepts are grouped by source and
