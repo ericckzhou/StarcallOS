@@ -53,12 +53,24 @@ function recordRejection(
   db: DatabaseSync,
   r: { sourceId: number; kind: RejectionKind; key: string; label: string; payload: unknown },
 ): void {
-  // Two identical parser outputs share one identity; rejecting either
-  // suppresses both, and the first snapshot is kept for undo.
-  db.prepare(
-    `INSERT OR IGNORE INTO candidate_rejections (source_id, kind, identity_key, label, payload_json)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(r.sourceId, r.kind, r.key, r.label, JSON.stringify(r.payload, (_k, v) => (typeof v === 'bigint' ? Number(v) : v)));
+  // One record per (source, kind, identity). If the identity is already
+  // rejected, newly removed rows are appended to its snapshot so undo still
+  // restores every row that any rejection removed.
+  const json = (v: unknown) => JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? Number(x) : x));
+  const existing = db.prepare(
+    'SELECT id, payload_json FROM candidate_rejections WHERE source_id = ? AND kind = ? AND identity_key = ?',
+  ).get(r.sourceId, r.kind, r.key) as { id: number; payload_json: string } | undefined;
+  if (!existing) {
+    db.prepare(
+      `INSERT INTO candidate_rejections (source_id, kind, identity_key, label, payload_json) VALUES (?, ?, ?, ?, ?)`,
+    ).run(r.sourceId, r.kind, r.key, r.label, json(r.payload));
+    return;
+  }
+  const newRows = (r.payload as { rows?: unknown[] }).rows;
+  if (!Array.isArray(newRows) || newRows.length === 0) return;
+  const prev = JSON.parse(existing.payload_json) as { rows?: unknown[] };
+  db.prepare('UPDATE candidate_rejections SET payload_json = ? WHERE id = ?')
+    .run(json({ ...prev, rows: [...(prev.rows ?? []), ...newRows] }), Number(existing.id));
 }
 
 // Identities rejected for one source and kind, for re-extract to skip.
@@ -80,24 +92,40 @@ export function listRejections(db: DatabaseSync, sourceId: number): CandidateRej
 
 // ─── reject ───────────────────────────────────────────────────────────────────
 
+// A rejection applies to an IDENTITY, not one row: every parser row in the
+// source carrying that identity is snapshotted and removed together (and all
+// restored together on undo). Otherwise rejecting one of two identical parser
+// outputs would leave the other visible while the record suppresses both.
+function rejectRows(
+  db: DatabaseSync,
+  r: { sourceId: number; kind: Exclude<RejectionKind, 'prerequisite'>; key: string; label: string; rows: Array<Record<string, unknown>> },
+): void {
+  const table = TABLE_BY_KIND[r.kind];
+  recordRejection(db, { sourceId: r.sourceId, kind: r.kind, key: r.key, label: r.label, payload: { rows: r.rows } });
+  const del = db.prepare(`DELETE FROM ${table} WHERE id = ?`);
+  for (const row of r.rows) del.run(Number(row.id));
+}
+
 // Concept candidates are always parser output; identity = normalized term.
 export function rejectConceptCandidate(db: DatabaseSync, candidateId: number): boolean {
   const row = db.prepare('SELECT * FROM concept_candidates WHERE id = ?').get(candidateId) as Record<string, unknown> | undefined;
   if (!row) return false;
+  const sourceId = Number(row.source_id);
   inSavepoint(db, 'reject_concept', () => {
-    recordRejection(db, {
-      sourceId: Number(row.source_id), kind: 'concept', key: String(row.normalized), label: String(row.term), payload: row,
-    });
+    const rows = db.prepare('SELECT * FROM concept_candidates WHERE source_id = ? AND normalized = ? ORDER BY id')
+      .all(sourceId, row.normalized as string) as Array<Record<string, unknown>>;
+    rejectRows(db, { sourceId, kind: 'concept', key: String(row.normalized), label: String(row.term), rows });
     emitEvent(db, 'concept_candidate.rejected', { candidateId, term: row.term },
-      { entityType: 'source', entityId: Number(row.source_id) });
-    db.prepare('DELETE FROM concept_candidates WHERE id = ?').run(candidateId);
+      { entityType: 'source', entityId: sourceId });
   });
   return true;
 }
 
 // Relation / misconception: remembered only when the row carries the parser's
-// identity (source_key: a parser row, edited or not). Returns whether a
-// rejection was recorded.
+// identity (source_key: a parser row, edited or not), and then every row with
+// that source_key goes. Rows without one (user-created, unknown-origin
+// legacy) are deleted alone and never matched to the identity, even when
+// their content is identical. Returns whether a rejection was recorded.
 function rejectKeyedCandidate(
   db: DatabaseSync,
   kind: 'relation' | 'misconception',
@@ -107,11 +135,17 @@ function rejectKeyedCandidate(
   const table = TABLE_BY_KIND[kind];
   const row = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
   if (!row) return false;
+  const sourceId = Number(row.source_id);
   const key = row.source_key == null ? null : String(row.source_key);
   return inSavepoint(db, `reject_${kind}`, () => {
-    if (key) recordRejection(db, { sourceId: Number(row.source_id), kind, key, label: label(row), payload: row });
-    db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
-    return key != null;
+    if (!key) {
+      db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
+      return false;
+    }
+    const rows = db.prepare(`SELECT * FROM ${table} WHERE source_id = ? AND source_key = ? ORDER BY id`)
+      .all(sourceId, key) as Array<Record<string, unknown>>;
+    rejectRows(db, { sourceId, kind, key, label: label(row), rows });
+    return true;
   });
 }
 
@@ -172,7 +206,9 @@ export function undoRejection(db: DatabaseSync, rejectionId: number): boolean {
           WHERE source_id = ? AND from_id = ? AND to_id = ? AND edge_type = ? AND status = 'dismissed'`,
       ).run(Number(rec.source_id), Number(payload.from_id), Number(payload.to_id), String(payload.edge_type));
     } else {
-      restoreRow(db, TABLE_BY_KIND[rec.kind], { ...payload, source_id: Number(rec.source_id) });
+      // Every row the rejection removed comes back.
+      const rows = Array.isArray(payload.rows) ? (payload.rows as Array<Record<string, unknown>>) : [payload];
+      for (const row of rows) restoreRow(db, TABLE_BY_KIND[rec.kind], { ...row, source_id: Number(rec.source_id) });
     }
     db.prepare('DELETE FROM candidate_rejections WHERE id = ?').run(rejectionId);
     emitEvent(db, 'candidate.rejection_undone', { rejectionId, kind: rec.kind, identity: rec.identity_key },
