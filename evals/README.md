@@ -195,10 +195,12 @@ what the app runs.
   one-sentence answers whose quotes were attached automatically (in the
   2026-11-27 baseline run, 5 of its 11 answers; explicit-only 0.222 vs
   0.407) and stays the gated aggregate for comparability. Both are
-  verbatim-quote checks, not semantic support. The explicit rate becomes
-  gated only after it has been confirmed on a successful live run and the
-  baseline is re-recorded on purpose; `implicit_link_answer_rate` is
-  reported beside it.
+  verbatim-quote checks, not semantic support. The explicit rate is gated
+  (higher is better, same 0.075 tolerance) since 2026-11-27, after a live
+  run on main matched the stored baseline on every other metric.
+  `implicit_link_answer_rate` is saved in the baseline but stays reported
+  only: a rise can mean previously unverified answers now link
+  automatically, so it has no better direction to gate on.
 - **Claim coverage** (reported, not gated): share of answers with at least
   one uncited sentence, and with at least one `low_overlap` sentence
   (`analyzeClaims` in `knowledge/ask.ts`; a lexical heuristic, NOT an entailment
@@ -225,7 +227,12 @@ what the app runs.
   v2 (`citation_verified_rate` 0.407, supported 0.963, unsupported 0.037,
   abstention 1.000, precision 0.673, dropped 0.140; identical to the
   2026-11-26 v2 run), and an unchanged re-run reports no regressions. The 17
-  proposed cases are not in it.
+  proposed cases are not in it. Amended (not re-recorded) 2026-11-27 from a
+  live run on main whose config and every existing metric matched exactly
+  (latency aside): it added `citation_verified_explicit_rate` 0.222 (also to
+  `flat`, so it is gated) and `implicit_link_answer_rate` 0.222; all existing
+  values, latency included, were left as recorded. `amended` in the file
+  names that run.
 - **Statuses**: `qualified` (the model flagged the passages as insufficient
   but still gave a hedged answer with at least one verified citation) counts as
   supported, not declined. Before it existed, the false-premise questions were

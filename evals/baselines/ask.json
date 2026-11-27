@@ -1,5 +1,14 @@
 {
   "at": "2026-11-27T02:36:07.783Z",
+  "amended": {
+    "at": "2026-11-27T17:33:12.858Z",
+    "added": [
+      "metrics.citation_verified_explicit_rate",
+      "metrics.implicit_link_answer_rate",
+      "flat.citation_verified_explicit_rate"
+    ],
+    "note": "Added from a live run whose config and all existing metrics matched this baseline exactly (latency aside); existing values unchanged."
+  },
   "config": {
     "golden_set": "retrieval",
     "golden_sha256": "ceb8d687f837b5f7c71f142e57b67ed9d15d6ed8d069bfac072a6af1263af1a4",
@@ -38,6 +47,8 @@
     "n_insufficient_context": 0,
     "uncited_claim_answer_rate": 0.407,
     "low_overlap_answer_rate": 0.074,
+    "implicit_link_answer_rate": 0.222,
+    "citation_verified_explicit_rate": 0.222,
     "citation_precision": 0.673,
     "relevant_citation_rate": 0.846,
     "dropped_citation_rate": 0.14,
@@ -111,6 +122,7 @@
     "correct_abstention_rate": 1,
     "citation_precision": 0.673,
     "relevant_citation_rate": 0.846,
-    "dropped_citation_rate": 0.14
+    "dropped_citation_rate": 0.14,
+    "citation_verified_explicit_rate": 0.222
   }
 }
