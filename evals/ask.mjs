@@ -102,14 +102,15 @@ const statusCounts = cases.reduce((acc, c) => ((acc[c.label_status] = (acc[c.lab
 const a = m.answerable;
 console.log(`\n[ask-eval] ${m.n} questions (${a.n} answerable, ${m.n_unanswerable} unanswerable) · labels: ${JSON.stringify(statusCounts)}${unresolved ? ` · ${unresolved} UNRESOLVED` : ''}`);
 if (!statusCounts.reviewed) console.log('[ask-eval] NOTE: no human-reviewed labels yet — treat these numbers as provisional.');
-console.log(`\nanswerable   citations-verified ${f(a.citation_verified_rate)}  supported ${f(a.supported_rate)}  declined ${f(a.declined_rate)}  unsupported ${f(a.unsupported_rate)}  failed ${f(a.failed_rate)}`);
+console.log(`\nprimary      citations verified via explicit [n] markers ${f(m.citation_verified_explicit_rate)}  (auto-linked answers excluded; reported, not gated)`);
+console.log(`answerable   citations-verified incl. auto-linked ${f(a.citation_verified_rate)} (aggregate, kept for comparability)  supported ${f(a.supported_rate)}  declined ${f(a.declined_rate)}  unsupported ${f(a.unsupported_rate)}  failed ${f(a.failed_rate)}`);
 console.log(`abstention   correct on unanswerable ${f(m.correct_abstention_rate)} (n=${m.n_unanswerable})`
   + (m.n_insufficient_context ? `  · cautious on related-but-insufficient ${f(m.correct_caution_rate)} (n=${m.n_insufficient_context})` : ''));
 const unlabelled = results.filter(r => r.answerable && r.relevant.length === 0 && (r.expected ?? 'answer') === 'answer');
 if (unlabelled.length) console.log(`unlabelled   ${unlabelled.length} answerable case(s) without relevance labels (status shown above, excluded from answer metrics): ${unlabelled.map(r => r.id).join(', ')}`);
 console.log(`citations    precision ${f(m.citation_precision)}  relevant-cited answers ${f(m.relevant_citation_rate)}  dropped ${f(m.dropped_citation_rate)}`);
 console.log(`claims       answers with an uncited sentence ${f(m.uncited_claim_answer_rate)}  with a low-overlap sentence ${f(m.low_overlap_answer_rate)}  (heuristic; entailment not checked)`);
-console.log(`auto-link    answers linked automatically (one unmarked sentence) ${f(m.implicit_link_answer_rate)}  ·  citations-verified via explicit [n] only ${f(m.citation_verified_explicit_rate)}  (reported, not gated)`);
+console.log(`auto-link    answers linked automatically (one unmarked sentence) ${f(m.implicit_link_answer_rate)}  (reported, not gated)`);
 console.log(`latency      p50 ${(m.latency_p50_ms / 1000).toFixed(1)}s  p95 ${(m.latency_p95_ms / 1000).toFixed(1)}s`);
 const declinedWithContext = results.filter(r => r.answerable && r.relevant.length && ['insufficient', 'no_passages'].includes(r.status) && r.relevant_in_context);
 if (declinedWithContext.length) {

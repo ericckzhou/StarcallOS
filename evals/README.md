@@ -189,6 +189,16 @@ what the app runs.
   those are infrastructure, not model behavior. Local answers
   vary from run to run even at temperature 0, so the regression tolerance is
   0.075 (two questions out of 27), not the 0.03 the other evals use.
+- **Primary answer metric**: `citation_verified_explicit_rate`, the share of
+  answerable questions whose answer is citation-verified through the model's
+  own `[n]` markers. Report it first. `citation_verified_rate` also counts
+  one-sentence answers whose quotes were attached automatically (in the
+  2026-11-27 baseline run, 5 of its 11 answers; explicit-only 0.222 vs
+  0.407) and stays the gated aggregate for comparability. Both are
+  verbatim-quote checks, not semantic support. The explicit rate becomes
+  gated only after it has been confirmed on a successful live run and the
+  baseline is re-recorded on purpose; `implicit_link_answer_rate` is
+  reported beside it.
 - **Claim coverage** (reported, not gated): share of answers with at least
   one uncited sentence, and with at least one `low_overlap` sentence
   (`analyzeClaims` in `knowledge/ask.ts`; a lexical heuristic, NOT an entailment
