@@ -1495,7 +1495,7 @@ function PdfPage({
   fallbackSize: { width: number; height: number };
   registerRef: (pageNum: number, el: HTMLDivElement | null) => void;
   onMeasured?: (pageNum: number) => void;
-  scrollContainerRef: React.RefObject<HTMLDivElement>;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   annotations: PdfAnnotation[];
   noteMode: boolean;
   onCreateNote: (rect: PdfAnnotationRect, pageSize: { width: number; height: number }) => void;

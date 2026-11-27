@@ -191,7 +191,7 @@ function useConstellationGraph() {
 }
 
 interface ForceLayout {
-  svgRef: React.RefObject<SVGSVGElement>;
+  svgRef: React.RefObject<SVGSVGElement | null>;
   sim: SimNode[];
   tx: number; ty: number; scale: number;
   panning: boolean;

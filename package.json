@@ -18,6 +18,6 @@
     "eval:ask": "pnpm -C packages/services build && node evals/ask.mjs"
   },
   "devDependencies": {
-    "typescript": "^5.4.5"
+    "typescript": "^7.0.2"
   }
 }
