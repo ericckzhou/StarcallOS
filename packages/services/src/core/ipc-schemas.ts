@@ -66,6 +66,7 @@ export const CreateTextSourceArgsSchema = z.object({
 
 export const ImportDocsArgsSchema = z.object({
   paths: z.array(z.string().min(1)).max(50).optional(),
+  kind:  z.enum(['documents', 'images']).optional(),
 });
 
 export const ImportUrlArgsSchema = z.object({

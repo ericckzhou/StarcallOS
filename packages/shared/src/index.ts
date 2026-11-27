@@ -224,6 +224,9 @@ export interface ImportUrlResult {
 export interface ImportDocsArgs {
   // When omitted/empty, the main process opens a file dialog (like `+ PDF`).
   paths?: string[];
+  // Which file dialog to open when `paths` is empty: DOCX/PPTX (default) or
+  // images (OCR). Explicit `paths` may mix both; each file is routed by extension.
+  kind?: 'documents' | 'images';
 }
 export interface ImportDocsResult {
   sources: Source[];

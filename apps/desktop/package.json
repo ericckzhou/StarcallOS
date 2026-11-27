@@ -18,7 +18,9 @@
   "dependencies": {
     "@starcall/services": "workspace:*",
     "@starcall/shared": "workspace:*",
-    "katex": "^0.19.1"
+    "@tesseract.js-data/eng": "1.0.0",
+    "katex": "^0.19.1",
+    "tesseract.js": "7.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",
