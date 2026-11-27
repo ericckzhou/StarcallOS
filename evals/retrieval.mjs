@@ -37,7 +37,7 @@ const MODES = flag('keyword-only') ? ['keyword'] : ['keyword', 'vector', 'hybrid
 
 // ─── inputs / index / labels ─────────────────────────────────────────────────
 
-const { meta, cases } = readGolden(here, die);
+const { meta, cases, set: goldenSet, isDefault: defaultGolden } = readGolden(here, die, opt('golden'));
 const { db, sourceId, sha, chunks, rows, embedder, vectorError, unresolved, parser } = await openPinnedDoc({
   svc, here, tag: 'retrieval-eval', pdf: opt('pdf') ?? process.env.RETRIEVAL_EVAL_PDF, meta, cases,
   wantVectors: MODES.includes('vector'), noCache: flag('no-cache'), die, parser: opt('parser') ?? 'builtin',
@@ -115,7 +115,9 @@ for (const mode of MODES) {
   for (const k of KS) for (const key of ['precision_at_k', 'recall_at_k', 'mrr', 'coverage']) flat[`${mode}.${key}@${k}`] = pm.metrics[k][key];
 }
 const baseFile = path.join(here, 'baselines', 'retrieval.json');
-if (parser !== 'builtin') {
+if (!defaultGolden) {
+  console.log(`[eval] golden set ${goldenSet}: not compared with or saved as the baseline (reviewed set only).`);
+} else if (parser !== 'builtin') {
   console.log(`[eval] parser ${parser}: not compared with or saved as the built-in baseline.`);
 } else if (flag('save-baseline')) {
   const metrics = Object.fromEntries(MODES.filter(m => perMode[m].metrics).map(m => [m, perMode[m].metrics]));
