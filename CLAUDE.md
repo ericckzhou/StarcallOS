@@ -446,7 +446,8 @@ High-change areas:
 - Candidate parser: `packages/services/src/ingestion/candidates.ts`
 - Grammar/equations: `packages/services/src/ingestion/grammar.ts`, `equations.ts`
 - Promotion: `packages/services/src/knowledge/promotion.ts`
-- Cleanup/re-extract: `packages/services/src/knowledge/cleanup.ts`
+- Cleanup/re-extract: `packages/services/src/knowledge/cleanup.ts`,
+  `knowledge/source_rebuild.ts` (both re-extract entry points)
 - IPC/main process pipeline: `apps/desktop/src/main/index.ts`
 - Candidate UI: `apps/desktop/src/renderer/src/components/CandidateReview.tsx`
 - Concept detail/challenge/source tabs: `apps/desktop/src/renderer/src/components/DetailPane.tsx`
@@ -476,11 +477,52 @@ Candidate rows and parse runs stamp these versions for auditability.
 
 ## Data/Behavior Invariants
 
-- `concept_candidates`, relation/equation/misconception candidates, and
-  `semantic_chunks` are derived and safe to wipe on re-extract.
-- Re-extract preserves promoted concepts with non-empty `evidence_json` and
-  concepts with study history in `evidence_records`.
+- Re-extract preserves user-owned data by record-level ownership, not by
+  table (migrations 0038–0040; `knowledge/cleanup.ts`,
+  `knowledge/repos/candidates.ts`):
+  - `concepts.origin` is `manual` | `promoted` | `llm` | NULL (unknown,
+    pre-0038). The Re-extract button (`sources.process`) deletes a concept
+    only when its origin is `llm`, `user_modified_at` is NULL, and nothing
+    user-owned is attached: no graded attempt, Ask history, SRS card, note,
+    tag, constellation, hub membership, PDF annotation (soft-deleted ones
+    count), or concept edge (edges carry no origin, so every edge counts).
+    Manual, promoted and unknown-origin concepts are never deleted.
+    Candidate-only re-extract never deletes concepts.
+  - Every user edit path in `repos/concepts.ts` (rename, narrative fields,
+    importance, tags, constellations, evidence span add/edit/delete) stamps
+    `user_modified_at`; LLM enrichment and system writes do not. Promotion is
+    an ownership change (`origin` -> `promoted`), not an edit, and does not
+    stamp it.
+  - Relation, misconception and equation candidates carry `origin`
+    (`parser` | `user` | NULL), `user_modified_at`, and the parser's original
+    identity (`source_key`; `source_latex` for equations). Re-extract deletes
+    only unedited `parser` rows; user-created, user-edited and unknown-origin
+    rows survive. Parser output already represented by a kept row is not
+    re-inserted (multiset match on the original identity), so kept rows are
+    not duplicated and an edited row's parser original is not re-added beside
+    it. Unknown-origin legacy rows are kept permanently: if the parser has
+    changed since, its old output can remain beside the new.
+  - Concept candidates and `semantic_chunks` are regenerated. Rejecting a
+    concept candidate deletes the row, so re-extract brings it back;
+    rejected prerequisite suggestions likewise return. Rejection decisions
+    are not remembered.
+  - New `create*` call sites must pass an explicit origin. The defaults err
+    toward preserving: `createConcept` NULL, candidate create `user`.
+- Both re-extract entry points run `knowledge/source_rebuild.ts`:
+  `reprocessSourceDeterministic` (Re-extract button: wipe and candidate
+  rebuild in one SAVEPOINT, so a failed rebuild restores the wiped rows; the
+  error is returned, not thrown) and `reextractCandidatesForSource`
+  (candidates:extract and bulk re-extract; errors propagate).
+  `persistCandidateExtraction` and `clearDerivedDataForSource` are each
+  atomic. These functions are synchronous and take no lock themselves; main
+  serializes every per-source rebuild (process, single and bulk re-extract,
+  chunk rebuild, indexing) with `withSourceLock`. The `candidate_gated`/`full`
+  LLM passes still run in main and reuse a preserved concept by slug instead
+  of inserting; they are not covered by the integration tests.
 - Promotion is pure DB upsert and idempotent on `(source_id, slug)`.
+  Promoting onto an existing `llm` concept marks it `promoted` and snapshots
+  the candidate's evidence only if the concept has none; existing fields,
+  notes and edges are untouched.
 - Promoted candidate evidence is snapshotted into `concepts.evidence_json`.
 - LLM topic-filter decisions are stored as normalized terms in
   `sources.llm_filter_keep_terms_json`; the old `*_ids_json` column is mirrored
