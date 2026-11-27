@@ -48,7 +48,11 @@ Remember these as the active state of the repo:
   → main fetches (http/https only, 10s timeout, 5 MB cap) → the pure
   `htmlToText` extractor (`ingestion/html_text.ts`, zero-dep tag-strip + entity
   decode) → write `.txt` → `createSource`, riding the same text-source pipeline.
-  No page geometry, so candidate quality is lower than a real PDF.
+  No page geometry, so candidate quality is lower than a real PDF. DOCX and
+  PPTX import is shipped the same way: `sources.importDocs` (file dialog or
+  paths) → `docxToMarkdown` / `pptxToMarkdown` (`ingestion/docx.ts`,
+  `pptx.ts`) → text-backed source; a bad file lands in `errors` without failing
+  the batch.
 - Images import through local OCR: the `+ Add` menu's Image entry calls
   `sources.importDocs({ kind: 'images' })`; main OCRs each file with tesseract.js
   (`apps/desktop/src/main/ocr.ts`, bundled English `best_int` model, no network,
