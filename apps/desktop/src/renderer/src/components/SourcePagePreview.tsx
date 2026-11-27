@@ -70,7 +70,8 @@ export function spansForQuote(spanTexts: string[], quote: string): number[] {
 let cached: { sourceId: number; doc: Promise<pdfjs.PDFDocumentProxy> } | null = null;
 function loadDoc(sourceId: number): Promise<pdfjs.PDFDocumentProxy> {
   if (cached?.sourceId === sourceId) return cached.doc;
-  void cached?.doc.then(d => d.destroy()).catch(() => undefined);
+  // pdf.js 6 dropped PDFDocumentProxy.destroy(); tear down via its loading task.
+  void cached?.doc.then(d => d.loadingTask.destroy()).catch(() => undefined);
   const doc = window.api.sources.bytes(sourceId).then(bytes => pdfjs.getDocument({ data: new Uint8Array(bytes) }).promise);
   cached = { sourceId, doc };
   doc.catch(() => { if (cached?.doc === doc) cached = null; });
@@ -162,7 +163,7 @@ function PreviewPage({ doc, pageNum, width, quote, nonce, onHighlight }: {
   useEffect(() => {
     let cancelled = false;
     let renderTask: pdfjs.RenderTask | null = null;
-    let textTask: { cancel: () => void } | null = null;
+    let textTask: { render: () => Promise<void>; cancel: () => void } | null = null;
     (async () => {
       try {
         const page = await doc.getPage(pageNum);
@@ -178,7 +179,7 @@ function PreviewPage({ doc, pageNum, width, quote, nonce, onHighlight }: {
         canvas.style.height = `${vp.height}px`;
         const ctx = canvas.getContext('2d')!;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        renderTask = page.render({ canvasContext: ctx, viewport: vp });
+        renderTask = page.render({ canvas, canvasContext: ctx, viewport: vp });
         await renderTask.promise;
         if (cancelled) return;
 

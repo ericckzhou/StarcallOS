@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import net from 'node:net';
 import { lookup } from 'node:dns/promises';
+import type { LookupAddress } from 'node:dns';
 import {
   openDb,
   listSources, createSource, updateSourceStatus, getSourceById, deleteSource,
@@ -139,7 +140,7 @@ async function assertPublicUrl(urlStr: string): Promise<void> {
   if (isBlockedHostname(host)) {
     throw new Error('Refusing to fetch a local or internal hostname');
   }
-  let addrs: Awaited<ReturnType<typeof lookup>>;
+  let addrs: LookupAddress[];
   try { addrs = await lookup(host, { all: true }); } catch { throw new Error(`Could not resolve host: ${host}`); }
   if (addrs.length === 0) throw new Error(`Could not resolve host: ${host}`);
   for (const a of addrs) {
@@ -355,9 +356,9 @@ const LLM_FILTER_BATCH_DELAY_MS = 1_000;  // pacing between batches (RPM safety)
 
 // Deduplicate candidates by normalized term — the renderer maps kept terms back
 // to every row sharing that term, so sending duplicates only wastes tokens.
-function dedupeByNormalized(candidates: CandidateLlmFilterArgs['candidates']): CandidateLlmFilterArgs['candidates'] {
+function dedupeByNormalized<T extends { normalized: string }>(candidates: T[]): T[] {
   const seen = new Set<string>();
-  const out: CandidateLlmFilterArgs['candidates'] = [];
+  const out: T[] = [];
   for (const c of candidates) {
     const key = c.normalized.toLowerCase();
     if (seen.has(key)) continue;

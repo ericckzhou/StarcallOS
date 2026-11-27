@@ -12,6 +12,7 @@ export type Concept = {
   what_breaks: string;
   where_reappears: string | string[];
   section_path?: string[];
+  tags?: string[];
 };
 
 interface Props {
