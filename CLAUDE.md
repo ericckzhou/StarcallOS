@@ -498,14 +498,27 @@ Candidate rows and parse runs stamp these versions for auditability.
     identity (`source_key`; `source_latex` for equations). Re-extract deletes
     only unedited `parser` rows; user-created, user-edited and unknown-origin
     rows survive. Parser output already represented by a kept row is not
-    re-inserted (multiset match on the original identity), so kept rows are
-    not duplicated and an edited row's parser original is not re-added beside
-    it. Unknown-origin legacy rows are kept permanently: if the parser has
-    changed since, its old output can remain beside the new.
-  - Concept candidates and `semantic_chunks` are regenerated. Rejecting a
-    concept candidate deletes the row, so re-extract brings it back;
-    rejected prerequisite suggestions likewise return. Rejection decisions
-    are not remembered.
+    re-inserted, as a multiset: a parser-origin row (edited or not) matches
+    only its recorded full original identity (relations: page + endpoints +
+    kind + quote); an unknown-origin legacy row matches only its current full
+    content; only user-created rows fall back to a coarse match (relations:
+    page + endpoints + kind) so a user's copy of parser output isn't
+    duplicated. When a parser row's original no longer matches, the new
+    output is added beside the kept row. Unknown-origin legacy rows are kept
+    permanently: if the parser has changed since, its old output can remain
+    beside the new.
+  - Concept candidates and `semantic_chunks` are regenerated.
+  - Rejections are remembered per source (`candidate_rejections`, migration
+    0041; `repos/rejections.ts`) for concept, relation and misconception
+    candidates and prerequisite suggestions, keyed on the parser identity
+    (normalized term / `source_key` / `from>to|edge_type`). The record and
+    the delete (or dismiss) are one SAVEPOINT; re-extract skips rejected
+    parser output, and recomputed suggestions come back `dismissed`. Rows
+    with no parser identity (user-created, unknown-origin legacy) are just
+    deleted, with no record. Undo (Candidate Review "Rejected" list;
+    `candidates:rejectionUndo` / `rejectionsClear`) restores the snapshotted
+    row immediately. Deleting a parser equation is NOT remembered: equations
+    are outside the rejection model.
   - New `create*` call sites must pass an explicit origin. The defaults err
     toward preserving: `createConcept` NULL, candidate create `user`.
 - Both re-extract entry points run `knowledge/source_rebuild.ts`:
