@@ -15,7 +15,7 @@
 
 import type { DatabaseSync } from '../core/infra/sqlite';
 import { emitEvent } from '../core/events';
-import { DISPOSABLE_EQUATION_WHERE } from './repos/candidates';
+import { DISPOSABLE_EQUATION_WHERE, DISPOSABLE_MISCONCEPTION_WHERE, DISPOSABLE_RELATION_WHERE } from './repos/candidates';
 
 export interface CleanupCounts {
   concept_candidates: number;
@@ -102,13 +102,15 @@ export function clearDerivedDataForSource(
 
 function clearDerivedDataInner(db: DatabaseSync, sourceId: number, preserveUserData: boolean): CleanupCounts {
 
-  // Always-safe deletes (no user data lives in these tables)
+  // Concept candidates are parser output only (users promote/reject, never
+  // author or edit them), so they are always regenerated.
   const concept_candidates       = countAndDelete(db, 'concept_candidates',       'source_id = ?', sourceId);
-  const relation_candidates      = countAndDelete(db, 'relation_candidates',      'source_id = ?', sourceId);
-  // Equations: only unedited parser output. Users add and edit equations here
-  // (Candidate Review, concept Overview), so this table is not purely derived.
+  // Relations, equations, misconceptions: only unedited parser output. Users
+  // add and edit these (Candidate Review; equations also from a concept's
+  // Overview), so these tables are not purely derived.
+  const relation_candidates      = countAndDelete(db, 'relation_candidates',      DISPOSABLE_RELATION_WHERE, sourceId);
   const equation_candidates      = countAndDelete(db, 'equation_candidates',      DISPOSABLE_EQUATION_WHERE, sourceId);
-  const misconception_candidates = countAndDelete(db, 'misconception_candidates', 'source_id = ?', sourceId);
+  const misconception_candidates = countAndDelete(db, 'misconception_candidates', DISPOSABLE_MISCONCEPTION_WHERE, sourceId);
   const semantic_chunks          = countAndDelete(db, 'semantic_chunks',          'source_id = ?', sourceId);
   // Prerequisite suggestions are derived from relation_candidates. Wipe them
   // here so a re-extract recomputes them; accepted edges survive separately as

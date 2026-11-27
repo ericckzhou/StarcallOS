@@ -199,16 +199,34 @@ function rowToRelationCandidate(row: RelationCandidateRow): StoredRelationCandid
   };
 }
 
+// Who wrote a candidate row (migrations 0039/0040). 'parser' rows are
+// regenerable; 'user' rows (Candidate Review add) survive re-extract. The
+// default is 'user' so a caller that forgets to say errs toward preserving.
+export type CandidateOrigin = 'parser' | 'user';
+
+const normText = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, ' ');
+// Identity of a relation / misconception row for "is this parser output
+// already present?". Quotes are excluded from the relation key: the same
+// relation on the same page is the same candidate.
+export function relationKey(r: { from: string; to: string; kind: string; page: number }): string {
+  return `${r.page}|${normText(r.from)}|${normText(r.to)}|${r.kind}`;
+}
+export function misconceptionKey(m: { quote: string; page: number }): string {
+  return `${Math.max(0, Math.floor(m.page))}|${normText(m.quote)}`;
+}
+
 export function createRelationCandidate(
   db: DatabaseSync,
   sourceId: number,
   r: RelationCandidate,
+  origin: CandidateOrigin = 'user',
 ): StoredRelationCandidate {
   const result = db.prepare(
     `INSERT INTO relation_candidates
-       (source_id, from_term, to_term, relation_kind, quote, page, parser_version)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(sourceId, r.from, r.to, r.kind, r.quote, r.page, PARSER_VERSION);
+       (source_id, from_term, to_term, relation_kind, quote, page, parser_version, origin, source_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(sourceId, r.from, r.to, r.kind, r.quote, r.page, PARSER_VERSION, origin,
+    origin === 'parser' ? relationKey(r) : null);
   const row = db
     .prepare('SELECT * FROM relation_candidates WHERE id = ?')
     .get(Number(result.lastInsertRowid)) as unknown as RelationCandidateRow | undefined;
@@ -235,9 +253,10 @@ export function updateRelationCandidate(
   const from = input.from.trim();
   const to = input.to.trim();
   if (!from || !to) throw new Error('Relation endpoints cannot be empty.');
+  // A user edit makes the row user-owned: re-extract keeps it.
   db.prepare(
     `UPDATE relation_candidates
-     SET from_term = ?, to_term = ?, relation_kind = ?, quote = ?, page = ?
+     SET from_term = ?, to_term = ?, relation_kind = ?, quote = ?, page = ?, user_modified_at = datetime('now')
      WHERE id = ?`,
   ).run(from, to, input.kind, input.quote?.trim() ?? '', Math.max(0, Math.floor(input.page ?? 0)), id);
   const row = db
@@ -286,14 +305,16 @@ export function createMisconceptionCandidate(
   db: DatabaseSync,
   sourceId: number,
   m: { quote: string; page: number; section_path: string[] },
+  origin: CandidateOrigin = 'user',
 ): StoredMisconceptionCandidate {
   const quote = m.quote.trim();
   if (!quote) throw new Error('Misconception phrase cannot be empty.');
   const result = db.prepare(
     `INSERT INTO misconception_candidates
-       (source_id, quote, page, section_path, parser_version)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(sourceId, quote, Math.max(0, Math.floor(m.page)), JSON.stringify(m.section_path), PARSER_VERSION);
+       (source_id, quote, page, section_path, parser_version, origin, source_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(sourceId, quote, Math.max(0, Math.floor(m.page)), JSON.stringify(m.section_path), PARSER_VERSION, origin,
+    origin === 'parser' ? misconceptionKey({ quote, page: m.page }) : null);
   const row = db
     .prepare('SELECT * FROM misconception_candidates WHERE id = ?')
     .get(Number(result.lastInsertRowid)) as unknown as MisconceptionCandidateRow | undefined;
@@ -319,9 +340,10 @@ export function updateMisconceptionCandidate(
 ): StoredMisconceptionCandidate {
   const quote = input.quote.trim();
   if (!quote) throw new Error('Misconception phrase cannot be empty.');
+  // A user edit makes the row user-owned: re-extract keeps it.
   db.prepare(
     `UPDATE misconception_candidates
-     SET quote = ?, page = ?, section_path = ?
+     SET quote = ?, page = ?, section_path = ?, user_modified_at = datetime('now')
      WHERE id = ?`,
   ).run(quote, Math.max(0, Math.floor(input.page ?? 0)), JSON.stringify(input.section_path ?? []), id);
   const row = db
@@ -554,14 +576,20 @@ export function listEquationCandidatesBySource(
 
 // ─── Idempotency helpers ──────────────────────────────────────────────────────
 
-// Equation rows a re-extract may delete: unedited parser output. User-created,
-// user-edited and unknown-origin (pre-0039) rows are user-owned and survive.
-export const DISPOSABLE_EQUATION_WHERE = `source_id = ? AND origin = 'parser' AND user_modified_at IS NULL`;
+// Candidate rows a re-extract may delete: unedited parser output. User-created,
+// user-edited and unknown-origin (pre-0039/0040) rows are user-owned and
+// survive. Same rule for every user-editable candidate table.
+const DISPOSABLE_CANDIDATE_WHERE = `source_id = ? AND origin = 'parser' AND user_modified_at IS NULL`;
+export const DISPOSABLE_EQUATION_WHERE = DISPOSABLE_CANDIDATE_WHERE;
+export const DISPOSABLE_RELATION_WHERE = DISPOSABLE_CANDIDATE_WHERE;
+export const DISPOSABLE_MISCONCEPTION_WHERE = DISPOSABLE_CANDIDATE_WHERE;
 
+// Concept candidates are parser output only (users promote or reject them,
+// never author or edit them), so they are always regenerated.
 export function clearCandidatesForSource(db: DatabaseSync, sourceId: number): void {
   db.prepare('DELETE FROM concept_candidates WHERE source_id = ?').run(sourceId);
-  db.prepare('DELETE FROM relation_candidates WHERE source_id = ?').run(sourceId);
-  db.prepare('DELETE FROM misconception_candidates WHERE source_id = ?').run(sourceId);
+  db.prepare(`DELETE FROM relation_candidates WHERE ${DISPOSABLE_RELATION_WHERE}`).run(sourceId);
+  db.prepare(`DELETE FROM misconception_candidates WHERE ${DISPOSABLE_MISCONCEPTION_WHERE}`).run(sourceId);
   db.prepare(`DELETE FROM equation_candidates WHERE ${DISPOSABLE_EQUATION_WHERE}`).run(sourceId);
 }
 
@@ -573,24 +601,44 @@ function equationKey(page: number, latex: string): string {
   return `${page}|${latex.replace(/\s+/g, '')}`;
 }
 
-// Parser equations to insert after a wipe: skip any already represented by a
-// preserved (user-owned / unknown-origin) row, as a multiset so a formula the
-// parser emits twice on a page is still inserted once more than is preserved.
-function newParserEquations(db: DatabaseSync, sourceId: number, equations: EquationCandidate[]): EquationCandidate[] {
-  const preserved = new Map<string, number>();
-  for (const r of db.prepare(
-    'SELECT page, COALESCE(source_latex, latex) AS k FROM equation_candidates WHERE source_id = ?',
-  ).all(sourceId) as Array<{ page: number; k: string }>) {
-    const key = equationKey(Number(r.page), r.k);
-    preserved.set(key, (preserved.get(key) ?? 0) + 1);
-  }
-  return equations.filter(eq => {
-    const key = equationKey(eq.page, eq.latex);
-    const left = preserved.get(key) ?? 0;
-    if (left === 0) return true;
-    preserved.set(key, left - 1);
+// Keep only the parser items not already represented by a preserved
+// (user-owned / unknown-origin) row, as a multiset: an item the parser emits
+// twice is still inserted once more than is preserved. A preserved row's key
+// is the identity the parser originally gave it (so a user's edit doesn't make
+// the parser re-add the original beside it), else its current content.
+function notYetPresent<T>(preservedKeys: string[], items: T[], keyOf: (item: T) => string): T[] {
+  const left = new Map<string, number>();
+  for (const k of preservedKeys) left.set(k, (left.get(k) ?? 0) + 1);
+  return items.filter(item => {
+    const k = keyOf(item);
+    const n = left.get(k) ?? 0;
+    if (n === 0) return true;
+    left.set(k, n - 1);
     return false;
   });
+}
+
+function newParserEquations(db: DatabaseSync, sourceId: number, equations: EquationCandidate[]): EquationCandidate[] {
+  const keys = (db.prepare(
+    'SELECT page, COALESCE(source_latex, latex) AS k FROM equation_candidates WHERE source_id = ?',
+  ).all(sourceId) as Array<{ page: number; k: string }>).map(r => equationKey(Number(r.page), r.k));
+  return notYetPresent(keys, equations, eq => equationKey(eq.page, eq.latex));
+}
+
+function newParserRelations(db: DatabaseSync, sourceId: number, relations: RelationCandidate[]): RelationCandidate[] {
+  const keys = (db.prepare(
+    'SELECT source_key, from_term, to_term, relation_kind, page FROM relation_candidates WHERE source_id = ?',
+  ).all(sourceId) as Array<{ source_key: string | null; from_term: string; to_term: string; relation_kind: string; page: number }>)
+    .map(r => r.source_key ?? relationKey({ from: r.from_term, to: r.to_term, kind: r.relation_kind, page: Number(r.page) }));
+  return notYetPresent(keys, relations, relationKey);
+}
+
+function newParserMisconceptions<T extends { quote: string; page: number }>(db: DatabaseSync, sourceId: number, phrases: T[]): T[] {
+  const keys = (db.prepare(
+    'SELECT source_key, quote, page FROM misconception_candidates WHERE source_id = ?',
+  ).all(sourceId) as Array<{ source_key: string | null; quote: string; page: number }>)
+    .map(r => r.source_key ?? misconceptionKey({ quote: r.quote, page: Number(r.page) }));
+  return notYetPresent(keys, phrases, misconceptionKey);
 }
 
 // ─── Bulk persistence: one extraction → DB ────────────────────────────────────
@@ -605,9 +653,27 @@ export function persistCandidateExtraction(
     equations?: EquationCandidate[];
   },
 ): void {
+  // Atomic: a failure part-way leaves the previous candidates in place rather
+  // than a half-written set. SAVEPOINT so it also nests in a caller's transaction.
+  db.exec('SAVEPOINT persist_candidates');
+  try {
+    persistCandidateExtractionInner(db, sourceId, result);
+    db.exec('RELEASE persist_candidates');
+  } catch (e) {
+    db.exec('ROLLBACK TO persist_candidates');
+    db.exec('RELEASE persist_candidates');
+    throw e;
+  }
+}
+
+function persistCandidateExtractionInner(
+  db: DatabaseSync,
+  sourceId: number,
+  result: Parameters<typeof persistCandidateExtraction>[2],
+): void {
   clearCandidatesForSource(db, sourceId);
   for (const c of result.candidates) createConceptCandidate(db, sourceId, c);
-  for (const r of result.relations) createRelationCandidate(db, sourceId, r);
-  for (const m of result.misconception_phrases) createMisconceptionCandidate(db, sourceId, m);
+  for (const r of newParserRelations(db, sourceId, result.relations)) createRelationCandidate(db, sourceId, r, 'parser');
+  for (const m of newParserMisconceptions(db, sourceId, result.misconception_phrases)) createMisconceptionCandidate(db, sourceId, m, 'parser');
   for (const eq of newParserEquations(db, sourceId, result.equations ?? [])) createEquationCandidate(db, sourceId, eq);
 }
