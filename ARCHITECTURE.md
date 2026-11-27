@@ -52,7 +52,7 @@ apps/desktop/        Electron: main process + preload + renderer (React)
 **Process boundary rule:** Renderer never touches SQLite or API keys.
 All data flows: renderer → contextBridge → IPC → main → services → DB.
 
-## Data Model (migrations 0001 → 0039)
+## Data Model (migrations 0001 → 0041)
 
 Files live in `packages/services/migrations/`. Note two files share the `0011`
 prefix (the runner warns; order is by full filename).
@@ -80,10 +80,12 @@ ask_history                user-owned saved Ask results per concept, newest 50 (
 events                     APPEND-ONLY audit log
 
 concept_candidates         deterministic candidates (term, confidence, signals, evidence, topic_relevance_score, is_boilerplate, is_broad)
-relation_candidates        deterministic relations (from → kind → to)
+relation_candidates        deterministic + user relations (from → kind → to);
+                           origin parser|user, NULL = unknown/legacy; user_modified_at; source_key (0040)
 equation_candidates        deterministic + user equations (latex, variables, attached_term);
                            origin parser|user, NULL = unknown/legacy; user_modified_at; source_latex (0039)
-misconception_candidates   deterministic misconception phrase spans
+misconception_candidates   deterministic + user misconception phrase spans; origin/user_modified_at/source_key (0040)
+candidate_rejections       user rejections kept across re-extract, keyed on parser identity; undoable (0041)
 
 parse_runs                 append-only audit of every Process click (mode, duration_ms, llm_call_count, llm_input_tokens, llm_output_tokens, diagnostics_json, parser_version, grammar_version, layout_version)
 ```
@@ -378,8 +380,10 @@ repeated domain-term evidence.
 
 `clearDerivedDataForSource(db, sourceId, { preserveUserData: true })`:
 - Runs in one SAVEPOINT: a failure part-way leaves the source unchanged.
-- Always wipes: `concept_candidates`, `relation_candidates`, `misconception_candidates`, `semantic_chunks`. Relation and misconception candidates carry no ownership marker yet, so user edits to them are lost on re-extract (open question).
-- `equation_candidates`: deletes only `origin = 'parser'` rows the user never edited; `user`, edited and unknown-origin (pre-0039) rows survive, and `source_latex` stops the parser from re-adding an equation that already exists.
+- Always wipes: `concept_candidates`, `semantic_chunks`.
+- `relation_candidates`, `misconception_candidates` (0040), `equation_candidates` (0039): delete only `origin = 'parser'` rows the user never edited; `user`, edited and unknown-origin (legacy) rows survive. Parser output already represented by a kept row is not re-inserted: a parser row matches on its recorded original identity (`source_key` / `source_latex`), a legacy row on its current content, and only user-created rows fall back to a coarse match (relations: page + endpoints + kind).
+- Rejections (`candidate_rejections`, 0041) for concept/relation/misconception candidates and prerequisite suggestions are remembered: re-extract skips parser output whose identity was rejected. Undo restores the snapshotted row.
+- Both entry points (Re-extract button, bulk outdated job) share one rebuild path (`knowledge/source_rebuild.ts`).
 - For `concepts`: deletes only `origin = 'llm'` concepts with no `user_modified_at` and no user data attached (graded attempts, Ask history, SRS card, notes, tags, constellations, hub membership, annotations, edges). Manual, promoted and unknown-origin (pre-0038) concepts always survive. Promoting a candidate onto an existing LLM concept turns it into `promoted`.
 - Never touches: `sources`, source file, `events`, `rag_chunks` and chunk vectors (reconciled by `syncSourceChunks` instead)
 
