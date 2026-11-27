@@ -1,0 +1,107 @@
+{
+  "at": "2026-11-26T15:29:21.138Z",
+  "config": {
+    "document_sha256": "0779dd3e3c6951e9f8a30bcc9d6d0cb0da8bc7655e8487cd500601227fcaa9ae",
+    "parser": "builtin",
+    "chunker_version": "0.1.0",
+    "layout_version": "0.5.3",
+    "chunks": 657,
+    "model": "qwen3.5:4b",
+    "embed_model": "nomic-embed-text",
+    "k": 6,
+    "neighbors": false,
+    "max_passage_chars": 1600,
+    "cases": 30
+  },
+  "label_status": {
+    "reviewed": 30
+  },
+  "unresolved": 0,
+  "metrics": {
+    "n": 30,
+    "answerable": {
+      "n": 27,
+      "grounded_rate": 0.704,
+      "supported_rate": 0.963,
+      "declined_rate": 0,
+      "unsupported_rate": 0.037,
+      "failed_rate": 0
+    },
+    "correct_abstention_rate": 1,
+    "n_unanswerable": 3,
+    "citation_precision": 0.673,
+    "relevant_citation_rate": 0.846,
+    "dropped_citation_rate": 0.14,
+    "latency_p50_ms": 1861,
+    "latency_p95_ms": 5492,
+    "by_category": {
+      "ambiguous": {
+        "n": 3,
+        "grounded_rate": 1,
+        "supported_rate": 1,
+        "declined_rate": 0,
+        "unsupported_rate": 0,
+        "failed_rate": 0
+      },
+      "conceptual": {
+        "n": 6,
+        "grounded_rate": 0.833,
+        "supported_rate": 1,
+        "declined_rate": 0,
+        "unsupported_rate": 0,
+        "failed_rate": 0
+      },
+      "equation": {
+        "n": 5,
+        "grounded_rate": 0.4,
+        "supported_rate": 0.8,
+        "declined_rate": 0,
+        "unsupported_rate": 0.2,
+        "failed_rate": 0
+      },
+      "exact_term": {
+        "n": 6,
+        "grounded_rate": 1,
+        "supported_rate": 1,
+        "declined_rate": 0,
+        "unsupported_rate": 0,
+        "failed_rate": 0
+      },
+      "false_premise": {
+        "n": 3,
+        "grounded_rate": 0,
+        "supported_rate": 1,
+        "declined_rate": 0,
+        "unsupported_rate": 0,
+        "failed_rate": 0
+      },
+      "multi_passage": {
+        "n": 4,
+        "grounded_rate": 0.75,
+        "supported_rate": 1,
+        "declined_rate": 0,
+        "unsupported_rate": 0,
+        "failed_rate": 0
+      },
+      "no_answer": {
+        "n": 3,
+        "grounded_rate": 0,
+        "supported_rate": 0,
+        "declined_rate": 1,
+        "unsupported_rate": 0,
+        "failed_rate": 0
+      }
+    }
+  },
+  "flat": {
+    "answerable.grounded_rate": 0.704,
+    "answerable.supported_rate": 0.963,
+    "answerable.declined_rate": 0,
+    "answerable.unsupported_rate": 0.037,
+    "answerable.failed_rate": 0,
+    "correct_abstention_rate": 1,
+    "citation_precision": 0.673,
+    "relevant_citation_rate": 0.846,
+    "dropped_citation_rate": 0.14
+  }
+}
