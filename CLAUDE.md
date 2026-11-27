@@ -523,13 +523,17 @@ Candidate rows and parse runs stamp these versions for auditability.
   - Rejections are remembered per source (`candidate_rejections`, migration
     0041; `repos/rejections.ts`) for concept, relation and misconception
     candidates and prerequisite suggestions, keyed on the parser identity
-    (normalized term / `source_key` / `from>to|edge_type`). The record and
+    (normalized term / `source_key` / each endpoint concept's
+    `source:slug`, never database ids, so a concept deleted and recreated
+    still matches). A rejection
+    applies to the whole identity: every parser row in the source with it is
+    snapshotted and removed (and all restored on undo). The record and
     the delete (or dismiss) are one SAVEPOINT; re-extract skips rejected
     parser output, and recomputed suggestions come back `dismissed`. Rows
     with no parser identity (user-created, unknown-origin legacy) are just
     deleted, with no record. Undo (Candidate Review "Rejected" list;
     `candidates:rejectionUndo` / `rejectionsClear`) restores the snapshotted
-    row immediately. Deleting a parser equation is NOT remembered: equations
+    rows immediately. Deleting a parser equation is NOT remembered: equations
     are outside the rejection model.
   - New `create*` call sites must pass an explicit origin. The defaults err
     toward preserving: `createConcept` NULL, candidate create `user`.
