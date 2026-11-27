@@ -332,6 +332,9 @@ export interface AskCaseResult {
   // Claim coverage (optional: older result files lack it).
   uncited_claims?: number;     // sentences with no verified citation
   low_overlap_claims?: number; // cited sentences sharing few words with their passages
+  // Sentences linked to quotes automatically (one-sentence answer with no [n]
+  // markers), not cited by the model. Optional: older result files lack it.
+  implicit_claims?: number;
   // What a correct pipeline does. Default: 'answer' when answerable, else
   // 'abstain'. 'abstain_or_qualify' = related passages exist but do not answer
   // the question: declining or a hedged 'qualified' answer are both correct.
@@ -365,6 +368,12 @@ export interface AskMetrics {
   // no case carried claim data.
   uncited_claim_answer_rate: number | null;
   low_overlap_answer_rate: number | null;
+  // Share of those answers whose citation link was automatic (implicit), and
+  // the share of answerable questions that are citation-verified through
+  // EXPLICIT [n] markers only. An automatic link is never counted as the model
+  // citing the passage. Reported, not gated. null without claim data.
+  implicit_link_answer_rate: number | null;
+  citation_verified_explicit_rate: number | null;
   // Over verified citations on answerable questions: share pointing at a relevant chunk.
   citation_precision: number | null;
   // Share of supported answerable answers citing at least one relevant chunk.
@@ -438,6 +447,12 @@ export function scoreAsk(results: AskCaseResult[]): AskMetrics {
     n_insufficient_context: cautious.length,
     uncited_claim_answer_rate: claimRate(c => (c.uncited_claims ?? 0) > 0),
     low_overlap_answer_rate: claimRate(c => (c.low_overlap_claims ?? 0) > 0),
+    implicit_link_answer_rate: withClaims.some(c => c.implicit_claims == null)
+      ? null // a file without implicit counts would read as "never auto-linked"
+      : claimRate(c => (c.implicit_claims ?? 0) > 0),
+    citation_verified_explicit_rate: answerable.length && answerable.some(c => c.implicit_claims != null)
+      ? round(answerable.filter(c => c.status === 'grounded' && (c.implicit_claims ?? 0) === 0).length / answerable.length)
+      : null,
     citation_precision: cites ? round(relevantCites / cites) : null,
     relevant_citation_rate: supported.length
       ? round(supported.filter(c => c.cited.some(k => c.relevant.includes(k))).length / supported.length)

@@ -182,4 +182,22 @@ describe('ask metrics', () => {
     expect(m.uncited_claim_answer_rate).toBe(0.667);
     expect(m.low_overlap_answer_rate).toBe(0.333);
   });
+
+  it('keeps automatic (implicit) citation links apart from explicit ones', () => {
+    const m = scoreAsk([
+      c({ id: '1', status: 'grounded', cited: ['a'], uncited_claims: 0, low_overlap_claims: 0, implicit_claims: 0 }),
+      c({ id: '2', status: 'grounded', cited: ['a'], uncited_claims: 0, low_overlap_claims: 0, implicit_claims: 1 }),
+      c({ id: '3', status: 'partial', cited: ['a'], uncited_claims: 1, low_overlap_claims: 0, implicit_claims: 0 }),
+      c({ id: '4', status: 'grounded', cited: ['a'], uncited_claims: 0, low_overlap_claims: 0, implicit_claims: 0 }),
+    ]);
+    expect(m.answerable.citation_verified_rate).toBe(0.75);      // status-level, unchanged
+    expect(m.citation_verified_explicit_rate).toBe(0.5);         // auto-linked answer excluded
+    expect(m.implicit_link_answer_rate).toBe(0.25);
+  });
+
+  it('reports the implicit rates as null for result files without them', () => {
+    const m = scoreAsk([c({ id: '1', status: 'grounded', cited: ['a'], uncited_claims: 0, low_overlap_claims: 0 })]);
+    expect(m.implicit_link_answer_rate).toBeNull();
+    expect(m.citation_verified_explicit_rate).toBeNull();
+  });
 });

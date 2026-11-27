@@ -81,9 +81,11 @@ for (const c of cases) {
     status: r.status, cited, dropped: r.dropped.length, latency_ms,
     uncited_claims: (r.claims ?? []).filter(x => x.issue === 'uncited').length,
     low_overlap_claims: (r.claims ?? []).filter(x => x.issue === 'low_overlap').length,
+    implicit_claims: (r.claims ?? []).filter(x => x.implicit).length,
     // diagnostics (not scored)
     relevant_in_context: passages.some(k => rel.has(k)),
     passages, dropped_reasons: r.dropped.map(d => d.reason),
+    quotes: r.citations.map(x => ({ n: x.n, quote: x.quote })),
     flagged_claims: (r.claims ?? []).filter(x => x.issue).map(x => ({ issue: x.issue, overlap: x.overlap, cited: x.cited, text: x.text })),
     generation_error: r.generation_error, answer: r.answer,
   };
@@ -107,6 +109,7 @@ const unlabelled = results.filter(r => r.answerable && r.relevant.length === 0 &
 if (unlabelled.length) console.log(`unlabelled   ${unlabelled.length} answerable case(s) without relevance labels (status shown above, excluded from answer metrics): ${unlabelled.map(r => r.id).join(', ')}`);
 console.log(`citations    precision ${f(m.citation_precision)}  relevant-cited answers ${f(m.relevant_citation_rate)}  dropped ${f(m.dropped_citation_rate)}`);
 console.log(`claims       answers with an uncited sentence ${f(m.uncited_claim_answer_rate)}  with a low-overlap sentence ${f(m.low_overlap_answer_rate)}  (heuristic; entailment not checked)`);
+console.log(`auto-link    answers linked automatically (one unmarked sentence) ${f(m.implicit_link_answer_rate)}  ·  citations-verified via explicit [n] only ${f(m.citation_verified_explicit_rate)}  (reported, not gated)`);
 console.log(`latency      p50 ${(m.latency_p50_ms / 1000).toFixed(1)}s  p95 ${(m.latency_p95_ms / 1000).toFixed(1)}s`);
 const declinedWithContext = results.filter(r => r.answerable && r.relevant.length && ['insufficient', 'no_passages'].includes(r.status) && r.relevant_in_context);
 if (declinedWithContext.length) {

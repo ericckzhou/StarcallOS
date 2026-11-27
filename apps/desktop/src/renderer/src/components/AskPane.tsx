@@ -195,6 +195,10 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
   const spansByN = new Map<number, Array<[number, number]>>();
   for (const c of result?.citations ?? []) spansByN.set(c.n, [...(spansByN.get(c.n) ?? []), [c.start, c.end]]);
   const meta = result ? statusMeta(result) : null;
+  // One-sentence answer with no [n] markers: its quotes were attached by the
+  // verifier, not cited by the model. Shown apart from explicit citations and
+  // never presented as the model tying the sentence to a passage.
+  const autoLinked = !!result?.claims?.some(c => c.implicit);
 
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
@@ -321,6 +325,14 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
               <div style={panel}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                   <span title={meta.hint} style={{ ...badge, color: meta.color, borderColor: meta.color }}>{meta.label}</span>
+                  {autoLinked && (
+                    <span
+                      title="The model did not mark which passage supports the sentence; the verified quotes were attached automatically. This is weaker than an explicit citation."
+                      style={{ ...badge, color: 'var(--text-secondary)', borderColor: 'rgba(148,163,184,0.6)', borderStyle: 'dashed' }}
+                    >
+                      Auto-linked
+                    </span>
+                  )}
                   <span
                     title={result.retrieval.vector_error ?? 'Keyword (BM25) and vector results fused'}
                     style={{ ...badge, color: 'var(--text-secondary)', borderColor: 'rgba(148,163,184,0.4)' }}
@@ -345,12 +357,12 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                 )}
                 {result.citations.length > 0 && (
                   <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <span style={label}>Verified sources</span>
+                    <span style={label}>{autoLinked ? 'Verified quotes (auto-linked, not cited by the answer)' : 'Verified sources'}</span>
                     {result.citations.map((c, i) => {
                       const p = result.passages.find(x => x.n === c.n);
                       return (
                         <button key={i} onClick={() => jumpTo(c.n, c.quote)} title={pdfSources.has(c.source_id) ? 'Open the page with this quote highlighted' : 'Show the passage'} style={{ textAlign: 'left', background: 'transparent', border: 'none', padding: '2px 0', cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                          <span style={chip}>{c.n}</span>
+                          <span style={autoLinked ? autoChip : chip}>{c.n}</span>
                           <span style={{ color: 'var(--text-soft)' }}>{p?.source_title}</span>, {pages(c.page_start, c.page_end)} — <i>“{c.quote}”</i>
                         </button>
                       );
@@ -537,6 +549,7 @@ const chip: React.CSSProperties = {
   padding: '0 4px', borderRadius: 4, fontSize: 10, fontWeight: 700, verticalAlign: 'super',
   background: 'rgba(129,140,248,0.18)', color: 'var(--text-accent)', border: '1px solid rgba(129,140,248,0.4)', cursor: 'pointer',
 };
+const autoChip: React.CSSProperties = { ...chip, background: 'transparent', color: 'var(--text-secondary)', border: '1px dashed rgba(148,163,184,0.6)' };
 const primaryBtn: React.CSSProperties = { background: '#4f46e5', border: '1px solid var(--border-accent)', color: '#fff', borderRadius: 7, padding: '6px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer' };
 const smallBtn: React.CSSProperties = { background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.4)', color: 'var(--text-accent)', borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer' };
 const linkBtn: React.CSSProperties = { background: 'transparent', border: 'none', color: 'var(--indigo-400)', fontSize: 11, cursor: 'pointer', padding: 0 };
