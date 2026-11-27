@@ -2,6 +2,7 @@ import type { DatabaseSync } from '../../core/infra/sqlite';
 import type {
   Concept,
   ConceptImportance,
+  ConceptOrigin,
   ConceptEdge,
   EdgeType,
 } from '../../core/domain/types';
@@ -50,17 +51,21 @@ function rowToConcept(row: ConceptRow): Concept {
   };
 }
 
+// `origin` defaults to null (unknown), which re-extract always preserves. Pass
+// 'llm' only for concepts written by LLM extraction: that is the one origin a
+// re-extract is allowed to delete (and only when no user data hangs off it).
 export function createConcept(
   db: DatabaseSync,
   input: Omit<Concept, 'id' | 'created_at' | 'tags'>,
+  origin: ConceptOrigin | null = null,
 ): Concept {
   const result = db
     .prepare(
       `INSERT INTO concepts
          (source_id, name, slug, importance, definition_text, why_exists,
           what_breaks, where_reappears, chunk_ids,
-          section_path, exam_value, misconception_risk, centrality_score)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          section_path, exam_value, misconception_risk, centrality_score, origin)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.source_id,
@@ -76,6 +81,7 @@ export function createConcept(
       input.exam_value,
       input.misconception_risk,
       input.centrality_score,
+      origin,
     );
   return getConceptById(db, Number(result.lastInsertRowid))!;
 }
@@ -97,10 +103,16 @@ export function deleteConcept(db: DatabaseSync, id: number): void {
 // Rename a concept's display name. Slug is intentionally NOT updated —
 // promotion idempotency depends on (source_id, slug) staying stable across
 // re-extracts. Display name is purely user-facing.
+// Every user edit to a concept row goes through one of the functions below and
+// stamps `user_modified_at` in the same statement (migration 0038). A concept
+// the user has touched is never deleted by re-extract (cleanup.ts). LLM
+// enrichment writes its own UPDATE and deliberately does not stamp it.
+const USER_MODIFIED = `user_modified_at = datetime('now')`;
+
 export function renameConcept(db: DatabaseSync, id: number, name: string): Concept | null {
   const trimmed = name.trim();
   if (!trimmed) return getConceptById(db, id);
-  db.prepare('UPDATE concepts SET name = ? WHERE id = ?').run(trimmed, id);
+  db.prepare(`UPDATE concepts SET name = ?, ${USER_MODIFIED} WHERE id = ?`).run(trimmed, id);
   return getConceptById(db, id);
 }
 
@@ -133,7 +145,7 @@ export function deleteConceptEvidenceSpan(
   const next = spans.filter(s =>
     !(s.page === page && kindMatch(s) === kind && (s.quote ?? '') === quote),
   );
-  db.prepare('UPDATE concepts SET evidence_json = ? WHERE id = ?')
+  db.prepare(`UPDATE concepts SET evidence_json = ?, ${USER_MODIFIED} WHERE id = ?`)
     .run(JSON.stringify(next), conceptId);
 }
 
@@ -155,7 +167,8 @@ export function updateConceptFields(
   if (!current) return null;
   db.prepare(
     `UPDATE concepts
-     SET definition_text = ?, why_exists = ?, what_breaks = ?, where_reappears = ?, importance = ?, tags_json = ?
+     SET definition_text = ?, why_exists = ?, what_breaks = ?, where_reappears = ?, importance = ?, tags_json = ?,
+         ${USER_MODIFIED}
      WHERE id = ?`,
   ).run(
     fields.definition_text ?? current.definition_text,
@@ -948,7 +961,7 @@ export function addConceptEvidence(
   if (!c) return null;
   const spans = seededSpans(db, conceptId, c);
   spans.push({ source: evidenceKindToSource(item.kind), kind: item.kind, label: item.label, quote: item.quote, page: item.page, annotationId: item.annotationId });
-  db.prepare('UPDATE concepts SET evidence_json = ? WHERE id = ?').run(JSON.stringify(spans), conceptId);
+  db.prepare(`UPDATE concepts SET evidence_json = ?, ${USER_MODIFIED} WHERE id = ?`).run(JSON.stringify(spans), conceptId);
   return listConceptSourceEvidence(db, conceptId);
 }
 
@@ -971,7 +984,7 @@ export function updateConceptEvidence(
     label: fields.label ?? cur.label,
     source: fields.kind ? evidenceKindToSource(fields.kind) : cur.source,
   };
-  db.prepare('UPDATE concepts SET evidence_json = ? WHERE id = ?').run(JSON.stringify(spans), conceptId);
+  db.prepare(`UPDATE concepts SET evidence_json = ?, ${USER_MODIFIED} WHERE id = ?`).run(JSON.stringify(spans), conceptId);
   return listConceptSourceEvidence(db, conceptId);
 }
 
@@ -981,7 +994,7 @@ export function deleteConceptEvidenceByIndex(db: DatabaseSync, conceptId: number
   const spans = seededSpans(db, conceptId, c);
   if (index >= 0 && index < spans.length) {
     spans.splice(index, 1);
-    db.prepare('UPDATE concepts SET evidence_json = ? WHERE id = ?').run(JSON.stringify(spans), conceptId);
+    db.prepare(`UPDATE concepts SET evidence_json = ?, ${USER_MODIFIED} WHERE id = ?`).run(JSON.stringify(spans), conceptId);
   }
   return listConceptSourceEvidence(db, conceptId);
 }

@@ -170,7 +170,7 @@ describe('candidate promotion and cleanup', () => {
       exam_value: 0,
       misconception_risk: 0,
       centrality_score: 0,
-    });
+    }, 'llm');
     const studied = createConcept(db, {
       source_id: source.id,
       name: 'Studied LLM Concept',
@@ -185,7 +185,7 @@ describe('candidate promotion and cleanup', () => {
       exam_value: 0,
       misconception_risk: 0,
       centrality_score: 0,
-    });
+    }, 'llm');
     const task = createTask(db, {
       concept_id: studied.id,
       kind: 'definition',
@@ -221,8 +221,8 @@ describe('candidate promotion and cleanup', () => {
   });
 });
 
-describe('cleanup preserves user-authored notes on surviving concepts', () => {
-  it('keeps notes on a studied concept, drops notes only when the concept itself is dropped', () => {
+describe('cleanup preserves user-authored notes', () => {
+  it('keeps notes on a studied concept, and a note alone keeps an unstudied LLM concept alive', () => {
     const db = openDb(':memory:');
     const source = createSource(db, { filename: 'b.txt', file_path: 'b.txt' });
 
@@ -270,14 +270,15 @@ describe('cleanup preserves user-authored notes on surviving concepts', () => {
       exam_value: 0,
       misconception_risk: 0,
       centrality_score: 0,
-    });
-    createNote(db, orphan.id, { heading: 'doomed', body: '' });
+    }, 'llm');
+    createNote(db, orphan.id, { heading: 'still mine', body: '' });
 
     clearDerivedDataForSource(db, source.id, { preserveUserData: true });
 
     expect(listNotesByConcept(db, studied.id).map(n => n.heading)).toEqual(['my followup']);
-    expect(getConceptById(db, orphan.id)).toBeNull();
-    expect(listNotesByConcept(db, orphan.id)).toEqual([]);
+    // Deleting the concept would cascade the note away, so the note keeps it.
+    expect(getConceptById(db, orphan.id)).not.toBeNull();
+    expect(listNotesByConcept(db, orphan.id).map(n => n.heading)).toEqual(['still mine']);
 
     db.close();
   });

@@ -4,9 +4,14 @@
 //   - Retry cleanup (clear partial LLM output before re-running)
 //
 // IMPORTANT: preserves the `sources` row, file_path, and the audit `events`
-// table. By default ALSO preserves concepts the user has actually studied
-// (any row in `evidence_records` is considered "study history"). Only an
-// explicit destructive rebuild touches user data.
+// table. By default ALSO preserves every concept that is not provably
+// disposable: only an LLM-extracted concept (`origin = 'llm'`) with no
+// user-owned data attached may be deleted (see DISPOSABLE_CONCEPT_SQL). Manual,
+// promoted and unknown-origin concepts always survive. Only an explicit
+// destructive rebuild (`preserveUserData: false`) touches user data.
+//
+// The whole wipe runs in one SAVEPOINT, so a failure part-way leaves the
+// source exactly as it was.
 
 import type { DatabaseSync } from '../core/infra/sqlite';
 import { emitEvent } from '../core/events';
@@ -18,18 +23,47 @@ export interface CleanupCounts {
   misconception_candidates: number;
   semantic_chunks: number;
   prerequisite_suggestions: number; // derived from relation_candidates; safe to wipe
-  concepts_deleted: number;     // cascade-deletes concept_edges, evidence_tasks, misconceptions, mastery, evidence_records
-  concepts_preserved: number;   // concepts with study history (evidence_records present) — left untouched
+  concepts_deleted: number;     // disposable LLM concepts only; cascades their LLM tasks/misconceptions/mastery
+  concepts_preserved: number;   // everything else (manual, promoted, unknown origin, or carrying user data)
 }
 
 export interface ClearOptions {
   /**
-   * If true (default), concepts with any row in evidence_records are
-   * preserved along with their tasks/mastery/edges/misconceptions.
+   * If true (default), only disposable concepts are deleted: origin 'llm'
+   * with no user-owned data (see DISPOSABLE_CONCEPT_SQL).
    * If false, every concept for the source is dropped — destructive rebuild.
    */
   preserveUserData?: boolean;
 }
+
+// A concept is disposable only when ALL of these hold. Anything the user made
+// or did that hangs off a concept keeps it alive, because deleting the concept
+// would cascade that data away:
+//   - origin is 'llm' (manual / promoted / NULL = unknown are never disposable)
+//   - the user has never edited it (user_modified_at IS NULL): once a user
+//     modifies generated content it is no longer disposable generated content
+//   - no graded attempt (evidence_records) and no Ask history
+//   - no SRS card (a `✓ Done` review or manual reschedule writes one)
+//   - no user notes, tags, or curated constellations (where_reappears)
+//   - no hub membership
+//   - no PDF annotation pointing at it (live or soft-deleted, so undo works)
+//   - no concept edge at all: edges carry no origin, so an LLM-written edge
+//     cannot be told apart from a user-curated prerequisite. Ambiguity means
+//     preserve.
+const DISPOSABLE_CONCEPT_SQL = `
+  SELECT c.id FROM concepts c
+   WHERE c.source_id = ?
+     AND c.origin = 'llm'
+     AND c.user_modified_at IS NULL
+     AND COALESCE(c.tags_json, '[]') IN ('', '[]')
+     AND COALESCE(c.where_reappears, '[]') IN ('', '[]')
+     AND NOT EXISTS (SELECT 1 FROM evidence_records r WHERE r.concept_id = c.id)
+     AND NOT EXISTS (SELECT 1 FROM ask_history h WHERE h.concept_id = c.id)
+     AND NOT EXISTS (SELECT 1 FROM concept_srs s WHERE s.concept_id = c.id)
+     AND NOT EXISTS (SELECT 1 FROM concept_notes n WHERE n.concept_id = c.id)
+     AND NOT EXISTS (SELECT 1 FROM star_hub_members m WHERE m.concept_id = c.id)
+     AND NOT EXISTS (SELECT 1 FROM pdf_annotations a WHERE a.concept_id = c.id)
+     AND NOT EXISTS (SELECT 1 FROM concept_edges e WHERE e.from_id = c.id OR e.to_id = c.id)`;
 
 type SqlParam = string | number | bigint | null;
 
@@ -51,7 +85,21 @@ export function clearDerivedDataForSource(
   sourceId: number,
   opts: ClearOptions = {},
 ): CleanupCounts {
-  const preserveUserData = opts.preserveUserData ?? true;
+  // SAVEPOINT (not BEGIN) so this is atomic on its own and still nests inside
+  // a caller's transaction.
+  db.exec('SAVEPOINT clear_derived');
+  try {
+    const counts = clearDerivedDataInner(db, sourceId, opts.preserveUserData ?? true);
+    db.exec('RELEASE clear_derived');
+    return counts;
+  } catch (e) {
+    db.exec('ROLLBACK TO clear_derived');
+    db.exec('RELEASE clear_derived');
+    throw e;
+  }
+}
+
+function clearDerivedDataInner(db: DatabaseSync, sourceId: number, preserveUserData: boolean): CleanupCounts {
 
   // Always-safe deletes (no user data lives in these tables)
   const concept_candidates       = countAndDelete(db, 'concept_candidates',       'source_id = ?', sourceId);
@@ -69,8 +117,7 @@ export function clearDerivedDataForSource(
   // so an unchanged document keeps its chunk ids and never re-embeds.
   countAndDelete(db, 'embeddings', `source_id = ? AND owner_kind <> 'chunk'`, sourceId);
 
-  // Concepts: split by whether the user has studied them.
-  // "Studied" = at least one row in evidence_records for that concept_id.
+  // Concepts: delete only the provably disposable ones (DISPOSABLE_CONCEPT_SQL).
   const allIdsRows = db
     .prepare(`SELECT id FROM concepts WHERE source_id = ?`)
     .all(sourceId) as Array<{ id: number | bigint }>;
@@ -81,32 +128,9 @@ export function clearDerivedDataForSource(
 
   if (allIds.length > 0) {
     if (preserveUserData) {
-      // Preserve a concept if EITHER it has study history OR it was promoted
-      // from a deterministic candidate (= has a non-empty evidence_json, set
-      // at promotion time). Re-extracting shouldn't silently wipe the things
-      // the user explicitly said "I want to learn this."
-      const studiedRows = db
-        .prepare(
-          `SELECT DISTINCT concept_id FROM evidence_records
-           WHERE concept_id IN (${allIds.map(() => '?').join(',')})`,
-        )
-        .all(...allIds) as Array<{ concept_id: number | bigint }>;
-      const studied = new Set(studiedRows.map(r => Number(r.concept_id)));
-
-      const promotedRows = db
-        .prepare(
-          `SELECT id FROM concepts
-           WHERE id IN (${allIds.map(() => '?').join(',')})
-             AND evidence_json IS NOT NULL
-             AND evidence_json != '[]'
-             AND evidence_json != ''`,
-        )
-        .all(...allIds) as Array<{ id: number | bigint }>;
-      const promoted = new Set(promotedRows.map(r => Number(r.id)));
-
-      const keep = new Set<number>([...studied, ...promoted]);
-      const toDelete = allIds.filter(id => !keep.has(id));
-      concepts_preserved = keep.size;
+      const toDelete = (db.prepare(DISPOSABLE_CONCEPT_SQL).all(sourceId) as Array<{ id: number | bigint }>)
+        .map(r => Number(r.id));
+      concepts_preserved = allIds.length - toDelete.length;
       if (toDelete.length > 0) {
         db.prepare(
           `DELETE FROM concepts WHERE id IN (${toDelete.map(() => '?').join(',')})`,

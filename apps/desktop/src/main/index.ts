@@ -18,7 +18,7 @@ import {
   listTasksByConcept, getMastery, listMisconceptionsByConcept,
   listNotesByConcept, createNote, updateNote, deleteNote, reorderNotes,
   listPdfAnnotationsBySource, createPdfAnnotation, updatePdfAnnotation, softDeletePdfAnnotation, restorePdfAnnotation,
-  createChunk, createConcept, updateCentralityScore, createEdge, deleteConceptEdge, createMisconception, createTask,
+  createChunk, createConcept, getConceptBySlug, updateCentralityScore, createEdge, deleteConceptEdge, createMisconception, createTask,
   getConceptPrerequisites,
   computeDeterministicSuggestions, suggestLlmPrerequisites, listPrerequisiteSuggestions,
   listPrerequisiteSuggestionsForConcept,
@@ -417,8 +417,17 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     return explicitSingle ? sources[0] : sources;
   });
 
-  ipcMain.handle(IPC.SOURCES_PROCESS, async (_e, args: ProcessSourceArgs) => {
-    const { sourceId } = validateIpc(ProcessSourceArgsSchema, args, IPC.SOURCES_PROCESS);
+  // Processing wipes and rebuilds a source's derived data, so it takes the same
+  // per-source lock as re-extract, chunk rebuild and embedding: otherwise their
+  // wipes/inserts interleave at every await (duplicate candidates, vectors for
+  // just-deleted chunks).
+  ipcMain.handle(IPC.SOURCES_PROCESS, (_e, rawArgs: ProcessSourceArgs) => {
+    const args = validateIpc(ProcessSourceArgsSchema, rawArgs, IPC.SOURCES_PROCESS);
+    return withSourceLock(args.sourceId, () => processSource(args));
+  });
+
+  async function processSource(args: ProcessSourceArgs) {
+    const { sourceId } = args;
     resetUsageStats();
     const startedAt = Date.now();
 
@@ -627,7 +636,18 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
 
       const rawConcepts = await runConceptExtractor(cfgFor('concepts'), rawChunks);
       const conceptIdBySlug = new Map<string, number>();
+      // Concepts that survived the wipe (user-owned or unknown origin) keep
+      // their row: reuse it by slug instead of inserting, which would violate
+      // UNIQUE(source_id, slug) and fail the whole run. Their fields, tasks and
+      // misconceptions are left as the user has them.
+      const preservedSlugs = new Set<string>();
       for (const rc of rawConcepts) {
+        const existing = getConceptBySlug(db, sourceId, rc.slug);
+        if (existing) {
+          conceptIdBySlug.set(rc.slug, existing.id);
+          preservedSlugs.add(rc.slug);
+          continue;
+        }
         const chunkIds = rc.chunk_indices.map(i => savedChunks[i]?.id ?? 0).filter(Boolean);
         const saved = createConcept(db, {
           source_id: sourceId, name: rc.name, slug: rc.slug, importance: rc.importance,
@@ -635,7 +655,7 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
           what_breaks: rc.what_breaks, where_reappears: [], chunk_ids: chunkIds,
           section_path: rc.section_path, exam_value: rc.exam_value,
           misconception_risk: rc.misconception_risk, centrality_score: 0,
-        });
+        }, 'llm');
         conceptIdBySlug.set(rc.slug, saved.id);
         upsertMastery(db, saved.id, 0);
         emitEvent(db, 'concept.created', { conceptId: saved.id }, { entityType: 'concept', entityId: saved.id });
@@ -661,12 +681,14 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
 
       const misconceptions = await runMisconceptionExtractor(cfgFor('misconceptions'), rawConcepts);
       for (const m of misconceptions) {
+        if (preservedSlugs.has(m.concept_slug)) continue;
         const conceptId = conceptIdBySlug.get(m.concept_slug);
         if (conceptId) createMisconception(db, { concept_id: conceptId, description: m.description, why_think_it: m.why_think_it, why_wrong: m.why_wrong, test_prompt: m.test_prompt });
       }
 
       const tasks = await runTaskGenerator(cfgFor('tasks'), rawConcepts);
       for (const t of tasks) {
+        if (preservedSlugs.has(t.concept_slug)) continue;
         const conceptId = conceptIdBySlug.get(t.concept_slug);
         if (conceptId) createTask(db, { concept_id: conceptId, kind: t.kind, prompt: t.prompt, difficulty: t.difficulty });
       }
@@ -693,9 +715,9 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       emitEvent(db, 'source.processing_failed', { sourceId, error: msg }, { entityType: 'source', entityId: sourceId });
       logTotals('fail');
       recordRun('failed', msg);
-      return { ok: false, error: msg };
+      return { ok: false as const, error: msg };
     }
-  });
+  }
 
   ipcMain.handle(IPC.SOURCES_DELETE, (_e, sourceId: number) => {
     const id = validateIpc(PositiveIntSchema, sourceId, IPC.SOURCES_DELETE);

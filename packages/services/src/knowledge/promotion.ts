@@ -73,7 +73,7 @@ export function promoteCandidate(db: DatabaseSync, candidateId: number): Concept
     exam_value: Math.round(cand.confidence * 100),
     misconception_risk: 0,
     centrality_score: 0,
-  });
+  }, 'promoted');
 
   // Preserve the candidate's evidence quotes on the new concept row so the
   // Source viewer can show real page references (not just first_page).
@@ -125,7 +125,7 @@ export function createManualConcept(
     exam_value: 0,
     misconception_risk: 0,
     centrality_score: 0,
-  });
+  }, 'manual');
 
   upsertMastery(db, concept.id, 0);
   emitEvent(
