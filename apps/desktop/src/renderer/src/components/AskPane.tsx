@@ -303,6 +303,9 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                         {h.result.question}
                       </button>
                       <span title={m.hint} style={{ fontSize: 10, fontWeight: 700, color: m.color, whiteSpace: 'nowrap' }}>{m.label}</span>
+                      {h.result.claims?.some(c => c.implicit) && (
+                        <span title="Quotes attached automatically, not cited by the answer" style={{ fontSize: 10, color: 'var(--text-secondary)', border: '1px dashed rgba(148,163,184,0.6)', borderRadius: 4, padding: '0 4px', whiteSpace: 'nowrap' }}>auto-linked</span>
+                      )}
                       <span style={{ fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{ago(h.created_at)}</span>
                       <button
                         onClick={async () => {
