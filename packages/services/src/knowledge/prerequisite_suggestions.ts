@@ -16,7 +16,7 @@
 
 import type { DatabaseSync } from '../core/infra/sqlite';
 import { createEdge } from './repos/concepts';
-import { prerequisiteRejectionKey, rejectPrerequisiteSuggestionRecorded, rejectedKeys } from './repos/rejections';
+import { conceptIdentityResolver, isPrerequisiteRejected, rejectPrerequisiteSuggestionRecorded, rejectedKeys } from './repos/rejections';
 import { emitEvent } from '../core/events';
 import type { ProviderConfig } from '../core/llm';
 import { z } from 'zod';
@@ -179,9 +179,11 @@ export function computeDeterministicSuggestions(
 
   // A suggestion the user rejected comes back as 'dismissed', not 'pending'
   // (the rejection record survives the re-extract wipe; repos/rejections.ts).
+  // Matching is on the concepts' stable identity (source + slug), not ids.
   const rejected = rejectedKeys(db, sourceId, 'prerequisite');
+  const identityOf = conceptIdentityResolver(db);
   const statusFor = (fromId: number, toId: number, edgeType: string) =>
-    (rejected.has(prerequisiteRejectionKey(fromId, toId, edgeType)) ? 'dismissed' : 'pending');
+    (isPrerequisiteRejected(rejected, identityOf, fromId, toId, edgeType) ? 'dismissed' : 'pending');
   const insertRow = db.prepare(
     `INSERT OR IGNORE INTO prerequisite_suggestions
        (source_id, from_id, to_id, edge_type, basis, confidence, reason, status)
@@ -289,13 +291,14 @@ export async function suggestLlmPrerequisites(
   const edges: LlmEdge[] = data.edges;
 
   const rejected = rejectedKeys(db, sourceId, 'prerequisite');
+  const identityOf = conceptIdentityResolver(db);
   const insertRow = db.prepare(
     `INSERT OR IGNORE INTO prerequisite_suggestions
        (source_id, from_id, to_id, edge_type, basis, confidence, reason, status)
      VALUES (?, ?, ?, 'requires', 'llm', 0.5, ?, ?)`,
   );
   const insert = { run: (s: number, f: number, t: number, reason: string) =>
-    insertRow.run(s, f, t, reason, rejected.has(prerequisiteRejectionKey(f, t, 'requires')) ? 'dismissed' : 'pending') };
+    insertRow.run(s, f, t, reason, isPrerequisiteRejected(rejected, identityOf, f, t, 'requires') ? 'dismissed' : 'pending') };
 
   for (const e of edges) {
     const prereqId = e.prerequisite ? conceptIdByName.get(normalizeName(e.prerequisite)) : undefined;

@@ -511,7 +511,9 @@ Candidate rows and parse runs stamp these versions for auditability.
   - Rejections are remembered per source (`candidate_rejections`, migration
     0041; `repos/rejections.ts`) for concept, relation and misconception
     candidates and prerequisite suggestions, keyed on the parser identity
-    (normalized term / `source_key` / `from>to|edge_type`). A rejection
+    (normalized term / `source_key` / each endpoint concept's
+    `source:slug`, never database ids, so a concept deleted and recreated
+    still matches). A rejection
     applies to the whole identity: every parser row in the source with it is
     snapshotted and removed (and all restored on undo). The record and
     the delete (or dismiss) are one SAVEPOINT; re-extract skips rejected

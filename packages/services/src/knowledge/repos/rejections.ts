@@ -32,8 +32,39 @@ const TABLE_BY_KIND: Record<Exclude<RejectionKind, 'prerequisite'>, string> = {
   misconception: 'misconception_candidates',
 };
 
-export function prerequisiteRejectionKey(fromId: number, toId: number, edgeType: string): string {
-  return `${fromId}>${toId}|${edgeType}`;
+// A concept's stable identity: its source plus its slug. Database ids are not
+// stable (a concept deleted by re-extract and promoted again gets a new id);
+// the slug never changes (rename keeps it; promotion is idempotent on
+// (source_id, slug)).
+export interface ConceptIdentity { source_id: number; slug: string }
+
+export function conceptStableKey(c: ConceptIdentity): string {
+  return `${Number(c.source_id)}:${c.slug}`;
+}
+
+export function prerequisiteRejectionKey(from: ConceptIdentity, to: ConceptIdentity, edgeType: string): string {
+  return `${conceptStableKey(from)}>${conceptStableKey(to)}|${edgeType}`;
+}
+
+// Maps current concept ids to their stable identity, for checking freshly
+// computed suggestions (which carry ids) against rejection keys.
+export function conceptIdentityResolver(db: DatabaseSync): (id: number) => ConceptIdentity | null {
+  const byId = new Map((db.prepare('SELECT id, source_id, slug FROM concepts').all() as Array<{ id: number; source_id: number; slug: string }>)
+    .map(c => [Number(c.id), { source_id: Number(c.source_id), slug: c.slug }]));
+  return id => byId.get(id) ?? null;
+}
+
+// True when the suggestion from -> to (ids) matches a rejected identity.
+export function isPrerequisiteRejected(
+  rejected: Set<string>,
+  identityOf: (id: number) => ConceptIdentity | null,
+  fromId: number,
+  toId: number,
+  edgeType: string,
+): boolean {
+  const from = identityOf(fromId);
+  const to = identityOf(toId);
+  return !!from && !!to && rejected.has(prerequisiteRejectionKey(from, to, edgeType));
 }
 
 function inSavepoint<T>(db: DatabaseSync, name: string, fn: () => T): T {
@@ -161,19 +192,25 @@ export function rejectMisconceptionCandidate(db: DatabaseSync, id: number): bool
 // contract); the record makes the dismissal survive the re-extract wipe.
 export function rejectPrerequisiteSuggestionRecorded(db: DatabaseSync, suggestionId: number): boolean {
   const row = db.prepare(
-    `SELECT s.source_id, s.from_id, s.to_id, s.edge_type, a.name AS from_name, b.name AS to_name
+    `SELECT s.source_id, s.edge_type, a.name AS from_name, b.name AS to_name,
+            a.source_id AS from_source, a.slug AS from_slug, b.source_id AS to_source, b.slug AS to_slug
        FROM prerequisite_suggestions s
        JOIN concepts a ON a.id = s.from_id
        JOIN concepts b ON b.id = s.to_id
       WHERE s.id = ?`,
-  ).get(suggestionId) as { source_id: number; from_id: number; to_id: number; edge_type: string; from_name: string; to_name: string } | undefined;
+  ).get(suggestionId) as {
+    source_id: number; edge_type: string; from_name: string; to_name: string;
+    from_source: number; from_slug: string; to_source: number; to_slug: string;
+  } | undefined;
   if (!row) return false;
+  const from: ConceptIdentity = { source_id: Number(row.from_source), slug: row.from_slug };
+  const to: ConceptIdentity = { source_id: Number(row.to_source), slug: row.to_slug };
   inSavepoint(db, 'reject_prereq', () => {
     recordRejection(db, {
       sourceId: Number(row.source_id), kind: 'prerequisite',
-      key: prerequisiteRejectionKey(Number(row.from_id), Number(row.to_id), row.edge_type),
+      key: prerequisiteRejectionKey(from, to, row.edge_type),
       label: `${row.from_name} → ${row.to_name}`,
-      payload: { from_id: Number(row.from_id), to_id: Number(row.to_id), edge_type: row.edge_type },
+      payload: { from, to, edge_type: row.edge_type },
     });
     db.prepare(`UPDATE prerequisite_suggestions SET status = 'dismissed' WHERE id = ?`).run(suggestionId);
   });
@@ -201,10 +238,17 @@ export function undoRejection(db: DatabaseSync, rejectionId: number): boolean {
   const payload = JSON.parse(rec.payload_json) as Record<string, unknown>;
   inSavepoint(db, 'undo_rejection', () => {
     if (rec.kind === 'prerequisite') {
+      // Resolve the endpoints by stable identity to whatever ids they have
+      // NOW (the concepts may have been recreated since the rejection).
+      const from = payload.from as ConceptIdentity;
+      const to = payload.to as ConceptIdentity;
       db.prepare(
         `UPDATE prerequisite_suggestions SET status = 'pending'
-          WHERE source_id = ? AND from_id = ? AND to_id = ? AND edge_type = ? AND status = 'dismissed'`,
-      ).run(Number(rec.source_id), Number(payload.from_id), Number(payload.to_id), String(payload.edge_type));
+          WHERE source_id = ? AND edge_type = ? AND status = 'dismissed'
+            AND from_id IN (SELECT id FROM concepts WHERE source_id = ? AND slug = ?)
+            AND to_id   IN (SELECT id FROM concepts WHERE source_id = ? AND slug = ?)`,
+      ).run(Number(rec.source_id), String(payload.edge_type),
+        Number(from.source_id), from.slug, Number(to.source_id), to.slug);
     } else {
       // Every row the rejection removed comes back.
       const rows = Array.isArray(payload.rows) ? (payload.rows as Array<Record<string, unknown>>) : [payload];
