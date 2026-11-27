@@ -102,7 +102,7 @@ const statusCounts = cases.reduce((acc, c) => ((acc[c.label_status] = (acc[c.lab
 const a = m.answerable;
 console.log(`\n[ask-eval] ${m.n} questions (${a.n} answerable, ${m.n_unanswerable} unanswerable) · labels: ${JSON.stringify(statusCounts)}${unresolved ? ` · ${unresolved} UNRESOLVED` : ''}`);
 if (!statusCounts.reviewed) console.log('[ask-eval] NOTE: no human-reviewed labels yet — treat these numbers as provisional.');
-console.log(`\nprimary      citations verified via explicit [n] markers ${f(m.citation_verified_explicit_rate)}  (auto-linked answers excluded; reported, not gated)`);
+console.log(`\nprimary      citations verified via explicit [n] markers ${f(m.citation_verified_explicit_rate)}  (auto-linked answers excluded; gated)`);
 console.log(`answerable   citations-verified incl. auto-linked ${f(a.citation_verified_rate)} (aggregate, kept for comparability)  supported ${f(a.supported_rate)}  declined ${f(a.declined_rate)}  unsupported ${f(a.unsupported_rate)}  failed ${f(a.failed_rate)}`);
 console.log(`abstention   correct on unanswerable ${f(m.correct_abstention_rate)} (n=${m.n_unanswerable})`
   + (m.n_insufficient_context ? `  · cautious on related-but-insufficient ${f(m.correct_caution_rate)} (n=${m.n_insufficient_context})` : ''));
@@ -153,6 +153,9 @@ const flat = {
   'answerable.failed_rate': a.failed_rate, correct_abstention_rate: m.correct_abstention_rate,
   citation_precision: m.citation_precision, relevant_citation_rate: m.relevant_citation_rate,
   dropped_citation_rate: m.dropped_citation_rate,
+  // Gated since 2026-11-27 (confirmed on a live run, baseline amended on purpose).
+  // implicit_link_answer_rate stays reported only: it has no better direction.
+  citation_verified_explicit_rate: m.citation_verified_explicit_rate,
 };
 const baseFile = path.join(here, 'baselines', 'ask.json');
 if (!golden.isDefault) {
