@@ -394,6 +394,20 @@ Remember these as the active state of the repo:
   now records a `parse_run` (`diagnostics.trigger='reextract'`) — without that a
   re-extracted source would stay "outdated" forever. User-started only,
   sequential under `withSourceLock`, Stop between sources, resumable.
+- `packages/mcp-server` is an optional read-only MCP server (stdio, no
+  listener) for local clients such as pal. Pal fuses its results
+  deterministically and never lets its model drive the calls. It opens the DB
+  with `openDbReadOnly` (no migrations) and refuses a DB behind or ahead of the
+  code (`assertSchemaCurrent`, checked at startup and per call). It contains no
+  SQL: tools call exported services functions only, and new read helpers go in
+  services. It never reads `settings.json`: embedding URL/model come from flags,
+  restricted to loopback by `assertLoopbackUrl`, and the embedder fetches with
+  `redirect: 'error'`. Scopes: `passages,concepts,progress` by default;
+  `highlights` (persisted `type='highlight'` rows only) and `notes` are opt-in.
+  Never expose attempt answer text, grader output, LLM traces or settings. Use
+  `listConceptSourceEvidence(db, id, { persistSeed: false })` on read-only
+  handles, because the default path writes. Keep it read-only; write tools need
+  a new plan. Details: ARCHITECTURE.md "MCP Server".
 - User-facing provider text should say "configured LLM provider" unless a
   feature is truly Groq-specific.
 - `.claude/agents/ipc-contract-reviewer.md` is a project review agent that
@@ -450,6 +464,7 @@ misconceptions, and tasks.
 ```text
 packages/services/   evidence engine, parser, repos, LLM wrapper
 packages/shared/     IPC names and shared DTO/types
+packages/mcp-server/ read-only stdio MCP server over services (optional)
 apps/desktop/        Electron main/preload/React renderer
 ```
 

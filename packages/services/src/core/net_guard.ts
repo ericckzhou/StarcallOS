@@ -43,3 +43,48 @@ export function isBlockedHostname(host: string): boolean {
     h.endsWith('.internal')
   );
 }
+
+// ---------------------------------------------------------------------------
+// Loopback-only guard for local services (the embedding server the MCP reader
+// calls). Stricter than `isPrivateIp`: only this machine, never the LAN.
+
+export function isLoopbackIp(raw: string): boolean {
+  const ip = raw.replace(/^\[|\]$/g, '').trim().toLowerCase();
+  if (net.isIPv4(ip)) return ip.split('.')[0] === '127';
+  if (net.isIPv6(ip)) {
+    if (ip === '::1') return true;
+    if (ip.startsWith('::ffff:')) return isLoopbackIp(ip.slice(7));
+    return false;
+  }
+  return false;
+}
+
+export type LookupAll = (host: string) => Promise<Array<{ address: string }>>;
+
+// Resolve `raw` and accept it only when it is an http(s) URL whose host is a
+// loopback literal, or `localhost` resolving exclusively to loopback addresses.
+// Callers must also fetch with `redirect: 'error'`, or a loopback server could
+// bounce the request to an external host.
+export async function assertLoopbackUrl(raw: string, lookupAll?: LookupAll): Promise<URL> {
+  let url: URL;
+  try { url = new URL(raw); } catch { throw new Error(`Not a valid URL: ${raw}`); }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`Only http(s) URLs are allowed, got ${url.protocol}`);
+  }
+  if (url.username || url.password) throw new Error('URLs with credentials are not allowed.');
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  if (net.isIP(host)) {
+    if (!isLoopbackIp(host)) throw new Error(`${host} is not a loopback address.`);
+    return url;
+  }
+  if (host.toLowerCase() !== 'localhost') {
+    throw new Error(`Host "${host}" is not allowed; use 127.0.0.1, ::1 or localhost.`);
+  }
+  const lookup: LookupAll = lookupAll
+    ?? (async h => (await import('node:dns')).promises.lookup(h, { all: true }));
+  const addrs = await lookup(host);
+  if (addrs.length === 0 || !addrs.every(a => isLoopbackIp(a.address))) {
+    throw new Error('localhost does not resolve only to loopback addresses.');
+  }
+  return url;
+}

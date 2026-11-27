@@ -35,6 +35,9 @@ export function createOpenAICompatEmbedder(baseUrlRaw: string | undefined, model
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ model, input: batch }),
+            // A local embedding server never legitimately redirects; following
+            // one could carry document text to another host.
+            redirect: 'error',
             signal: AbortSignal.timeout(EMBED_TIMEOUT_MS),
           });
         } catch {

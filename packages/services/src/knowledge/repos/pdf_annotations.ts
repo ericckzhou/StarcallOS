@@ -203,3 +203,49 @@ export function restorePdfAnnotation(db: DatabaseSync, id: number): PdfAnnotatio
   ).run(id);
   return getAnnotation(db, id);
 }
+
+// ─── Read-only highlight lookup (used by the MCP reader) ─────────────────────
+// Only persisted, live (`deleted_at IS NULL`) rows of type `highlight`; sticky
+// notes (`type = 'note'`) are a different thing and are not returned.
+
+export interface HighlightHit {
+  annotation: PdfAnnotation;
+  source_title: string;
+  concept_name: string | null;
+}
+
+interface HighlightJoinRow extends PdfAnnotationRow {
+  source_title: string;
+  concept_name: string | null;
+}
+
+const HIGHLIGHT_SELECT = `
+  SELECT a.*, COALESCE(s.title, s.filename, '') AS source_title, c.name AS concept_name
+    FROM pdf_annotations a
+    JOIN sources s ON s.id = a.source_id
+    LEFT JOIN concepts c ON c.id = a.concept_id
+   WHERE a.type = 'highlight' AND a.deleted_at IS NULL`;
+
+function toHighlightHit(r: HighlightJoinRow): HighlightHit {
+  return { annotation: rowToAnnotation(r), source_title: r.source_title, concept_name: r.concept_name ?? null };
+}
+
+export function getHighlight(db: DatabaseSync, id: number): HighlightHit | null {
+  const r = db.prepare(`${HIGHLIGHT_SELECT} AND a.id = ?`).get(id) as HighlightJoinRow | undefined;
+  return r ? toHighlightHit(r) : null;
+}
+
+// Every query word must appear in the highlighted text, its label, its note,
+// or the linked concept's name. An empty query lists the newest highlights.
+export function searchHighlights(db: DatabaseSync, query: string, limit = 10): HighlightHit[] {
+  const words = (query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(w => w.length >= 2).slice(0, 8);
+  const like = (t: string) => `%${t.replace(/[\\%_]/g, c => '\\' + c)}%`;
+  const clause = words.map(() =>
+    `AND (lower(a.selected_text) LIKE ? ESCAPE '\\' OR lower(a.label) LIKE ? ESCAPE '\\'
+          OR lower(a.note_body) LIKE ? ESCAPE '\\' OR lower(COALESCE(c.name, '')) LIKE ? ESCAPE '\\')`,
+  ).join(' ');
+  const args = words.flatMap(w => [like(w), like(w), like(w), like(w)]);
+  const rows = db.prepare(`${HIGHLIGHT_SELECT} ${clause} ORDER BY a.created_at DESC, a.id DESC LIMIT ?`)
+    .all(...args, limit) as unknown as HighlightJoinRow[];
+  return rows.map(toHighlightHit);
+}

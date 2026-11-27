@@ -46,6 +46,7 @@ Electron desktop app. Local-first, TypeScript/Node end-to-end.
 ```
 packages/services/   evidence engine (pure TS, Node.js only, no DOM)
 packages/shared/     IPC type contracts (renderer ↔ main) — SINGLE SOURCE OF TRUTH
+packages/mcp-server/ optional read-only MCP server (stdio) over services
 apps/desktop/        Electron: main process + preload + renderer (React)
 ```
 
@@ -306,6 +307,48 @@ rag.ask -> lazy chunk embedding (indexSourceChunkEmbeddings, progress events)
   spans. Highlighting is line-granular (whole text-layer spans).
 - IPC: `rag.{status,indexSource,ask,onProgress,history,historyDelete}`; args
   validated by `RagAskArgsSchema` (question ≤ 2000 chars, optional `conceptId`).
+
+## MCP Server (read-only, stdio)
+
+`packages/mcp-server` exposes the library to a local MCP client (for example a
+personal assistant that fuses StarcallOS results with its own retrieval). It is
+a separate Node process. The app does not depend on it, and it does not depend
+on the app running. Usage, tools and the security model are in
+[packages/mcp-server/README.md](packages/mcp-server/README.md).
+
+- **Transport:** stdio only, started by the client. No network listener. This is
+  a local-subprocess trust boundary, not authentication.
+- **Data access:** `openDbReadOnly` (`core/infra/readonly.ts`): SQLite
+  `readOnly`, no migrations, no backup. `assertSchemaCurrent` compares
+  `_migrations` with the shipped migration files at startup and on every call.
+  A DB that is behind ("open StarcallOS once") or ahead ("update this checkout")
+  is refused. The app remains the only migrator.
+- **No second retrieval system:** the tools call exported services functions
+  only (`retrieveChunks`, `getChunkWindow`, `searchConcepts`,
+  `listConceptSourceEvidence`, `getConceptPrerequisites`, `getStudyProgress`,
+  `listReviewQueue`, `searchHighlights`/`getHighlight`, `listChunksOnPage`).
+  The package contains no SQL. Read helpers added for it live in services with
+  their own tests. `listConceptSourceEvidence(db, id, { persistSeed: false })`
+  is the read-only variant: the default path seeds `evidence_json` on first read,
+  which is a write.
+- **Secrets:** never reads `settings.json`. The embedding URL and model come
+  from flags. The model defaults to `chunkEmbeddingModels(db)[0]`, the model the
+  passage index was built with.
+- **Network:** the only outbound call is the query embedding, restricted by
+  `assertLoopbackUrl` (`core/net_guard.ts`) at startup and per request.
+  `createOpenAICompatEmbedder` now fetches with `redirect: 'error'` (also
+  hardening the app). An 8 s cap falls back to keyword search.
+- **Scopes:** `passages`, `concepts` and `progress` by default; `highlights`
+  and `notes` opt-in. Attempt answer text, grader output, LLM traces and
+  settings are never exposed. The audit log (`<userData>/mcp.log`) is metadata
+  only.
+- **Verified WAL behaviour (Windows, Node 22.16, SQLite 3.49):**
+  - A reader sees live commits and keeps snapshot isolation inside a transaction.
+  - The app's `wal_checkpoint(TRUNCATE)` succeeds while the reader is open.
+  - Missing `-wal`/`-shm` files are created empty on open; the main file is
+    unchanged.
+  - The app does not checkpoint on exit, so its sidecars normally persist
+    between runs, and the reader must read them.
 
 ## Mastery Model (compression stages)
 ```

@@ -289,3 +289,41 @@ export function loadChunkVectors(
   for (const r of rows) byChunk.set(Number(r.chunk_id), decodeVec(r.vec));
   return [...byChunk.entries()].map(([chunkId, vec]) => ({ chunkId, vec }));
 }
+
+// ─── Read-only lookups (used by the MCP reader) ──────────────────────────────
+
+// Chunks whose page range covers `page`, in reading order.
+export function listChunksOnPage(db: DatabaseSync, sourceId: number, page: number): RagChunk[] {
+  const rows = db.prepare(
+    `SELECT ${COLS} FROM rag_chunks
+      WHERE source_id = ? AND page_start <= ? AND page_end >= ?
+      ORDER BY ordinal, id`,
+  ).all(sourceId, page, page) as unknown as RagChunkRow[];
+  return rows.map(fromRow);
+}
+
+// A chunk plus up to `radius` neighbours on each side in reading order (same
+// source, any section), ordered by ordinal. Empty when the chunk is unknown.
+export function getChunkWindow(db: DatabaseSync, chunkId: number, radius: number): RagChunk[] {
+  const anchor = db.prepare(`SELECT source_id, ordinal FROM rag_chunks WHERE id = ?`)
+    .get(chunkId) as { source_id: number; ordinal: number } | undefined;
+  if (!anchor) return [];
+  const r = Math.max(0, Math.floor(radius));
+  const rows = db.prepare(
+    `SELECT ${COLS} FROM rag_chunks
+      WHERE source_id = ? AND ordinal BETWEEN ? AND ?
+      ORDER BY ordinal, id`,
+  ).all(anchor.source_id, Number(anchor.ordinal) - r, Number(anchor.ordinal) + r) as unknown as RagChunkRow[];
+  return rows.map(fromRow);
+}
+
+// Embedding models that have chunk vectors, most-covered first. Lets a reader
+// pick the model the library was actually indexed with instead of reading the
+// app's settings file.
+export function chunkEmbeddingModels(db: DatabaseSync): Array<{ model: string; chunks: number }> {
+  const rows = db.prepare(
+    `SELECT model, COUNT(DISTINCT owner_id) AS n FROM embeddings
+      WHERE owner_kind = 'chunk' GROUP BY model ORDER BY n DESC, model ASC`,
+  ).all() as Array<{ model: string; n: number }>;
+  return rows.map(r => ({ model: r.model, chunks: Number(r.n) }));
+}
