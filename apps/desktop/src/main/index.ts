@@ -45,6 +45,7 @@ import {
   getLlmFilter, setLlmFilter,
   segmentTextWithDiagnostics,
   clearDerivedDataForSource, recoverInterruptedSources,
+  reprocessSourceDeterministic, reextractCandidatesForSource, syncChunksForSource,
   createParseRun, listParseRunsBySource,
   loadSettingsAsync, saveSettingsAsync, sanitizeSettingsInput, applyEnvFallbacks, resolveProviderConfig, MODEL_CHOICES,
   chatJSON,
@@ -368,29 +369,6 @@ function dedupeByNormalized<T extends { normalized: string }>(candidates: T[]): 
   return out;
 }
 
-// Deterministic retrieval-chunk index (RAG foundation). Zero LLM, zero
-// embedding calls: chunks are reconciled by content key, so re-processing an
-// unchanged document writes nothing. A failure here is logged and reported in
-// the parse-run diagnostics but never fails processing — candidates are the
-// product; the chunk index is an additive derived artifact.
-function syncRetrievalChunks(
-  db: ReturnType<typeof openDb>,
-  sourceId: number,
-  blocks: Awaited<ReturnType<typeof segmentPdf>>['blocks'],
-  runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'],
-  layoutVersion: string = LAYOUT_VERSION,
-): Record<string, unknown> {
-  try {
-    const { chunks, diagnostics } = chunkBlocks(blocks, runningHeaderSections);
-    const sync = syncSourceChunks(db, sourceId, chunks, { chunker: CHUNKER_VERSION, layout: layoutVersion });
-    console.log(`[RAG_CHUNKS] source=${sourceId} chunks=${chunks.length} sync=${JSON.stringify(sync)}`);
-    return { ...diagnostics, sync };
-  } catch (e) {
-    console.error('[RAG_CHUNKS] failed for source', sourceId, e);
-    return { error: (e as Error).message };
-  }
-}
-
 function registerIpc(db: ReturnType<typeof openDb>): void {
   ipcMain.handle(IPC.SOURCES_LIST, () => listSources(db));
 
@@ -487,22 +465,10 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         ? null
         : await segmentPdfConfigured(preSource.file_path, loadRawSettings());
 
-      // Idempotent retry: wipe derived artifacts before rebuilding. Keeps
-      // the source row, file path, and events lineage intact.
-      const wiped = clearDerivedDataForSource(db, sourceId);
-      const wipedTotal = Object.values(wiped).reduce((a, b) => a + b, 0);
-      const isRetry = wipedTotal > 0;
-      if (isRetry) {
-        console.log(`[RETRY] source=${sourceId} cleared derived data: ${JSON.stringify(wiped)}`);
-        emitEvent(db, 'source.retry_started', { sourceId, wiped }, { entityType: 'source', entityId: sourceId });
-      }
-
-      updateSourceStatus(db, sourceId, 'processing');
-      emitEvent(db, 'source.processing_started', { sourceId }, { entityType: 'source', entityId: sourceId });
-
-      const source = getSourceById(db, sourceId)!;
+      const source = preSource;
       let rawChunks: Awaited<ReturnType<typeof runEnricher>>;
 
+      // Segment fully (text sources too) before anything is wiped.
       let blocksForLLM: Awaited<ReturnType<typeof segmentPdf>>['blocks'];
       let runningHeaderSections: Awaited<ReturnType<typeof segmentPdf>>['runningHeaderSections'] = [];
       if (source.file_path.endsWith('.txt')) {
@@ -529,38 +495,38 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       }
       blockCount = blocksForLLM.length;
 
-      // ─── Shadow pipeline: deterministic candidate extraction (zero LLM) ─────
-      // Always runs and persists BEFORE the LLM path so we keep something
-      // usable even when the LLM stage is rate-limited or fails.
-      let candResult: ReturnType<typeof extractCandidates> | null = null;
-      try {
-        const { paths: sectionPaths, sources: sectionSources } = buildSectionPath(blocksForLLM, runningHeaderSections);
-        // Derive topic anchors from title + heading vocabulary, persist on
-        // sources so future passes can reuse without recomputing.
-        const anchors = deriveTopicAnchors(blocksForLLM, source.title);
-        setTopicAnchors(db, sourceId, anchors);
-        layoutDiagnostics = { ...layoutDiagnostics, topic_anchors: anchors };
-        const cand = extractCandidates(blocksForLLM, sectionPaths, anchors, sectionSources, runningHeaderSections);
-        persistCandidateExtraction(db, sourceId, cand);
-        candResult = cand;
-        candidateCount     = cand.candidates.length;
-        relationCount      = cand.relations.length;
-        equationCount      = cand.equations.length;
-        misconceptionCount = cand.misconception_phrases.length;
-        layoutDiagnostics  = { ...layoutDiagnostics, candidate_diagnostics: cand.diagnostics };
-        const top = cand.candidates.slice(0, 10).map(c => `${c.term}(${c.confidence})`).join(', ');
-        console.log(
-          `[CANDIDATES] source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +
-          `concepts=${cand.candidates.length} relations=${cand.relations.length} ` +
-          `misconceptions=${cand.misconception_phrases.length} equations=${cand.equations.length} top=[${top}]`,
-        );
-      } catch (e) {
-        console.error('[CANDIDATES] failed for source', sourceId, e);
+      // Deterministic rebuild (services/knowledge/source_rebuild.ts, the same
+      // code the integration tests run): wipe only disposable derived data,
+      // then candidates (zero LLM, persisted BEFORE any LLM pass so something
+      // usable survives a rate-limited LLM stage) and retrieval chunks.
+      const det = reprocessSourceDeterministic(
+        db, sourceId, { blocks: blocksForLLM, runningHeaderSections, layoutVersion: layoutVersionUsed }, source.title,
+      );
+      const isRetry = Object.values(det.wiped).reduce((a, b) => a + b, 0) > 0;
+      if (isRetry) {
+        console.log(`[RETRY] source=${sourceId} cleared derived data: ${JSON.stringify(det.wiped)}`);
+        emitEvent(db, 'source.retry_started', { sourceId, wiped: det.wiped }, { entityType: 'source', entityId: sourceId });
       }
-      layoutDiagnostics = {
-        ...layoutDiagnostics,
-        rag_chunks: syncRetrievalChunks(db, sourceId, blocksForLLM, runningHeaderSections, layoutVersionUsed),
-      };
+      emitEvent(db, 'source.processing_started', { sourceId }, { entityType: 'source', entityId: sourceId });
+
+      const candResult = det.rebuild?.candidates ?? null;
+      if (det.rebuild && candResult) {
+        candidateCount     = candResult.candidates.length;
+        relationCount      = candResult.relations.length;
+        equationCount      = candResult.equations.length;
+        misconceptionCount = candResult.misconception_phrases.length;
+        layoutDiagnostics  = { ...layoutDiagnostics, topic_anchors: det.rebuild.anchors, candidate_diagnostics: candResult.diagnostics };
+        const top = candResult.candidates.slice(0, 10).map(c => `${c.term}(${c.confidence})`).join(', ');
+        console.log(
+          `[CANDIDATES] source=${sourceId} blocks=${candResult.diagnostics.blocks_seen} ` +
+          `concepts=${candResult.candidates.length} relations=${candResult.relations.length} ` +
+          `misconceptions=${candResult.misconception_phrases.length} equations=${candResult.equations.length} top=[${top}]`,
+        );
+      } else {
+        console.error('[CANDIDATES] failed for source', sourceId, det.candidateError);
+      }
+      console.log(`[RAG_CHUNKS] source=${sourceId} ${JSON.stringify(det.chunks)}`);
+      layoutDiagnostics = { ...layoutDiagnostics, rag_chunks: det.chunks };
 
       // ─── Mode dispatch ──────────────────────────────────────────────────────
       // deterministic = no LLM. Candidates are the product.
@@ -1369,7 +1335,8 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       runningHeaderSections = out.runningHeaderSections;
       layoutVersion = out.layoutVersion;
     }
-    const diag = syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections, layoutVersion);
+    const diag = syncChunksForSource(db, sourceId, { blocks, runningHeaderSections, layoutVersion });
+    console.log(`[RAG_CHUNKS] source=${sourceId} ${JSON.stringify(diag)}`);
     if (typeof diag.error === 'string') throw new Error(diag.error);
   }
 
@@ -1808,12 +1775,11 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
         layoutDiagnostics = { ...out.diagnostics, parser: out.parser, parser_fallback: out.fallback };
         console.log(`[CANDIDATES] (manual) pdf pages=${out.pageCount} blocks=${blocks.length}`);
       }
-      const { paths: sectionPaths, sources: sectionSources } = buildSectionPath(blocks, runningHeaderSections);
-      const anchors = deriveTopicAnchors(blocks, source.title);
-      setTopicAnchors(db, sourceId, anchors);
-      const cand = extractCandidates(blocks, sectionPaths, anchors, sectionSources, runningHeaderSections);
-      persistCandidateExtraction(db, sourceId, cand);
-      syncRetrievalChunks(db, sourceId, blocks, runningHeaderSections, layoutVersion);
+      // Shared, tested rebuild (services/knowledge/source_rebuild.ts).
+      const { candidates: cand, chunks } = reextractCandidatesForSource(
+        db, sourceId, { blocks, runningHeaderSections, layoutVersion }, source.title,
+      );
+      console.log(`[RAG_CHUNKS] source=${sourceId} ${JSON.stringify(chunks)}`);
       console.log(
         `[CANDIDATES] (manual) source=${sourceId} blocks=${cand.diagnostics.blocks_seen} ` +
         `concepts=${cand.candidates.length} relations=${cand.relations.length} ` +

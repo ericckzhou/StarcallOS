@@ -37,6 +37,7 @@ export * from './knowledge/srs';
 export * from './knowledge/fsrs';
 export * from './knowledge/promotion';
 export * from './knowledge/cleanup';
+export * from './knowledge/source_rebuild';
 export * from './knowledge/prerequisites';
 export * from './knowledge/prerequisite_suggestions';
 
