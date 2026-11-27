@@ -16,3 +16,10 @@ allowBuilds:
   # tesseract.js's postinstall only prints an opencollective banner; the OCR
   # engine (WebAssembly) and the English model ship as plain package files.
   tesseract.js: false
+
+# GHSA-c83g-rgw3-j3cx / GHSA-73wf-gq98-2v4g: browserslist <=4.28.6 arrives
+# transitively via @vitejs/plugin-react > @babel/core (build-time only). The
+# floor keeps future 4.x updates flowing; drop it once upstream's own
+# resolution is >=4.28.7.
+overrides:
+  browserslist: ^4.28.7
