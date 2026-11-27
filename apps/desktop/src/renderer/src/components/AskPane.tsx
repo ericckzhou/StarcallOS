@@ -2,23 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AskHistoryEntry, AskResult, RagProgress, RagStatus } from '@starcall/shared';
 import LibraryIndexPanel, { RAG_INDEX_CHANGED } from './LibraryIndexPanel';
 import SourcePagePreview, { type CitationTarget } from './SourcePagePreview';
+import { isLegacy, statusMeta } from './ask_status';
 
 // Local Ask: question → retrieved passages → local-model answer whose every
 // [n] marker has been verified against the passage text (services/ask.ts).
 // Nothing here talks to a cloud provider; the main process enforces that.
 
 const SELECTED_KEY = 'starcall.ask.sources';
-
-type Status = AskResult['status'];
-const STATUS_META: Record<Status, { label: string; color: string; hint: string }> = {
-  grounded:       { label: 'Grounded',             color: '#22c55e', hint: 'Every citation quotes its passage verbatim.' },
-  partial:        { label: 'Partially grounded',   color: '#f59e0b', hint: 'Some citations could not be verified and were removed.' },
-  qualified:      { label: 'Sources partly answer this', color: '#eab308', hint: 'The passages do not fully answer the question; the answer says what they do cover, and every citation was verified.' },
-  unsupported:    { label: 'Unsupported',          color: '#ef4444', hint: 'The model answered, but none of its citations could be verified. Treat the answer as unreliable.' },
-  insufficient:   { label: 'Not in sources',       color: '#94a3b8', hint: 'The model reports that the retrieved passages do not answer this.' },
-  no_passages:    { label: 'No matching passages', color: '#94a3b8', hint: 'Retrieval found nothing in the selected sources; no model call was made.' },
-  retrieval_only: { label: 'Passages only',        color: '#818cf8', hint: 'The local model is unavailable, so only the retrieved passages are shown.' },
-};
 
 const DROP_REASON: Record<string, string> = {
   unknown_passage: 'cited a passage that was not provided',
@@ -204,7 +194,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
 
   const spansByN = new Map<number, Array<[number, number]>>();
   for (const c of result?.citations ?? []) spansByN.set(c.n, [...(spansByN.get(c.n) ?? []), [c.start, c.end]]);
-  const meta = result ? STATUS_META[result.status] : null;
+  const meta = result ? statusMeta(result) : null;
 
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
@@ -301,7 +291,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
               <summary style={{ ...label, cursor: 'pointer' }}>Earlier questions about {context.name} ({history.length})</summary>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 8 }}>
                 {history.map(h => {
-                  const m = STATUS_META[h.result.status];
+                  const m = statusMeta(h.result);
                   const active = result?.history_id === h.id;
                   return (
                     <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 6, background: active ? 'rgba(129,140,248,0.12)' : 'transparent' }}>
@@ -365,6 +355,57 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                         </button>
                       );
                     })}
+                  </div>
+                )}
+                {(() => {
+                  // `claims` is absent on answers saved to history before it existed.
+                  const claims = result.claims ?? [];
+                  const flagged = claims.filter(c => c.issue !== null);
+                  // Quotes were verified but the model marked no sentence with [n]:
+                  // the quotes may well match the text, but nothing ties a given
+                  // sentence to a given quote, so say that rather than "unbacked".
+                  const unlinked = result.citations.length > 0 && claims.length > 0 && claims.every(c => c.cited.length === 0);
+                  const implicit = claims.some(c => c.implicit);
+                  return (
+                    <>
+                      {implicit && (
+                        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)' }}>
+                          The answer has no [n] markers. Because it is a single sentence, it was linked to all of its verified quotes above. Check that they say what the sentence says.
+                        </div>
+                      )}
+                      {unlinked && (
+                        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)' }}>
+                          The model listed the verified quotes above but marked no sentence with [n], so no sentence is linked to a specific quote.
+                        </div>
+                      )}
+                      {flagged.length > 0 && (
+                        <details style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)' }} open>
+                          <summary style={{ cursor: 'pointer', color: 'var(--text-warning)' }}>
+                            {flagged.length} sentence{flagged.length === 1 ? '' : 's'} flagged
+                          </summary>
+                          <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                            {flagged.map((c, i) => (
+                              <li key={i}>
+                                {c.issue === 'uncited'
+                                  ? 'Not linked to a verified quote'
+                                  : `Few words in common with cited passage${c.cited.length === 1 ? '' : 's'} ${c.cited.map(n => `[${n}]`).join(' ')} (may be a paraphrase)`}
+                                {' — '}<i>“{c.text}”</i>
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+                    </>
+                  );
+                })()}
+                {result.answer && result.verification && (
+                  <div style={{ marginTop: 8, fontSize: 10.5, color: 'var(--text-muted)' }}>
+                    Quotes are checked verbatim against their passages; whether a passage supports the sentence citing it is not verified.
+                  </div>
+                )}
+                {isLegacy(result) && (
+                  <div style={{ marginTop: 8, fontSize: 10.5, color: 'var(--text-warning)' }}>
+                    Saved under an older check: quotes were verified, but sentences were not checked for citations. Ask again to apply the current checks.
                   </div>
                 )}
                 {result.generation_error && (
