@@ -367,7 +367,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
   const filtered = withBucket.filter(c =>
     (bucket === 'all' || c.bucket === bucket) &&
     (c.final_score ?? c.concept_score ?? c.confidence) >= minConf &&
-    (signalFilter === 'any' || c.signals.includes(signalFilter) || (c.labels ?? []).includes(signalFilter)) &&
+    (signalFilter === 'any' || (c.signals as readonly string[]).includes(signalFilter) || (c.labels ?? []).includes(signalFilter)) &&
     (!llmFilterEnabled || llmKeepIds === null || llmKeepIds.has(c.id)) &&
     (searchQuery === '' || c.term.toLowerCase().includes(searchQuery) || c.normalized.toLowerCase().includes(searchQuery)),
   );

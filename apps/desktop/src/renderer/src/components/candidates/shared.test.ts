@@ -29,6 +29,8 @@ function candidate(input: Partial<ConceptCandidate> & { term?: string } = {}): C
     quality_score: input.quality_score ?? 0.8,
     context_score: input.context_score ?? 0.75,
     final_score: input.final_score ?? 0.86,
+    concept_score: input.concept_score ?? 0.86,
+    reject_reasons: input.reject_reasons ?? [],
     labels: input.labels ?? ['defined_term', 'large_font'],
     typography_signals: input.typography_signals ?? { fontSizeRatio: 1.35, isBold: true },
     context_snippet: input.context_snippet ?? 'Gradient Descent is defined as optimization.',
