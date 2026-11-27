@@ -52,7 +52,7 @@ apps/desktop/        Electron: main process + preload + renderer (React)
 **Process boundary rule:** Renderer never touches SQLite or API keys.
 All data flows: renderer → contextBridge → IPC → main → services → DB.
 
-## Data Model (migrations 0001 → 0037)
+## Data Model (migrations 0001 → 0039)
 
 Files live in `packages/services/migrations/`. Note two files share the `0011`
 prefix (the runner warns; order is by full filename).
@@ -60,7 +60,8 @@ prefix (the runner warns; order is by full filename).
 ```
 sources                    PDF/text/URL inputs + topic_anchors_json + llm_filter_keep_terms_json; origin_url (0027)
 semantic_chunks            LLM-enriched blocks (only populated in candidate_gated/full modes)
-concepts                   promoted candidates OR LLM-extracted; evidence_json snapshot; tags_json (0023); reviewed_at (0021)
+concepts                   promoted candidates OR LLM-extracted; evidence_json snapshot; tags_json (0023); reviewed_at (0021);
+                           origin manual|promoted|llm, NULL = unknown/legacy (0038); user_modified_at (0038)
 concept_notes              user notes per concept; linked_annotation_id → a PDF highlight (0022)
 concept_edges              requires | enables | related | causes | contrasts_with | example_of | prevents
 prerequisite_suggestions   DERIVED suggested prerequisite edges; only user accept writes concept_edges (0028)
@@ -80,7 +81,8 @@ events                     APPEND-ONLY audit log
 
 concept_candidates         deterministic candidates (term, confidence, signals, evidence, topic_relevance_score, is_boilerplate, is_broad)
 relation_candidates        deterministic relations (from → kind → to)
-equation_candidates        deterministic equations (latex, variables, attached_term)
+equation_candidates        deterministic + user equations (latex, variables, attached_term);
+                           origin parser|user, NULL = unknown/legacy; user_modified_at; source_latex (0039)
 misconception_candidates   deterministic misconception phrase spans
 
 parse_runs                 append-only audit of every Process click (mode, duration_ms, llm_call_count, llm_input_tokens, llm_output_tokens, diagnostics_json, parser_version, grammar_version, layout_version)
@@ -375,8 +377,10 @@ repeated domain-term evidence.
 ## Re-extract Semantics
 
 `clearDerivedDataForSource(db, sourceId, { preserveUserData: true })`:
-- Always wipes: `concept_candidates`, `relation_candidates`, `equation_candidates`, `misconception_candidates`, `semantic_chunks`
-- For `concepts`: preserves any concept with study history (`evidence_records`) OR non-empty `evidence_json` (= manually promoted from candidate). Deletes only LLM-generated/untouched ones.
+- Runs in one SAVEPOINT: a failure part-way leaves the source unchanged.
+- Always wipes: `concept_candidates`, `relation_candidates`, `misconception_candidates`, `semantic_chunks`. Relation and misconception candidates carry no ownership marker yet, so user edits to them are lost on re-extract (open question).
+- `equation_candidates`: deletes only `origin = 'parser'` rows the user never edited; `user`, edited and unknown-origin (pre-0039) rows survive, and `source_latex` stops the parser from re-adding an equation that already exists.
+- For `concepts`: deletes only `origin = 'llm'` concepts with no `user_modified_at` and no user data attached (graded attempts, Ask history, SRS card, notes, tags, constellations, hub membership, annotations, edges). Manual, promoted and unknown-origin (pre-0038) concepts always survive. Promoting a candidate onto an existing LLM concept turns it into `promoted`.
 - Never touches: `sources`, source file, `events`, `rag_chunks` and chunk vectors (reconciled by `syncSourceChunks` instead)
 
 Startup: `recoverInterruptedSources(db)` flips any `status='processing'` (killed mid-run) → `status='failed'` with recoverable error message.
