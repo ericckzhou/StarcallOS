@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useRef, useState, useCallback } from 'react';
 import type { CandidateNearDuplicates } from '@starcall/shared';
+import RejectedPanel from './candidates/RejectedPanel';
 import {
   BUCKET_COLOR,
   BUCKET_LABEL,
@@ -468,7 +469,7 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
               Reject {filtered.length} candidate{filtered.length === 1 ? '' : 's'}?
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-              Rejects every visible candidate (bucket "{BUCKET_LABEL[bucket]}", signal "{signalFilter}", min score {minConf.toFixed(2)}). This deletes the candidate rows; it does not touch already-promoted concepts. Re-extract can regenerate candidates.
+              Rejects every visible candidate (bucket "{BUCKET_LABEL[bucket]}", signal "{signalFilter}", min score {minConf.toFixed(2)}). They are removed and remembered, so re-extract won't bring them back; restore them from the Rejected list. Already-promoted concepts are not touched.
               <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 11 }}>
                 Top of list: {filtered.slice(0, 3).map(c => c.term).join(' · ')}{filtered.length > 3 ? ` … +${filtered.length - 3} more` : ''}
               </div>
@@ -503,6 +504,12 @@ export default function CandidateReview({ sourceId, sourceTitle, onPromoted }: P
           <button onClick={() => setBulkMsg(null)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: 14 }}>×</button>
         </div>
       )}
+
+      <RejectedPanel
+        sourceId={sourceId}
+        changeKey={`${bundle.concepts.length}:${bundle.relations.length}:${bundle.misconceptions.length}`}
+        onRestored={refresh}
+      />
 
       {/* Active LLM filter is now indicated by the LLM-kept chip in the bucket bar
           (toggle to enable/disable) and by a Clear button in the LLM filter modal. */}

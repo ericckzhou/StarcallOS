@@ -36,8 +36,9 @@ import {
   listConceptCandidatesBySource, listRelationCandidatesBySource,
   listMisconceptionCandidatesBySource, listEquationCandidatesBySource,
   listEquationCandidatesForConcept, createManualEquationForConcept, deleteEquationCandidate,
-  createRelationCandidate, updateRelationCandidate, deleteRelationCandidate,
-  createMisconceptionCandidate, updateMisconceptionCandidate, deleteMisconceptionCandidate,
+  createRelationCandidate, updateRelationCandidate,
+  createMisconceptionCandidate, updateMisconceptionCandidate,
+  rejectRelationCandidate, rejectMisconceptionCandidate, listRejections, undoRejection, clearRejectionsForSource,
   createEquationCandidateForSource, updateEquationCandidate,
   ensureTasksForConcept,
   regenerateTasksForConcept,
@@ -1606,8 +1607,11 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
       page: Math.max(0, Math.floor(args.page ?? 0)),
     });
   });
+  // The Candidate Review `×` on a relation/misconception is the user's reject:
+  // a parser row's identity is remembered so re-extract won't recreate it
+  // (undo via candidates:rejectionUndo); user-created rows are just deleted.
   ipcMain.handle(IPC.CANDIDATES_RELATION_DELETE, (_e, id: number) => {
-    deleteRelationCandidate(db, id);
+    rejectRelationCandidate(db, validateIpc(PositiveIntSchema, id, IPC.CANDIDATES_RELATION_DELETE));
     return { ok: true as const };
   });
   ipcMain.handle(IPC.CANDIDATES_MISCONCEPTION_CREATE, (_e, args: {
@@ -1631,9 +1635,15 @@ function registerIpc(db: ReturnType<typeof openDb>): void {
     });
   });
   ipcMain.handle(IPC.CANDIDATES_MISCONCEPTION_DELETE, (_e, id: number) => {
-    deleteMisconceptionCandidate(db, id);
+    rejectMisconceptionCandidate(db, validateIpc(PositiveIntSchema, id, IPC.CANDIDATES_MISCONCEPTION_DELETE));
     return { ok: true as const };
   });
+  ipcMain.handle(IPC.CANDIDATES_REJECTIONS_LIST, (_e, sourceId: number) =>
+    listRejections(db, validateIpc(PositiveIntSchema, sourceId, IPC.CANDIDATES_REJECTIONS_LIST)));
+  ipcMain.handle(IPC.CANDIDATES_REJECTION_UNDO, (_e, rejectionId: number) =>
+    ({ ok: undoRejection(db, validateIpc(PositiveIntSchema, rejectionId, IPC.CANDIDATES_REJECTION_UNDO)) }));
+  ipcMain.handle(IPC.CANDIDATES_REJECTIONS_CLEAR, (_e, sourceId: number) =>
+    ({ restored: clearRejectionsForSource(db, validateIpc(PositiveIntSchema, sourceId, IPC.CANDIDATES_REJECTIONS_CLEAR)) }));
   ipcMain.handle(IPC.CANDIDATES_EQUATION_CREATE, (_e, args: {
     sourceId: number; latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null;
   }) => {

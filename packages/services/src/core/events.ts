@@ -11,6 +11,7 @@ export type EventType =
   | 'concept.created'
   | 'concept.promoted_from_candidate'
   | 'concept_candidate.rejected'
+  | 'candidate.rejection_undone'
   | 'misconception.detected'
   | 'misconception.resolved'
   | 'evidence_record.submitted'

@@ -16,6 +16,7 @@ import {
   deleteConceptCandidate,
 } from './repos/candidates';
 import { upsertMastery } from './repos/evidence';
+import { rejectConceptCandidate } from './repos/rejections';
 import { emitEvent } from '../core/events';
 
 function slugify(s: string): string {
@@ -160,16 +161,10 @@ export function createManualConcept(
   return concept;
 }
 
+// Rejecting is a remembered, undoable user decision (repos/rejections.ts):
+// re-extract will not recreate this candidate until the rejection is undone.
 export function rejectCandidate(db: DatabaseSync, candidateId: number): void {
-  const cand = getConceptCandidateById(db, candidateId);
-  if (!cand) return;
-  emitEvent(
-    db,
-    'concept_candidate.rejected',
-    { candidateId, term: cand.term },
-    { entityType: 'source', entityId: cand.source_id },
-  );
-  deleteConceptCandidate(db, candidateId);
+  rejectConceptCandidate(db, candidateId);
 }
 
 // Reject many candidates in one call. Returns the number actually rejected.

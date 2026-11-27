@@ -8,6 +8,7 @@ import type {
 import type { RelationKind } from '../../ingestion/grammar';
 import type { EquationCandidate } from '../../ingestion/equations';
 import { PARSER_VERSION } from '../../core/version';
+import { rejectedKeys } from './rejections';
 
 function normalizeAttachedTerm(term: string): string {
   return term.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9\s-]/g, '').trim();
@@ -672,6 +673,16 @@ function persistCandidateExtractionInner(
   result: Parameters<typeof persistCandidateExtraction>[2],
 ): void {
   clearCandidatesForSource(db, sourceId);
+  // Parser output the user rejected stays rejected (repos/rejections.ts).
+  const rejectedConcepts = rejectedKeys(db, sourceId, 'concept');
+  const rejectedRelations = rejectedKeys(db, sourceId, 'relation');
+  const rejectedMisconceptions = rejectedKeys(db, sourceId, 'misconception');
+  result = {
+    ...result,
+    candidates: result.candidates.filter(c => !rejectedConcepts.has(c.normalized)),
+    relations: result.relations.filter(r => !rejectedRelations.has(relationKey(r))),
+    misconception_phrases: result.misconception_phrases.filter(m => !rejectedMisconceptions.has(misconceptionKey(m))),
+  };
   for (const c of result.candidates) createConceptCandidate(db, sourceId, c);
   for (const r of newParserRelations(db, sourceId, result.relations)) createRelationCandidate(db, sourceId, r, 'parser');
   for (const m of newParserMisconceptions(db, sourceId, result.misconception_phrases)) createMisconceptionCandidate(db, sourceId, m, 'parser');

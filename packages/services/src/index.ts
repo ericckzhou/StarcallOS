@@ -23,6 +23,7 @@ export * from './knowledge/repos/concept_notes';
 export * from './knowledge/repos/star_hubs';
 export * from './knowledge/repos/pdf_annotations';
 export * from './knowledge/repos/candidates';
+export * from './knowledge/repos/rejections';
 export * from './knowledge/repos/parse_runs';
 export * from './knowledge/repos/llm_calls';
 export * from './knowledge/repos/embeddings';

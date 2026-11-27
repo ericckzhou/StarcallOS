@@ -13,6 +13,7 @@ import type {
   Misconception,
   StoredConceptCandidate,
   StoredRelationCandidate,
+  CandidateRejection,
   StoredMisconceptionCandidate,
   StoredEquationCandidate,
   AskResult,
@@ -136,6 +137,9 @@ export const IPC = {
   CANDIDATES_EQUATION_CREATE: 'candidates:equationCreate',
   CANDIDATES_EQUATION_UPDATE: 'candidates:equationUpdate',
   CANDIDATES_EQUATION_DELETE: 'candidates:equationDelete',
+  CANDIDATES_REJECTIONS_LIST:  'candidates:rejectionsList',
+  CANDIDATES_REJECTION_UNDO:   'candidates:rejectionUndo',
+  CANDIDATES_REJECTIONS_CLEAR: 'candidates:rejectionsClear',
   PARSE_RUNS_BY_SOURCE:    'parseRuns:bySource',
   EXPORT_CONCEPT:          'export:concept',
   EXPORT_BUNDLE:           'export:bundle',
@@ -296,6 +300,7 @@ export type EmbeddingsIndexResult =
 // ─── Re-extract outdated sources ─────────────────────────────────────────────
 
 export type { ReextractProgress, ReextractSummary };
+export type { CandidateRejection };
 
 export interface ReextractStatus {
   running: boolean;
@@ -925,6 +930,11 @@ export interface IpcApi {
     equationCreate: (args: { sourceId: number; latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null }) => Promise<StoredEquationCandidate>;
     equationUpdate: (args: { id: number; latex: string; page?: number; variables?: string[]; section_path?: string[]; attached_term?: string | null }) => Promise<StoredEquationCandidate>;
     equationDelete: (id: number) => Promise<{ ok: true }>;
+    // Remembered rejections for a source (re-extract won't recreate them).
+    // Undo restores the rejected row immediately; clear undoes all of them.
+    rejectionsList: (sourceId: number) => Promise<CandidateRejection[]>;
+    rejectionUndo: (rejectionId: number) => Promise<{ ok: boolean }>;
+    rejectionsClear: (sourceId: number) => Promise<{ restored: number }>;
   };
   review: {
     queue: (limit?: number) => Promise<ReviewQueueItemPayload[]>;
