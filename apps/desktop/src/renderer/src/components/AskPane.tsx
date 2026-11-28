@@ -3,6 +3,7 @@ import type { AskHistoryEntry, AskResult, RagProgress, RagStatus } from '@starca
 import LibraryIndexPanel, { RAG_INDEX_CHANGED } from './LibraryIndexPanel';
 import SourcePagePreview, { type CitationTarget } from './SourcePagePreview';
 import { isLegacy, statusMeta } from './ask_status';
+import { noteOnce } from './note_once';
 
 // Local Ask: question → retrieved passages → local-model answer whose every
 // [n] marker has been verified against the passage text (services/ask.ts).
@@ -500,6 +501,15 @@ function SaveAsNote({ result, defaultConcept }: { result: AskResult; defaultConc
   const [concepts, setConcepts] = useState<Array<{ id: number; name: string; source: string }>>([]);
   const [query, setQuery] = useState('');
   const [saved, setSaved] = useState<string | null>(null);
+  const [savedIds, setSavedIds] = useState<ReadonlySet<number>>(new Set());
+  const [failed, setFailed] = useState<string | null>(null);
+  // One note per concept for this answer; a new answer starts fresh.
+  const once = useMemo(() => noteOnce(), [result]);
+  useEffect(() => {
+    setSaved(null);
+    setSavedIds(new Set());
+    setFailed(null);
+  }, [result]);
 
   useEffect(() => {
     if (!open) return;
@@ -510,25 +520,43 @@ function SaveAsNote({ result, defaultConcept }: { result: AskResult; defaultConc
   }, [open, result]);
 
   async function save(conceptId: number, name: string) {
+    if (!once.claim(conceptId)) return; // already saved there, or a save is still running
+    setFailed(null);
     const lines = result.citations.map(c => {
       const p = result.passages.find(x => x.n === c.n);
       return `[${c.n}] ${p?.source_title ?? ''}, ${pages(c.page_start, c.page_end)} — “${c.quote}”`;
     });
     const body = `${result.answer ?? ''}\n\n${lines.length ? `Sources:\n${lines.join('\n')}` : '(no verified citations)'}`;
-    await window.api.concepts.notes.create({ conceptId, heading: `Q: ${result.question}`.slice(0, 200), body });
+    try {
+      await window.api.concepts.notes.create({ conceptId, heading: `Q: ${result.question}`.slice(0, 200), body });
+    } catch (e) {
+      once.release(conceptId);
+      setFailed(e instanceof Error ? e.message : 'Could not save the note.');
+      return;
+    }
     window.dispatchEvent(new Event('starcall:notesChanged'));
+    setSavedIds(ids => new Set(ids).add(conceptId));
     setSaved(name);
     setOpen(false);
   }
+  const defaultSaved = defaultConcept != null && savedIds.has(defaultConcept.id);
 
   const q = query.trim().toLowerCase();
   const shown = concepts.filter(c => !q || c.name.toLowerCase().includes(q)).slice(0, 30);
   return (
     <span style={{ marginLeft: 'auto', position: 'relative' }}>
-      {saved && !open && <span style={{ fontSize: 11, color: 'var(--green-500)', marginRight: 8 }}>Saved to {saved}</span>}
+      {saved && !open && <span style={{ fontSize: 11, color: 'var(--green-500)', marginRight: 8 }}>Saved to {saved} · in its Annotations tab</span>}
+      {failed && !open && <span style={{ fontSize: 11, color: 'var(--red-400)', marginRight: 8 }}>{failed}</span>}
       {defaultConcept ? (
         <>
-          <button onClick={() => void save(defaultConcept.id, defaultConcept.name)} style={{ ...smallBtn, borderRadius: '6px 0 0 6px' }} title={`Save this answer as a note on ${defaultConcept.name}`}>+ Note</button>
+          <button
+            onClick={() => void save(defaultConcept.id, defaultConcept.name)}
+            disabled={defaultSaved}
+            style={{ ...smallBtn, borderRadius: '6px 0 0 6px', ...(defaultSaved ? { opacity: 0.6, cursor: 'default' } : {}) }}
+            title={defaultSaved ? `Already saved as a note on ${defaultConcept.name}` : `Save this answer as a note on ${defaultConcept.name}`}
+          >
+            {defaultSaved ? '✓ Saved' : '+ Note'}
+          </button>
           <button onClick={() => setOpen(o => !o)} style={{ ...smallBtn, borderLeft: 'none', borderRadius: '0 6px 6px 0', padding: '2px 6px' }} title="Save to a different concept" aria-label="Save to a different concept">▾</button>
         </>
       ) : (
@@ -539,8 +567,8 @@ function SaveAsNote({ result, defaultConcept }: { result: AskResult; defaultConc
           <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Find concept…" style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(2,4,18,0.5)', border: '1px solid rgba(55,65,120,0.6)', borderRadius: 6, color: 'var(--text)', padding: '5px 8px', fontSize: 12 }} />
           <div style={{ maxHeight: 240, overflowY: 'auto', marginTop: 6 }}>
             {shown.map(c => (
-              <button key={c.id} className="rel-opt" onClick={() => void save(c.id, c.name)} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text)', padding: '5px 6px', fontSize: 12, borderRadius: 4, cursor: 'pointer' }}>
-                {c.name} <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{c.source}</span>
+              <button key={c.id} className="rel-opt" disabled={savedIds.has(c.id)} onClick={() => void save(c.id, c.name)} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text)', padding: '5px 6px', fontSize: 12, borderRadius: 4, cursor: savedIds.has(c.id) ? 'default' : 'pointer', opacity: savedIds.has(c.id) ? 0.55 : 1 }}>
+                {c.name} <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{savedIds.has(c.id) ? '✓ saved' : c.source}</span>
               </button>
             ))}
             {concepts.length === 0 && <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: 6 }}>No promoted concepts in the cited sources.</div>}
