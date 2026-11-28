@@ -121,6 +121,8 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
 
   const scope = status?.sources.filter(s => validSelected.length === 0 || validSelected.includes(s.source_id)) ?? [];
   const unindexed = scope.filter(s => s.chunks === 0);
+  const allIds = status?.sources.map(s => s.source_id) ?? [];
+  const allChecked = allIds.length > 0 && allIds.every(id => validSelected.includes(id));
   const titleById = new Map(status?.sources.map(s => [s.source_id, s.title]) ?? []);
 
   function toggle(id: number) {
@@ -209,16 +211,24 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
         </div>
         <div style={{ padding: '12px 14px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={label}>Sources</span>
-          <button onClick={() => setSelected([])} disabled={validSelected.length === 0} style={linkBtn} title="Search every source">
-            {validSelected.length === 0 ? 'All' : 'Use all'}
-          </button>
+          {allIds.length > 0 && (
+            <button
+              onClick={() => setSelected(allChecked ? [] : allIds)}
+              style={linkBtn}
+              title={allChecked ? 'Clear the selection (asks every source)' : 'Check every source'}
+            >
+              {allChecked ? 'Deselect all' : 'Select all'}
+            </button>
+          )}
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 8px' }}>
           {(status?.sources ?? []).map(s => {
             const on = validSelected.includes(s.source_id);
             return (
-              <div key={s.source_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 6px', borderRadius: 6, background: on ? 'rgba(129,140,248,0.12)' : 'transparent' }}>
-                <input type="checkbox" checked={on} onChange={() => toggle(s.source_id)} aria-label={`Ask ${s.title}`} />
+              // The whole row is the label, so clicking the title toggles too.
+              // The Index button is interactive content, so it doesn't toggle.
+              <label key={s.source_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 6px', borderRadius: 6, cursor: 'pointer', background: on ? 'rgba(129,140,248,0.12)' : 'transparent' }}>
+                <input type="checkbox" checked={on} onChange={() => toggle(s.source_id)} aria-label={`Ask ${s.title}`} style={{ cursor: 'pointer' }} />
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 12, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.title}>{s.title}</div>
                   <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
@@ -231,7 +241,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
                     {indexing.has(s.source_id) ? '…' : 'Index'}
                   </button>
                 )}
-              </div>
+              </label>
             );
           })}
           {status && status.sources.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: 8 }}>Add a source first.</div>}
@@ -272,7 +282,7 @@ export default function AskPane({ context = null, onClearContext }: { context?: 
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                {validSelected.length === 0 ? 'All sources' : `${validSelected.length} source${validSelected.length === 1 ? '' : 's'}`}
+                {validSelected.length === 0 || allChecked ? 'All sources' : `${validSelected.length} source${validSelected.length === 1 ? '' : 's'}`}
                 {unindexed.length > 0 && <span style={{ color: 'var(--text-warning)' }}> · {unindexed.length} not indexed (skipped)</span>}
               </span>
               <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>Ctrl+Enter</span>
