@@ -8,6 +8,16 @@ export interface NoteOnce {
   has(conceptId: number): boolean;
 }
 
+// True when a concept already has this note: the same heading and body,
+// ignoring surrounding whitespace. Catches a repeat save of the same answer
+// after the page was reopened or the app restarted. A different answer to the
+// same question has a different body, so it still saves.
+export function hasSameNote(notes: ReadonlyArray<{ heading: string; body: string }>, heading: string, body: string): boolean {
+  const h = heading.trim();
+  const b = body.trim();
+  return notes.some(n => n.heading.trim() === h && n.body.trim() === b);
+}
+
 export function noteOnce(): NoteOnce {
   const claimed = new Set<number>();
   return {

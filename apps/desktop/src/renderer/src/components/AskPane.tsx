@@ -3,7 +3,7 @@ import type { AskHistoryEntry, AskResult, RagProgress, RagStatus } from '@starca
 import LibraryIndexPanel, { RAG_INDEX_CHANGED } from './LibraryIndexPanel';
 import SourcePagePreview, { type CitationTarget } from './SourcePagePreview';
 import { isLegacy, statusMeta } from './ask_status';
-import { noteOnce } from './note_once';
+import { hasSameNote, noteOnce } from './note_once';
 
 // Local Ask: question → retrieved passages → local-model answer whose every
 // [n] marker has been verified against the passage text (services/ask.ts).
@@ -527,16 +527,21 @@ function SaveAsNote({ result, defaultConcept }: { result: AskResult; defaultConc
       return `[${c.n}] ${p?.source_title ?? ''}, ${pages(c.page_start, c.page_end)} — “${c.quote}”`;
     });
     const body = `${result.answer ?? ''}\n\n${lines.length ? `Sources:\n${lines.join('\n')}` : '(no verified citations)'}`;
+    const heading = `Q: ${result.question}`.slice(0, 200);
+    let already = false;
     try {
-      await window.api.concepts.notes.create({ conceptId, heading: `Q: ${result.question}`.slice(0, 200), body });
+      // The same answer may already be there from an earlier visit (history, a restart).
+      const existing = await window.api.concepts.notes.list(conceptId) as Array<{ heading: string; body: string }>;
+      already = hasSameNote(existing, heading, body);
+      if (!already) await window.api.concepts.notes.create({ conceptId, heading, body });
     } catch (e) {
       once.release(conceptId);
       setFailed(e instanceof Error ? e.message : 'Could not save the note.');
       return;
     }
-    window.dispatchEvent(new Event('starcall:notesChanged'));
+    if (!already) window.dispatchEvent(new Event('starcall:notesChanged'));
     setSavedIds(ids => new Set(ids).add(conceptId));
-    setSaved(name);
+    setSaved(`${already ? 'Already saved to' : 'Saved to'} ${name}`);
     setOpen(false);
   }
   const defaultSaved = defaultConcept != null && savedIds.has(defaultConcept.id);
@@ -545,7 +550,7 @@ function SaveAsNote({ result, defaultConcept }: { result: AskResult; defaultConc
   const shown = concepts.filter(c => !q || c.name.toLowerCase().includes(q)).slice(0, 30);
   return (
     <span style={{ marginLeft: 'auto', position: 'relative' }}>
-      {saved && !open && <span style={{ fontSize: 11, color: 'var(--green-500)', marginRight: 8 }}>Saved to {saved} · in its Annotations tab</span>}
+      {saved && !open && <span style={{ fontSize: 11, color: 'var(--green-500)', marginRight: 8 }}>{saved} · in its Annotations tab</span>}
       {failed && !open && <span style={{ fontSize: 11, color: 'var(--red-400)', marginRight: 8 }}>{failed}</span>}
       {defaultConcept ? (
         <>
